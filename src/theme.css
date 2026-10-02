@@ -2324,6 +2324,7 @@ body[data-grabbing] * {
   height: 18px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -2360,6 +2361,7 @@ body[data-grabbing] * {
   height: 24px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;

@@ -38,6 +38,7 @@ Open http://localhost:5180. Boards are saved in the `boards/` folder on your com
 - **Links:** paste a Pinterest, Cosmos, Dribbble, Are.na or website link. Media links are downloaded onto the board; websites show live (or as a snapshot if the site blocks embedding).
 - **Components:** paste an `npx shadcn@latest add …` command, a registry link, or plain React code. It runs live on the canvas.
 - **Text, notes, palettes, color and font swatches:** from ⌘K → Add.
+- **Palettes come from your board.** A new palette, and every press of **Generate**, picks balanced colors from the board's images, videos and site snapshots: a dark, a light and the board's main accents. Select some references first to use only those. Lock a color to keep it.
 
 ### Recreating motion with Claude (`/recreate`)
 
@@ -102,7 +103,7 @@ What shows up depends on what's selected.
 - **Video:** Analyze motion, Mark segment start / end, Clear segment, Copy /recreate command, Replay with linked copy
 - **Site:** Capture motion, Copy /recreate command, Render at 375 / 768 / 1280px wide
 - **Code frame:** Replay, Save tuned values to code, Reset tuned values, Detect motion values, Add controls to code, Copy /recreate command
-- **Palette:** Generate new colors, Split into swatches, Merge into one palette
+- **Palette:** Generate new colors (from the board), Split into swatches, Merge into one palette
 - **Arrange:** Tidy up into a grid, Align left, Align top
 - **Frame:** Link to reference, Unlink, Duplicate, Delete
 - **Canvas:** Fit to screen, Control sounds on/off, Export spec, New canvas, Show / hide sidebar, Go to another canvas

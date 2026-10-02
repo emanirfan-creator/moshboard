@@ -145,3 +145,51 @@ export function annotation(source: string, key: string): string | undefined {
   const m = new RegExp(`@${key}[ \\t]+(.*?)(?=\\*\\/|\\n|$)`).exec(source)
   return m?.[1].trim()
 }
+
+const HOOK_RE = /\b(?:React\.)?(?:useEffect|useLayoutEffect|useInsertionEffect|useMemo|useCallback|useState|useReducer|useRef)\s*\(/g
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** The text inside the parentheses that open at `open` (strings and comments skipped). */
+function callBody(src: string, open: number) {
+  let depth = 0
+  for (let i = open; i < src.length; i++) {
+    const c = src[i]
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < src.length && src[i] !== c; i++) if (src[i] === '\\') i++
+    } else if (c === '/' && src[i + 1] === '/') i = src.indexOf('\n', i) === -1 ? src.length : src.indexOf('\n', i)
+    else if (c === '/' && src[i + 1] === '*') i = src.indexOf('*/', i + 2) === -1 ? src.length : src.indexOf('*/', i + 2) + 1
+    else if (c === '(') depth++
+    else if (c === ')' && --depth === 0) return src.slice(open + 1, i)
+  }
+  return src.slice(open + 1)
+}
+
+/**
+ * Params the code only reads when it starts: inside an effect, memo, callback,
+ * or a state/ref initializer. Re-rendering doesn't pick up a new value there,
+ * so the frame restarts after those are tuned.
+ */
+export function startupParams(source: string, names: string[]): Set<string> {
+  const bodies = [...source.matchAll(HOOK_RE)].map((m) => callBody(source, m.index! + m[0].length - 1))
+  if (!bodies.length) return new Set()
+  // How the code can refer to a param: getParams().x, p.x for `const p = useParams()`, or a destructured local.
+  const aliases = [...source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:useParams|getParams)\(\)/g)].map((m) => m[1])
+  const locals = new Map<string, string>()
+  for (const m of source.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(?:useParams|getParams)\(\)/g))
+    for (const part of m[1].split(',')) {
+      const [key, local] = part.split(':').map((s) => s.trim().split('=')[0].trim())
+      if (key) locals.set(key, local || key)
+    }
+  const out = new Set<string>()
+  for (const name of names) {
+    const n = esc(name)
+    const reads = [
+      `getParams\\(\\)\\s*(?:\\.\\s*${n}\\b|\\[\\s*["'\`]${n}["'\`]\\s*\\])`,
+      ...aliases.map((a) => `\\b${esc(a)}\\s*\\.\\s*${n}\\b`),
+      ...(locals.has(name) ? [`(?<![.\\w$])${esc(locals.get(name)!)}\\b`] : []),
+    ]
+    const re = new RegExp(reads.join('|'))
+    if (bodies.some((b) => re.test(b))) out.add(name)
+  }
+  return out
+}

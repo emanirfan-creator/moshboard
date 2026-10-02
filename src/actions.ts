@@ -1,6 +1,7 @@
 import { applyParams, defaults, parseParams, type ParamValue } from '../shared/params.ts'
 import { autoParams } from '../shared/autoParams.ts'
 import { writeBack } from '../shared/detect-motion.ts'
+import { isRuntimeName, saveRuntime } from '../shared/runtime-motion.ts'
 import { detectFor, parseModules } from './tuning/detection'
 import { scanChirp, scanEmpty } from './ui/sound'
 import type { Frame, FrameType, VideoAnalysis } from '../shared/types.ts'
@@ -8,7 +9,8 @@ import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
 import { arrange, type LayoutKind } from './layout'
 import { copyText } from './clipboard'
-import { generatePalette, nameColor, parseCoolors, type PaletteColor } from '../shared/color.ts'
+import { generatePalette, nameColor, paletteFromSamples, parseCoolors, type PaletteColor } from '../shared/color.ts'
+import { boardSamples, hasColors } from './boardColors'
 import { api, mediaUrl } from './api'
 import { ensureDefaultExport } from './frames/sandbox'
 import { videos } from './frames/registry'
@@ -292,16 +294,44 @@ export function setPaletteColors(id: string, colors: PaletteColor[]) {
   updateFrame(id, { colors, w: paletteWidth(colors.length) })
 }
 
+/**
+ * A new palette. Without given colors it's suggested from the board (or the
+ * selected frames); a board with nothing to read from gets a harmony palette.
+ */
 export function addPalette(colors?: PaletteColor[], at?: { x: number; y: number }, label = 'Palette') {
-  const c = colors ?? generatePalette([], 5)
-  return addFrame({ type: 'palette', colors: c, label, ...place(paletteWidth(c.length), 360, at) })
+  if (!colors) return void addSuggestedPalette(at, label)
+  return addFrame({ type: 'palette', colors, label, ...place(paletteWidth(colors.length), 360, at) })
 }
 
-/** Regenerate unlocked colors, keeping locked ones (like Coolors). */
-export function regeneratePalette(id = getState().selected[0]) {
+async function addSuggestedPalette(at: { x: number; y: number } | undefined, label: string) {
+  const c = (await fromBoard([], 5)) ?? generatePalette([], 5)
+  addFrame({ type: 'palette', colors: c, label, ...place(paletteWidth(c.length), 360, at) })
+}
+
+/**
+ * New colors around the locked ones: suggested from the board when it has
+ * anything to read colors from (each run varies a little), otherwise random harmony.
+ */
+export async function regeneratePalette(id = getState().selected[0]) {
   const f = frameById(id)
   if (f?.type !== 'palette') return
-  setPaletteColors(f.id, generatePalette(f.colors ?? [], f.colors?.length || 5))
+  const count = f.colors?.length || 5
+  setPaletteColors(f.id, (await fromBoard(f.colors ?? [], count, f.id)) ?? generatePalette(f.colors ?? [], count))
+}
+
+/**
+ * A balanced palette from the selected images/videos/sites/swatches (and
+ * palettes) if any are selected, otherwise from everything on the board.
+ * Null when there's nothing to read colors from.
+ */
+async function fromBoard(current: PaletteColor[], count: number, exclude?: string) {
+  const { board, selected, boardName } = getState()
+  const frames = (board?.frames ?? []).filter((f) => f.id !== exclude)
+  const picked = frames.filter((f) => selected.includes(f.id) && hasColors(f, true))
+  const sources = picked.length ? picked : frames.filter((f) => hasColors(f, false))
+  if (!sources.length) return null
+  const samples = await boardSamples(boardName, sources)
+  return samples.length ? paletteFromSamples(samples, current, count) : null
 }
 
 /**
@@ -814,7 +844,13 @@ export async function lockParams(id = getState().selected[0]) {
   } catch {
     return toast('Couldn’t read the file. Nothing was saved', true)
   }
-  const tuned = getState().overrides[id] ?? {}
+  const all = getState().overrides[id] ?? {}
+  // Measured values (from a library or stylesheet) have no literal to write back: they're saved on the frame.
+  const measured = Object.fromEntries(Object.entries(all).filter(([k]) => isRuntimeName(k)))
+  const tuned = Object.fromEntries(Object.entries(all).filter(([k]) => !isRuntimeName(k)))
+  if (Object.keys(measured).length) {
+    updateFrame(id, { runtime: saveRuntime(f.runtime, measured, getState().motion[id]) })
+  }
 
   // Explicit @param annotations first, then detected values in their original literals.
   const params = parseParams(src)
@@ -842,7 +878,11 @@ export async function lockParams(id = getState().selected[0]) {
     delete overrides[id]
     return { files: { ...st.files, ...files }, overrides }
   })
-  const where = [main !== src && f.file.split('/').pop(), moduleChanged && 'its component files'].filter(Boolean)
+  const where = [
+    main !== src && f.file.split('/').pop(),
+    moduleChanged && 'its component files',
+    Object.keys(measured).length && 'this canvas',
+  ].filter(Boolean)
   toast(where.length ? `Saved to ${where.join(' and ')}` : 'Saved to code')
 }
 
@@ -889,6 +929,29 @@ export async function makeTunable(id = getState().selected[0]) {
   await api.writeFile(s.boardName, f.file, r.source)
   setState((st) => ({ files: { ...st.files, [f.file!]: r.source } }))
   toast(`Added ${r.names.length} control${r.names.length > 1 ? 's' : ''}: ${r.names.join(', ')}`)
+}
+
+/**
+ * A component that only renders inside its library's setup (a provider or context) that
+ * Roto doesn't know yet. Designers shouldn't have to know what that means: copy a ready
+ * prompt for Claude Code, which writes the frame's wrapper (frames/<id>.wrapper.tsx).
+ */
+export function copySetupFix(id = getState().selected[0]) {
+  const f = frameById(id)
+  if (!f?.file) return
+  const s = getState()
+  const rel = `frames/${f.id}.wrapper.tsx`
+  const prompt = [
+    `In the Roto board "${s.boardName}", the component in boards/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
+    `"${s.errors[f.id] ?? 'it needs a provider or context'}"`,
+    ``,
+    `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix boards/${s.boardName}/${f.wrapper}` : `Create boards/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
+      `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in boards/${s.boardName}/board.json`}. Don’t change the component itself.`,
+  ].join('\n')
+  navigator.clipboard.writeText(prompt).then(
+    () => toast('Copied a fix. Paste it into Claude Code'),
+    () => toast('Couldn’t copy to the clipboard', true),
+  )
 }
 
 // ── video ───────────────────────────────────────────────

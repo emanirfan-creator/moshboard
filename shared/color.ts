@@ -133,6 +133,121 @@ export function generatePalette(current: PaletteColor[], count = current.length 
   return out
 }
 
+// ── from the board ─────────────────────────────────────
+
+/** A color seen on the board (OKLab) and how much of the board it covers. */
+export interface ColorSample {
+  lab: Lab
+  w: number
+}
+
+export const hexToLab = (hex: string): Lab => rgbToOklab(hexToRgb(hex) ?? [0, 0, 0])
+const dist = (a: Lab, b: Lab) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+
+/** Weighted k-means in OKLab, seeded k-means++ style (random, so each run can differ a little). */
+function clusterColors(samples: ColorSample[], k: number) {
+  const total = samples.reduce((s, x) => s + x.w, 0) || 1
+  const centers: Lab[] = [samples[Math.floor(Math.random() * samples.length)].lab]
+  while (centers.length < k) {
+    const d = samples.map((s) => s.w * Math.min(...centers.map((c) => dist(s.lab, c))) ** 2)
+    let r = Math.random() * d.reduce((a, b) => a + b, 0)
+    const i = d.findIndex((x) => (r -= x) <= 0)
+    if (i < 0) break
+    centers.push(samples[i].lab)
+  }
+  let weights = centers.map(() => 0)
+  for (let iter = 0; iter < 10; iter++) {
+    const sum = centers.map(() => [0, 0, 0] as Lab)
+    weights = centers.map(() => 0)
+    for (const s of samples) {
+      let best = 0
+      for (let c = 1; c < centers.length; c++) if (dist(s.lab, centers[c]) < dist(s.lab, centers[best])) best = c
+      weights[best] += s.w
+      for (let j = 0; j < 3; j++) sum[best][j] += s.lab[j] * s.w
+    }
+    centers.forEach((_, c) => {
+      if (weights[c]) centers[c] = sum[c].map((v) => v / weights[c]) as Lab
+    })
+  }
+  return centers.map((lab, c) => ({ lab, lch: labToLch(lab), share: weights[c] / total })).filter((c) => c.share > 0.004)
+}
+
+/**
+ * A palette suggested from colors on the board: a dark anchor, a light anchor
+ * and the board's most characteristic accents, kept distinct from each other,
+ * then balanced (a usable light→dark range, no neon) and ordered dark → light.
+ * Locked colors stay where they are and count toward the balance.
+ */
+export function paletteFromSamples(samples: ColorSample[], current: PaletteColor[] = [], count = current.length || 5): PaletteColor[] {
+  const locked = current.slice(0, count).filter((c) => c.locked)
+  const free = count - locked.length
+  if (!samples.length || free <= 0) return current.slice(0, count)
+  const clusters = clusterColors(samples, Math.min(14, samples.length))
+  const chosen: LCH[] = locked.map((c) => hexToLch(c.hex))
+  const taken = new Set<number>()
+  const tooClose = (lch: LCH, min: number) => chosen.some((c) => dist(lchToLab(c), lchToLab(lch)) < min)
+  const take = (i: number) => {
+    taken.add(i)
+    chosen.push([...clusters[i].lch])
+  }
+  const significant = clusters.map((c, i) => [c, i] as const).filter(([c]) => c.share >= 0.02)
+  const pool = significant.length >= 2 ? significant : clusters.map((c, i) => [c, i] as const)
+
+  // Anchors: the board's darkest and lightest real colors, unless a locked color already covers that end.
+  const roles: { lch: LCH; role: 'dark' | 'light' | 'accent' }[] = []
+  const wantDark = !chosen.some((c) => c[0] < 0.35)
+  const wantLight = !chosen.some((c) => c[0] > 0.82)
+  if (wantDark && roles.length < free) {
+    const [, i] = pool.reduce((a, b) => (b[0].lch[0] < a[0].lch[0] ? b : a))
+    take(i)
+    roles.push({ lch: [...clusters[i].lch], role: 'dark' })
+  }
+  if (wantLight && roles.length < free) {
+    const rest = pool.filter(([, i]) => !taken.has(i))
+    if (rest.length) {
+      const [, i] = rest.reduce((a, b) => (b[0].lch[0] > a[0].lch[0] ? b : a))
+      take(i)
+      roles.push({ lch: [...clusters[i].lch], role: 'light' })
+    }
+  }
+
+  // Accents: colors that cover a lot of the board and carry color, spaced apart.
+  const score = (c: (typeof clusters)[number]) => Math.sqrt(c.share) * (0.03 + c.lch[1]) * rand(0.7, 1.5)
+  for (const min of [0.1, 0.07, 0.045, 0]) {
+    const ranked = clusters.map((c, i) => [score(c), i] as const).filter(([, i]) => !taken.has(i)).sort((a, b) => b[0] - a[0])
+    for (const [, i] of ranked) {
+      if (roles.length >= free) break
+      if (tooClose(clusters[i].lch, min)) continue
+      take(i)
+      roles.push({ lch: [...clusters[i].lch], role: 'accent' })
+    }
+    if (roles.length >= free) break
+  }
+  // Too few distinct colors on the board: fill with tints/shades of the strongest accent.
+  const seed = roles.find((r) => r.role === 'accent')?.lch ?? roles[0]?.lch ?? chosen[0] ?? [0.6, 0.08, rand(0, 360)]
+  for (let n = 0; roles.length < free; n++) roles.push({ lch: [0.3 + ((n * 0.37 + 0.2) % 0.6), seed[1] * 0.8, seed[2]], role: 'accent' })
+
+  // Balance: a real dark and a real light end, quiet neutrals, no neon accents.
+  for (const r of roles) {
+    // Pure black (letterboxing, video backgrounds) reads harsh: lift it to a deep tone instead.
+    if (r.role === 'dark' && (r.lch[0] > 0.3 || r.lch[0] < 0.15)) r.lch = [rand(0.18, 0.24), Math.min(r.lch[1], 0.07), r.lch[2]]
+    if (r.role === 'light' && r.lch[0] < 0.88) r.lch = [rand(0.91, 0.96), Math.min(r.lch[1], 0.04), r.lch[2]]
+    if (r.role === 'accent') r.lch = [Math.min(0.86, Math.max(0.32, r.lch[0])), Math.min(r.lch[1], 0.19), r.lch[2]]
+  }
+  // Keep accents apart in lightness so the ramp reads as steps.
+  const accents = roles.filter((r) => r.role === 'accent').sort((a, b) => a.lch[0] - b.lch[0])
+  for (let i = 1; i < accents.length; i++)
+    if (accents[i].lch[0] - accents[i - 1].lch[0] < 0.07) accents[i].lch[0] = Math.min(0.86, accents[i - 1].lch[0] + 0.07)
+  // Bunched at the top (a pastel board): push the lower ones down instead.
+  for (let i = accents.length - 1; i > 0; i--)
+    if (accents[i].lch[0] - accents[i - 1].lch[0] < 0.07) accents[i - 1].lch[0] = Math.max(0.32, accents[i].lch[0] - 0.07)
+
+  const fresh = roles.map((r) => r.lch).sort((a, b) => a[0] - b[0])
+  const out: PaletteColor[] = []
+  for (let i = 0, f = 0; i < count; i++) out.push(current[i]?.locked ? current[i] : { hex: lchToHex(fresh[f++]) })
+  return out
+}
+
 /** A color halfway between two (inserting between columns). */
 export function mixHex(a: string, b: string, t = 0.5) {
   const x = rgbToOklab(hexToRgb(a) ?? [0, 0, 0])

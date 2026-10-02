@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { ParamValue } from '../shared/params.ts'
+import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
 
@@ -22,6 +23,8 @@ export interface State {
   overrides: Record<string, Record<string, ParamValue>>
   replay: Record<string, number>
   errors: Record<string, string>
+  /** motion measured inside each running code frame */
+  motion: Record<string, RuntimeItem[]>
   palette: boolean
   space: boolean
   /** 'canvas' = moving/resizing/panning (hides tuning), 'tune' = dragging a control */
@@ -66,6 +69,7 @@ let state: State = {
   overrides: {},
   replay: {},
   errors: {},
+  motion: {},
   palette: false,
   space: false,
   gesture: null,

@@ -132,7 +132,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
               Split into swatches
             </button>
             <span className="grow" />
-            <button className="btn btn-primary" onClick={() => regeneratePalette(frame.id)}>
+            <button className="btn btn-primary" onClick={() => regeneratePalette(frame.id)} title="Balanced colors from the board's images, videos and sites">
               Generate
             </button>
           </>

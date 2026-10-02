@@ -167,11 +167,21 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
       }
     }
 
+    // Motion measured in the running frame and tuned on the board (library or theme values, not in the code).
+    for (const saved of Object.values(f.runtime ?? {})) {
+      const t = { ...saved, label: saved.label.replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+      const how = 'measured while running, tuned on the board (not in the snippet)'
+      if (t.duration !== undefined) rows.push(`| ${t.label} · duration | \`${Math.round(t.duration)}ms\` | number, ${how} | |`)
+      if (t.delay !== undefined) rows.push(`| ${t.label} · delay | \`${Math.round(t.delay)}ms\` | number, ${how} | |`)
+      if (t.ease) rows.push(`| ${t.label} · easing | \`cubic-bezier(${t.ease.join(', ')})\` | ease, ${how} | \`--${addEase(t.ease, `${name(f)} · ${t.label}`)}\` |`)
+    }
+
     const lines = [`### ${name(f)}`, '']
     const trigger = annotation(source, 'trigger')
     const animates = annotation(source, 'animates')
     if (trigger) lines.push(`- **Trigger:** ${trigger}`)
     if (animates) lines.push(`- **Animates:** ${animates}`)
+    if (f.wrapper) lines.push(`- **Renders inside:** \`${f.wrapper}\` (providers/context it needs)`)
     lines.push(`- **Snippet:** [\`${snippet}\`](${snippet}) (exact, locked values)`)
     if (extra.length) lines.push(`- **Imports:** ${extra.map((e) => `[\`${e}\`](${e})`).join(', ')} (\`@/…\` paths from the component library)`)
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { hasColors } from '../boardColors'
 import {
   addNote,
   addPalette,
@@ -142,7 +143,7 @@ function Palette() {
     add('Add', 'Link (Pinterest, Cosmos, website)…', () => setState({ add: 'url' }))
     add('Add', 'Text', () => addText(), 'T')
     add('Add', 'Note', () => addNote())
-    add('Add', 'Palette', () => addPalette())
+    add('Add', sel.some((f) => hasColors(f!, true)) ? 'Palette from selection' : 'Palette', () => addPalette())
     add('Add', 'Color swatch', () => addSwatch('color'))
     add('Add', 'Font swatch', () => addSwatch('font'))
 

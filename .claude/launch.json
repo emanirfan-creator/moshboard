@@ -4,8 +4,11 @@
     {
       "name": "moodboard",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev"],
-      "port": 5180
+      "runtimeArgs": [
+        "dev"
+      ],
+      "port": 5180,
+      "autoPort": true
     }
   ]
 }

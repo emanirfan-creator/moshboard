@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Frame } from '../../shared/types.ts'
 import { looksLikeInstall } from '../../shared/install.ts'
-import { fetchIntoFrame, replay } from '../actions'
+import { copySetupFix, fetchIntoFrame, replay } from '../actions'
 import { setState, updateFrame, useStore } from '../store'
 
 interface Described {
@@ -16,7 +16,7 @@ interface Described {
 const openPasteDialog = () => setState({ add: 'code' })
 
 /** Turn a raw frame error into something a person can act on. */
-function describe(message: string): Described {
+function describe(message: string, frameId: string): Described {
   const missing = [...message.matchAll(/“(@\/[^”]+)”/g)].map((m) => m[1])
   if (missing.length || /isn’t part of what was pasted/.test(message)) {
     return {
@@ -52,6 +52,14 @@ function describe(message: string): Described {
       body: 'A package didn’t download. Check your connection and try again.',
     }
   }
+  // Library components that render outside their provider (Chakra, MUI, Mantine, React context).
+  if (/provider|must be (used|rendered) (within|inside)|useContext|context/i.test(message)) {
+    return {
+      title: 'It needs its library set up',
+      body: 'This component only shows once the design library it comes from is set up around it. Claude Code can do that for you.',
+      action: { label: 'Copy fix for Claude Code', run: () => copySetupFix(frameId) },
+    }
+  }
   if (/no default export/i.test(message)) {
     return {
       title: 'Nothing to render',
@@ -77,7 +85,7 @@ export function BlockError({ frame, message }: { frame: Frame; message: string }
         ),
         action: { label: 'Fetch component', run: () => fetchIntoFrame(frame.id, install) },
       }
-    : describe(message)
+    : describe(message, frame.id)
   const [copied, setCopied] = useState(false)
   const stop = (e: React.PointerEvent) => e.stopPropagation()
   const ref = useRef<HTMLDivElement>(null)

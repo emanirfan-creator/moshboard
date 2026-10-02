@@ -32,6 +32,7 @@ import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
 import { BezierCtl, ColorCtl, NumberCtl, SpringCtl, Timeline } from './controls'
 import { useDetection } from './detection'
+import { runtimeGroups } from '../../shared/runtime-motion.ts'
 import { scanChirp } from '../ui/sound'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
 
@@ -169,7 +170,7 @@ function DetectedSection({
   const onTimeline = new Set([duration, delay, stagger].filter(Boolean))
   const rest = group.params.filter((p) => !onTimeline.has(p))
   return (
-    <Section title={group.title} note={group.context} where={`${group.file}:${group.line}`} index={index}>
+    <Section title={group.title} note={group.context} where={group.line ? `${group.file}:${group.line}` : group.file} index={index}>
       {duration && (
         <Timeline
           width={INNER_W}
@@ -207,7 +208,23 @@ function CodeBody({ frame }: { frame: Frame }) {
     scanned.add(frame.id)
     scanChirp(detection.groups.length)
   }, [frame.id, detection.groups.length])
-  const values = { ...defaults(params), ...defaults(detection.params), ...overrides } as Record<string, unknown>
+  // Motion measured in the running frame that the code scan didn't find (theme values, CSS from a library).
+  const measured = useStore((s) => s.motion[frame.id])
+  const running = useMemo(() => {
+    const known = new Set<number>()
+    for (const p of [...params, ...detection.params]) {
+      if (p.kind !== 'number' || p.unit !== 'ms') continue
+      known.add(Math.round(p.value as number))
+      if (typeof overrides[p.name] === 'number') known.add(Math.round(overrides[p.name] as number))
+    }
+    return runtimeGroups(measured, known, frame.runtime)
+  }, [measured, params, detection, overrides, frame.runtime])
+  const values = {
+    ...defaults(params),
+    ...defaults(detection.params),
+    ...defaults(running.flatMap((g) => g.params)),
+    ...overrides,
+  } as Record<string, unknown>
   const mod = (name: string) => name in overrides
   const change = (name: string) => (v: unknown) => setParam(frame.id, name, v as never)
 
@@ -226,7 +243,7 @@ function CodeBody({ frame }: { frame: Frame }) {
   return (
     <>
       <div className="insp-scroll">
-        {params.length === 0 && detection.params.length === 0 && (
+        {params.length === 0 && detection.params.length === 0 && running.length === 0 && (
           <Section title="No controls yet">
             <p className="ctl-help">
               No timing values found in this code.
@@ -296,6 +313,16 @@ function CodeBody({ frame }: { frame: Frame }) {
         )}
         {detection.groups.map((g, i) => (
           <DetectedSection key={g.id} group={g} index={i} values={values} mod={mod} set={(n, v) => setParam(frame.id, n, v as never)} />
+        ))}
+        {running.map((g, i) => (
+          <DetectedSection
+            key={g.id}
+            group={g}
+            index={detection.groups.length + i}
+            values={values}
+            mod={mod}
+            set={(n, v) => setParam(frame.id, n, v as never)}
+          />
         ))}
       </div>
       <footer className="insp-foot">

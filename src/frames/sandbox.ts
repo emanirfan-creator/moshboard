@@ -6,9 +6,11 @@ import { TW_THEME } from '../../shared/twTheme.ts'
 // Tailwind v4's browser build, a shadcn-style `@/lib/utils`, and the
 // `moodboard` module that exposes live params.
 
-const REACT = 'https://esm.sh/react@19.1.0'
-const REACT_DOM = 'https://esm.sh/react-dom@19.1.0'
+const REACT = 'https://esm.sh/react@19.3.0'
+const REACT_DOM = 'https://esm.sh/react-dom@19.3.0'
 const TAILWIND = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4'
+
+const WRAPPER = 'moodboard/wrapper'
 
 const dataModule = (code: string) => `data:text/javascript;charset=utf-8,${encodeURIComponent(code)}`
 
@@ -108,7 +110,119 @@ const runtime = (values: Record<string, unknown>) => `
     if (!e.data || e.data.type !== "mb:replay") return;
     if (window.__mbRemount) return window.__mbRemount();
     document.getAnimations().forEach(function (a) { a.cancel(); a.play(); });
+    measureSoon();
   });
+  // Motion measured in the running frame, whatever library wrote it: CSS transitions and
+  // animations from computed styles, and Web Animations as they're created. Tuned values
+  // come back as "mb:runtime" and are applied on top (a stylesheet for CSS, updateTiming
+  // for Web Animations), so the code itself is never touched.
+  var tune = {}, cssGroups = {}, waapi = [], live = [];
+  function desc(el) {
+    var c = Array.prototype.find.call(el.classList, function (x) { return !/\\d/.test(x) && x.length < 40; });
+    return "<" + el.tagName.toLowerCase() + (c ? "." + c : "") + ">";
+  }
+  function sel(el) {
+    if (el.classList.length) {
+      return el.tagName.toLowerCase() + Array.prototype.map.call(el.classList, function (c) { return "." + CSS.escape(c); }).join("");
+    }
+    var path = [];
+    for (var n = el; n && n.nodeType === 1 && n !== document.body; n = n.parentElement) {
+      var i = 1;
+      for (var p = n.previousElementSibling; p; p = p.previousElementSibling) i++;
+      path.unshift(n.tagName.toLowerCase() + ":nth-child(" + i + ")");
+    }
+    return "body > " + path.join(" > ");
+  }
+  function split(v) { return String(v || "").split(/,(?![^(]*\\))/).map(function (x) { return x.trim(); }); }
+  function ms(t) { var x = parseFloat(t) || 0; return /ms$/.test(t) ? x : x * 1000; }
+  // One item per element and timing: properties that share a duration/delay/easing
+  // (a theme's "transition: common 200ms") are tuned together.
+  function collect(el, kind, names, durs, delays, eases) {
+    var N = split(names), D = split(durs), L = split(delays), E = split(eases), s = null, byTiming = {};
+    for (var i = 0; i < N.length; i++) {
+      var d = ms(D[i % D.length]), l = ms(L[i % L.length]), e = E[i % E.length];
+      if (!d && !l) continue;
+      s = s || sel(el);
+      var t = d + "|" + l + "|" + e, g = byTiming[t];
+      if (g) { g.indices.push(i); g.props += ", " + N[i]; continue; }
+      var key = kind + "|" + s + "|" + i;
+      if (cssGroups[key]) { cssGroups[key].count++; byTiming[t] = { indices: [], props: "" }; continue; }
+      g = byTiming[t] = cssGroups[key] = { key: key, kind: kind, selector: s, indices: [i], desc: desc(el), props: N[i], duration: d,
+        delay: l, easing: e, count: 1, list: { n: N.length, durs: D, delays: L, eases: E } };
+    }
+  }
+  function measure() {
+    var sheet = document.getElementById("__mb-rt");
+    if (sheet) sheet.disabled = true; // measure what the code does, not the tuned values
+    cssGroups = {};
+    var els = document.body ? document.body.querySelectorAll("*") : [];
+    for (var i = 0; i < els.length && i < 1500; i++) {
+      var el = els[i];
+      if (/^(SCRIPT|STYLE|LINK|META)$/.test(el.tagName)) continue;
+      var cs = getComputedStyle(el);
+      collect(el, "transition", cs.transitionProperty, cs.transitionDuration, cs.transitionDelay, cs.transitionTimingFunction);
+      if (cs.animationName && cs.animationName !== "none")
+        collect(el, "animation", cs.animationName, cs.animationDuration, cs.animationDelay, cs.animationTimingFunction);
+    }
+    if (sheet) sheet.disabled = false;
+    applyCss(); // tuning can arrive before the first measurement
+    var items = Object.keys(cssGroups).map(function (k) { return cssGroups[k]; }).concat(waapi);
+    parent.postMessage({ type: "mb:motion", items: items }, "*");
+  }
+  function measureSoon() { setTimeout(measure, 300); setTimeout(measure, 1500); }
+  function applyCss() {
+    var rules = {};
+    for (var key in tune) {
+      var g = cssGroups[key];
+      if (!g) continue;
+      var full = function (list) { var out = []; for (var j = 0; j < g.list.n; j++) out.push(list[j % list.length]); return out; };
+      var r = rules[g.kind + "|" + g.selector] || (rules[g.kind + "|" + g.selector] = {
+        kind: g.kind, selector: g.selector, durs: full(g.list.durs), delays: full(g.list.delays), eases: full(g.list.eases) });
+      var t = tune[key];
+      g.indices.forEach(function (i) {
+        if (t.duration != null) r.durs[i] = t.duration + "ms";
+        if (t.delay != null) r.delays[i] = t.delay + "ms";
+        if (t.ease) r.eases[i] = t.ease;
+      });
+    }
+    var css = "";
+    for (var k in rules) {
+      var x = rules[k];
+      css += x.selector + " { " + x.kind + "-duration: " + x.durs.join(", ") + " !important; " + x.kind + "-delay: " +
+        x.delays.join(", ") + " !important; " + x.kind + "-timing-function: " + x.eases.join(", ") + " !important; }\\n";
+    }
+    var s = document.getElementById("__mb-rt");
+    if (!s) { s = document.createElement("style"); s.id = "__mb-rt"; (document.head || document.documentElement).append(s); }
+    s.textContent = css;
+  }
+  function applyAnim(a, key) {
+    var t = tune[key] || {}, o = a.__mbOrig;
+    try { a.effect.updateTiming({ duration: t.duration != null ? t.duration : o.duration, delay: t.delay != null ? t.delay : o.delay, easing: t.ease || o.easing }); } catch (e) {}
+  }
+  var animate = Element.prototype.animate;
+  Element.prototype.animate = function (kf, opts) {
+    var a = animate.call(this, kf, opts);
+    try {
+      var tm = a.effect.getTiming(), first = Array.isArray(kf) ? kf[0] || {} : kf || {};
+      var props = Object.keys(first).filter(function (k) { return !/^(offset|easing|composite)$/.test(k); }).join(", ");
+      var key = "waapi|" + sel(this) + "|" + props;
+      a.__mbOrig = { duration: tm.duration, delay: tm.delay || 0, easing: tm.easing || "linear" };
+      if (typeof tm.duration === "number" && !waapi.some(function (x) { return x.key === key; }))
+        waapi.push({ key: key, kind: "waapi", selector: sel(this), desc: desc(this), props: props, duration: tm.duration,
+          delay: tm.delay || 0, easing: tm.easing || "linear", count: 1 });
+      if (tune[key]) applyAnim(a, key);
+      live.push([a, key]);
+      if (live.length > 300) live = live.filter(function (x) { return x[0].playState !== "finished"; });
+    } catch (e) {}
+    return a;
+  };
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.type !== "mb:runtime") return;
+    tune = e.data.tune || {};
+    applyCss();
+    live.forEach(function (x) { applyAnim(x[0], x[1]); });
+  });
+  window.addEventListener("mb:measure", measureSoon);
   // After a successful render, stray runtime errors (e.g. React portal cleanup in 3D libraries)
   // only count if the component actually disappeared.
   function report(m) {
@@ -118,7 +232,7 @@ const runtime = (values: Record<string, unknown>) => `
   }
   window.addEventListener("error", function (e) { report(e.message); });
   // HTML frames are ready on load; React frames announce it after their first render.
-  window.addEventListener("load", function () { if (!window.__mbReact) parent.postMessage({ type: "mb:ready" }, "*"); });
+  window.addEventListener("load", function () { if (!window.__mbReact) { parent.postMessage({ type: "mb:ready" }, "*"); measureSoon(); } });
   window.addEventListener("unhandledrejection", function (e) { report(e.reason && e.reason.message || e.reason); });
 })();`
 
@@ -221,6 +335,8 @@ export function buildSrcdoc(
   values: Record<string, unknown>,
   modules: Record<string, string> = {},
   twCss?: string,
+  /** source of a wrapper component (providers) the frame renders inside */
+  wrapper?: string,
 ): string {
   if (kind === 'html') {
     const h = head(css, values, IMPORT_MAP.imports, twCss)
@@ -234,6 +350,10 @@ export function buildSrcdoc(
   try {
     const frame = frameImports(modules, missing)
     imports = frame.imports
+    if (wrapper) {
+      frame.mapped.add(WRAPPER)
+      imports[WRAPPER] = dataModule(compileTsx(ensureDefaultExport(wrapper), frame.mapped, missing, 'wrapper.tsx'))
+    }
     compiled = compileTsx(ensureDefaultExport(source), frame.mapped, missing)
   } catch (e) {
     return errorDoc(css, values, e instanceof Error ? e.message : String(e))
@@ -251,14 +371,18 @@ try {
   const mod = await import(url);
   const C = mod.default;
   if (!C) throw new Error("Frame has no default export to render");
+  const W = ${wrapper ? `(await import(${JSON.stringify(WRAPPER)})).default` : 'null'};
+  // The wrapper (providers) stays mounted; replay remounts only the component.
+  const el = (key) => (W ? React.createElement(W, null, React.createElement(C, { key })) : React.createElement(C, { key }));
   const root = createRoot(document.getElementById("root"));
   let n = 0;
-  window.__mbRemount = () => root.render(React.createElement(C, { key: ++n }));
-  root.render(React.createElement(C, { key: n }));
+  window.__mbRemount = () => (root.render(el(++n)), window.dispatchEvent(new Event("mb:measure")));
+  root.render(el(n));
   // Re-render (not remount) on param changes, so getParams() reads stay live.
-  window.__mb.subscribe(() => root.render(React.createElement(C, { key: n })));
+  window.__mb.subscribe(() => root.render(el(n)));
   window.__mbReady = true;
   parent.postMessage({ type: "mb:ready" }, "*");
+  window.dispatchEvent(new Event("mb:measure"));
 } catch (e) {
   let msg = String(e && e.message || e);
   // The browser hides which import failed behind the blob URL; say something useful.

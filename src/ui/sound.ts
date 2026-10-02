@@ -2,8 +2,11 @@
 // crosses a step, pitched by position. Synthesized, so there are no audio files.
 
 const KEY = 'mb:sounds'
+/** Overall loudness of every control sound. */
+const VOLUME = 7
 let ctx: AudioContext | null = null
 let noise: AudioBuffer | null = null
+let out: AudioNode | null = null
 let last = 0
 
 export function soundsOn() {
@@ -28,6 +31,15 @@ function audio() {
     noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.03), ctx.sampleRate)
     const d = noise.getChannelData(0)
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
+    // A limiter on the way out, so overlapping clicks get louder without crackling.
+    const limit = ctx.createDynamicsCompressor()
+    limit.threshold.value = -6
+    limit.knee.value = 4
+    limit.ratio.value = 12
+    limit.attack.value = 0.001
+    limit.release.value = 0.05
+    limit.connect(ctx.destination)
+    out = limit
   }
   if (ctx.state === 'suspended') ctx.resume()
   return ctx
@@ -53,11 +65,11 @@ export function tick(pos: number, edge = false, volume = 1) {
   band.frequency.value = edge ? 900 : 1800 + pos * 2600
   band.Q.value = edge ? 4 : 9
   const gain = a.createGain()
-  const peak = (edge ? 0.22 : 0.12) * volume
+  const peak = (edge ? 0.22 : 0.12) * volume * VOLUME
   const len = edge ? 0.03 : 0.012
   gain.gain.setValueAtTime(peak, t)
   gain.gain.exponentialRampToValueAtTime(0.0001, t + len)
-  src.connect(band).connect(gain).connect(a.destination)
+  src.connect(band).connect(gain).connect(out ?? a.destination)
   src.start(t)
   src.stop(t + len + 0.01)
 }

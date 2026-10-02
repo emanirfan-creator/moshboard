@@ -166,9 +166,24 @@ function CanvasMenu({
   const [confirm, setConfirm] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const away = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose()
+    // Anywhere outside closes it. Its own ⋯ button is left to toggle it, or the
+    // press would close it and the click reopen it.
+    const away = (e: PointerEvent) => {
+      const t = e.target as Element
+      const toggle = ref.current?.parentElement?.querySelector('.nav-more')
+      if (!ref.current?.contains(t) && !toggle?.contains(t)) onClose()
+    }
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    // Clicks inside a code frame's iframe never reach this window; it blurs instead.
+    const blur = () => onClose()
     window.addEventListener('pointerdown', away, true)
-    return () => window.removeEventListener('pointerdown', away, true)
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('pointerdown', away, true)
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('blur', blur)
+    }
   }, [onClose])
   return (
     <div className="menu" ref={ref}>

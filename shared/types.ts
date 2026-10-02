@@ -44,6 +44,18 @@ export interface Frame {
   natural?: { w: number; h: number }
   /** code/url: logical render width; content is scaled to fit the frame */
   viewport?: number
+  /** code: wrapper the component renders inside (frames/<id>.wrapper.tsx): providers, themes, context */
+  wrapper?: string
+  /** code: tuned values for motion measured in the running frame, keyed by what was measured (see shared/runtime-motion.ts) */
+  runtime?: Record<string, RuntimeTune>
+}
+
+/** A measured transition/animation, tuned on the canvas. It comes from a library or stylesheet, not a literal in the code. */
+export interface RuntimeTune {
+  label: string
+  duration?: number
+  delay?: number
+  ease?: [number, number, number, number]
 }
 
 export interface Board {

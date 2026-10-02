@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { annotation, cssVars, defaults, parseParams, runtimeValues } from '../../shared/params.ts'
+import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParams } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
 import { loadFile } from '../actions'
 import { api } from '../api'
@@ -7,6 +7,8 @@ import { getState, setState, useStore } from '../store'
 import { BlockError } from './BlockError'
 import { BlockLoader } from './BlockLoader'
 import { isJsSite, previewSources } from '../../shared/detect-motion.ts'
+import { presetFor } from '../../shared/providers.ts'
+import { runtimeTune, type RuntimeItem } from '../../shared/runtime-motion.ts'
 import { useDetection } from '../tuning/detection'
 import { buildSrcdoc } from './sandbox'
 
@@ -66,7 +68,16 @@ export function CodeFrame({
       return {}
     }
   }, [modulesRaw])
-  const waitingForModules = !!frame.modules && modulesRaw === undefined
+  // Providers: the frame's own wrapper file, or a preset when it imports a library that needs one.
+  const wrapperRaw = useStore((s) => (frame.wrapper ? s.files[frame.wrapper] : ''))
+  useEffect(() => {
+    if (frame.wrapper && wrapperRaw === undefined) loadFile(frame.wrapper)
+  }, [frame.wrapper, wrapperRaw])
+  const wrapper = useMemo(
+    () => (frame.wrapper ? wrapperRaw || undefined : source !== undefined ? presetFor([source, ...Object.values(modules)])?.code : undefined),
+    [frame.wrapper, wrapperRaw, source, modules],
+  )
+  const waitingForModules = (!!frame.modules && modulesRaw === undefined) || (!!frame.wrapper && wrapperRaw === undefined)
 
   // Motion values detected in the code run from a copy where each literal reads its
   // tuned value (see shared/detect-motion.ts). The stored source is left as pasted.
@@ -86,11 +97,11 @@ export function CodeFrame({
     if (source === undefined || waitingForModules) return
     let live = true
     setTwCss(null)
-    frameCss([preview.main ?? '', ...Object.values(preview.modules)]).then((css) => live && setTwCss(css))
+    frameCss([preview.main ?? '', ...Object.values(preview.modules), wrapper ?? '']).then((css) => live && setTwCss(css))
     return () => {
       live = false
     }
-  }, [source, preview, waitingForModules])
+  }, [source, preview, waitingForModules, wrapper])
 
   const params = useMemo(() => (source ? parseParams(source) : []), [source])
   const values = useMemo(() => ({ ...defaults(params), ...overrides }), [params, overrides])
@@ -113,9 +124,10 @@ export function CodeFrame({
             runtimeValues(sentParams(latest.current), latest.current),
             preview.modules,
             twCss ?? undefined,
+            wrapper,
           )
         : '',
-    [source, kind, params, reload, preview, waitingForModules, twCss],
+    [source, kind, params, reload, preview, waitingForModules, twCss, wrapper],
   )
 
   // Loading state, with one automatic retry if esm.sh/Tailwind are slow to answer.
@@ -205,9 +217,38 @@ export function CodeFrame({
     return () => clearTimeout(t)
   }, [overrides, detection])
 
+  // A param the code only reads when it starts (inside an effect, memo or state
+  // initializer) doesn't change anything on re-render, so restart the frame once
+  // tuning pauses. Everything else updates live without losing the frame's state.
+  const startup = useMemo(() => (source ? startupParams(source, params.map((p) => p.name)) : new Set<string>()), [source, params])
+  const prevValues = useRef(values)
+  const restart = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => {
+    const before = prevValues.current as Record<string, unknown>
+    prevValues.current = values
+    const now = values as Record<string, unknown>
+    if (![...startup].some((n) => before[n] !== now[n])) return
+    clearTimeout(restart.current)
+    restart.current = setTimeout(() => iframe.current?.contentWindow?.postMessage({ type: 'mb:replay' }, '*'), 250)
+  }, [values, startup])
+  useEffect(() => () => clearTimeout(restart.current), [])
+
+  // Measured motion (any library) gets tuned from outside the code: saved values plus unsaved tweaks.
+  const tune = useMemo(() => runtimeTune(frame.runtime, overrides), [frame.runtime, overrides])
+  useEffect(() => {
+    if (ready) iframe.current?.contentWindow?.postMessage({ type: 'mb:runtime', tune }, '*')
+  }, [tune, ready])
+
   useEffect(() => {
     const on = (e: MessageEvent) => {
       if (e.source !== iframe.current?.contentWindow) return
+      if (e.data?.type === 'mb:motion') {
+        const items = e.data.items as RuntimeItem[]
+        // Measured again on every replay; only a real change re-renders the inspector.
+        setState((s) =>
+          JSON.stringify(s.motion[frame.id]) === JSON.stringify(items) ? {} : { motion: { ...s.motion, [frame.id]: items } },
+        )
+      }
       if (e.data?.type === 'mb:error') {
         setError(frame.id, e.data.message)
         setReady(true)
