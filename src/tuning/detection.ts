@@ -1,0 +1,33 @@
+import { useMemo } from 'react'
+import { detectMotion, type Detection } from '../../shared/detect-motion.ts'
+import { parseParams } from '../../shared/params.ts'
+import type { Frame } from '../../shared/types.ts'
+import { useStore } from '../store'
+
+const NONE: Detection = { params: [], groups: [] }
+
+export function parseModules(raw: string | undefined): Record<string, string> {
+  try {
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Motion values found in a frame's code and its modules. Explicit `@param` names win on a clash. */
+export function detectFor(frame: Frame, source: string | undefined, modulesRaw: string | undefined): Detection {
+  if (!frame.file || source === undefined) return NONE
+  const kind = frame.file.endsWith('.html') ? 'html' : 'tsx'
+  const d = detectMotion(source, parseModules(modulesRaw), kind, frame.file.split('/').pop())
+  const explicit = new Set(parseParams(source).map((p) => p.name))
+  if (!d.params.some((p) => explicit.has(p.name))) return d
+  const params = d.params.filter((p) => !explicit.has(p.name))
+  return { params, groups: d.groups.map((g) => ({ ...g, params: g.params.filter((p) => !explicit.has(p.name)) })) }
+}
+
+/** Detection for a frame, re-run only when its source or modules change. */
+export function useDetection(frame: Frame): Detection {
+  const source = useStore((s) => (frame.file ? s.files[frame.file] : undefined))
+  const modulesRaw = useStore((s) => (frame.modules ? s.files[frame.modules] : undefined))
+  return useMemo(() => detectFor(frame, source, modulesRaw), [frame.file, frame.modules, source, modulesRaw])
+}
