@@ -300,7 +300,7 @@ function frameImports(modules: Record<string, string>, missing: Set<string>) {
 
 const missingMessage = (missing: Set<string>) =>
   `This component imports ${[...missing].map((m) => `“${m}”`).join(', ')}, which isn’t part of what was pasted.\n\n` +
-  `Paste the library’s install command instead (e.g. npx shadcn@latest add @aceternity/…). Roto fetches the component with every file it needs.`
+  `Paste the library’s install command instead (e.g. npx shadcn@latest add @aceternity/…). Moshboard fetches the component with every file it needs.`
 
 // Painted before any script loads, so a frame is never a white box while
 // Tailwind or esm.sh are still downloading.

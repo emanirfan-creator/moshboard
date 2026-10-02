@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-// From 21st.dev "pixel-canvas", adapted for Roto:
+// From 21st.dev "pixel-canvas", adapted for Moshboard:
 // - `active` prop plays the animation without hover (used as a loading state)
 // - sizes from layout (offsetWidth/Height), so it stays correct on a zoomed canvas
 // - hover/focus listeners are real references, so they're actually removed

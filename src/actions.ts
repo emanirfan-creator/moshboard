@@ -716,7 +716,7 @@ export async function copySelection(cut = false) {
   toast(`${cut ? 'Cut' : 'Copied'} ${frames.length} frame${frames.length > 1 ? 's' : ''} · ⌘V to paste`)
 }
 
-/** Parse frames copied by Roto out of clipboard text, if that's what it is. */
+/** Parse frames copied by Moshboard out of clipboard text, if that's what it is. */
 export function readClip(text: string): Clip | null {
   if (!text.startsWith(CLIP_MARK)) return null
   try {
@@ -933,7 +933,7 @@ export async function makeTunable(id = getState().selected[0]) {
 
 /**
  * A component that only renders inside its library's setup (a provider or context) that
- * Roto doesn't know yet. Designers shouldn't have to know what that means: copy a ready
+ * Moshboard doesn't know yet. Designers shouldn't have to know what that means: copy a ready
  * prompt for Claude Code, which writes the frame's wrapper (frames/<id>.wrapper.tsx).
  */
 export function copySetupFix(id = getState().selected[0]) {
@@ -942,7 +942,7 @@ export function copySetupFix(id = getState().selected[0]) {
   const s = getState()
   const rel = `frames/${f.id}.wrapper.tsx`
   const prompt = [
-    `In the Roto board "${s.boardName}", the component in boards/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
+    `In Moshboard board "${s.boardName}", the component in boards/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
     `"${s.errors[f.id] ?? 'it needs a provider or context'}"`,
     ``,
     `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix boards/${s.boardName}/${f.wrapper}` : `Create boards/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +

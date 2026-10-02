@@ -115,8 +115,8 @@ export const CommandIcon = () => (
     <path d="M6 6V4.5a1.5 1.5 0 1 0-1.5 1.5H6Zm0 0h4m-4 0v4m4-4V4.5A1.5 1.5 0 1 1 11.5 6H10Zm0 0v4m0 0h1.5a1.5 1.5 0 1 1-1.5 1.5V10Zm0 0H6m0 0v1.5A1.5 1.5 0 1 1 4.5 10H6Z" />
   </Icon>
 )
-/** App mark: a dial with a pointer, the rotoscope / detent idea behind Roto. */
-export const RotoMark = () => (
+/** App mark: a dial with a pointer, the detent idea behind Moshboard's tuning controls. */
+export const AppMark = () => (
   <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
     <circle cx="9" cy="9" r="7.25" stroke="currentColor" strokeWidth="1.5" />
     <path d="M9 1.75v1.5M16.25 9h-1.5M9 16.25v-1.5M1.75 9h1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

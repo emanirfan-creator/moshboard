@@ -1,4 +1,4 @@
-# Roto
+# Moshboard
 
 A local moodboard where references can be live: videos, websites, and runnable components. Motion references get recreated as tunable code frames, and the board exports exact specs (`design.md`, `motion.md`, `tokens.css`, `snippets/`).
 

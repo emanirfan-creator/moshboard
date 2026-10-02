@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createCanvas, deleteCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, toggleSidebar, useStore } from '../store'
-import { KeyboardIcon, MoreIcon, PlusIcon, RotoMark, SidebarIcon } from './icons'
+import { KeyboardIcon, MoreIcon, PlusIcon, AppMark, SidebarIcon } from './icons'
 
 export function Sidebar() {
   const open = useStore((s) => s.sidebar)
@@ -25,7 +25,7 @@ export function Sidebar() {
         onClick={() => toggleSidebar(true)}
         title="Show sidebar  ["
       >
-        <RotoMark />
+        <AppMark />
         <span className="nav-pill-name">{canvases.find((c) => c.id === current)?.name ?? ''}</span>
         <span className="nav-pill-toggle">
           <SidebarIcon />
@@ -40,8 +40,8 @@ export function Sidebar() {
       >
         <div className="sidebar-head">
           <span className="brand">
-          <RotoMark />
-          Roto
+          <AppMark />
+          Moshboard
         </span>
           <button className="icon-btn" onClick={() => toggleSidebar(false)} title="Hide sidebar  [">
             <SidebarIcon />

@@ -1,6 +1,6 @@
 ---
 name: recreate
-description: Recreate a Roto board reference (video, live site, or image) as a tunable code frame next to it on the board. Use when the user runs /recreate <board> <frameId>, or asks to "copy", "replicate", or "code up" a reference on the Roto canvas.
+description: Recreate a Moshboard reference (video, live site, or image) as a tunable code frame next to it on the board. Use when the user runs /recreate <board> <frameId>, or asks to "copy", "replicate", or "code up" a reference on the Moshboard canvas.
 ---
 
 # /recreate <board> <frameId>
