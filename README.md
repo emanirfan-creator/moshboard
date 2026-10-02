@@ -12,11 +12,15 @@ Install these free tools:
 - [Google Chrome](https://www.google.com/chrome/). Needed for website capture and snapshots.
 - [Claude Code](https://claude.com/claude-code) (optional). Needed for `/recreate`.
 
-Then in this folder:
+Then get the code and install it:
 
 ```bash
+git clone https://github.com/emanirfan-creator/moshboard.git
+cd moshboard
 pnpm install
 ```
+
+To get updates later, run `git pull` and then `pnpm install` in that folder.
 
 ## Start
 
