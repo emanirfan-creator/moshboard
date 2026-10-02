@@ -3,7 +3,7 @@
 
 const KEY = 'mb:sounds'
 /** Overall loudness of every control sound. */
-const VOLUME = 7
+const VOLUME = 10
 let ctx: AudioContext | null = null
 let noise: AudioBuffer | null = null
 let out: AudioNode | null = null
@@ -33,7 +33,7 @@ function audio() {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
     // A limiter on the way out, so overlapping clicks get louder without crackling.
     const limit = ctx.createDynamicsCompressor()
-    limit.threshold.value = -6
+    limit.threshold.value = -1
     limit.knee.value = 4
     limit.ratio.value = 12
     limit.attack.value = 0.001

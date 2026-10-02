@@ -1,3 +1,5 @@
+import type { UsedFont } from '../shared/font-probe.ts'
+import type { FontFamily } from '../shared/fonts.ts'
 import type { Board, MotionCapture, Segment, VideoAnalysis } from '../shared/types.ts'
 
 type MediaPiece = { path: string; type: 'video' | 'image'; width?: number; height?: number }
@@ -99,6 +101,9 @@ export const api = {
       .then((r) => r.text()),
   exportBoard: (b: string, ids?: string[]) =>
     fetch(`/api/export/${enc(b)}`, { method: 'POST', body: JSON.stringify({ ids }) }).then((r) => json<ExportResult>(r)),
+  fonts: () => fetch('/api/fonts').then((r) => json<{ mac: FontFamily[]; google: FontFamily[] }>(r)),
+  siteFonts: (url: string) =>
+    fetch('/api/site-fonts/_', { method: 'POST', body: JSON.stringify({ url }) }).then((r) => json<UsedFont[]>(r)),
   reveal: (b: string) => fetch(`/api/reveal/${enc(b)}`, { method: 'POST' }).then(ok),
 }
 

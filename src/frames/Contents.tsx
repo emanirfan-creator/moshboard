@@ -1,7 +1,9 @@
 import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { Frame } from '../../shared/types.ts'
+import { fontStack, GLYPHS, SPECIMEN, styleName, SWATCH_SIZE } from '../../shared/fonts.ts'
 import { assetUrl } from '../actions'
-import { getState, mutateFrames, sameFrameExcept, setState, updateFrame, useCamera } from '../store'
+import { loadFont } from '../fonts'
+import { getState, mutateFrames, sameFrameExcept, setState, updateFrame, useCamera, useStore } from '../store'
 import { CodeFrame } from './CodeFrame'
 import { PaletteFrame } from './PaletteFrame'
 import { UrlFrame } from './UrlFrame'
@@ -80,13 +82,16 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
     }
   }, [frame.id])
 
-  // Off-screen videos pause (decoding several clips at once is the biggest CPU cost on a board).
+  // Off-screen videos pause (decoding several clips at once is the biggest CPU cost on a board),
+  // and so do ones zoomed out to a speck, where the motion can't be seen anyway.
+  const speck = useCamera((c) => Math.min(frame.w, frame.h) * c.z < 48)
+  const playing = inView && !speck
   useEffect(() => {
     const v = ref.current
     if (!v) return
-    if (inView) v.play().catch(() => {})
+    if (playing) v.play().catch(() => {})
     else v.pause()
-  }, [inView])
+  }, [playing])
 
   // Loop inside the marked segment, and each time the clip starts over, replay
   // any coded copy linked to it so the two stay side by side in sync. Runs per
@@ -184,31 +189,67 @@ function paintNote(text: string): ReactNode[] {
 }
 
 function SwatchFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
-  const field = frame.font ? 'font' : 'color'
-  const editor = interact && (
-    <input
-      className="inline-input"
-      autoFocus
-      value={(frame.font ?? frame.color) || ''}
-      onChange={(e) => updateFrame(frame.id, { [field]: e.target.value })}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' || e.key === 'Enter') setState({ interact: null })
-        e.stopPropagation()
-      }}
-    />
-  )
+  useEffect(() => loadFont(frame.fontHref), [frame.fontHref])
+  // Like text: the handles set the width, the sample wraps, and the height follows it.
+  // Also re-measured when it reflows on its own, e.g. once a web font finishes loading.
+  const card = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = card.current
+    if (!el) return
+    const fit = () => {
+      const h = Math.ceil(el.offsetHeight)
+      const f = getState().board?.frames.find((x) => x.id === frame.id)
+      if (f && Math.abs(h - f.h) > 1) updateFrame(frame.id, { h })
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [frame.id, !!frame.font])
+  // Fonts are changed from the inspector's picker; colors are typed in place.
+  const layout = frame.fontLayout ?? 'name'
   if (frame.font) {
+    // The name label and the style line scale with the sample, staying a step smaller.
+    const size = frame.size ?? SWATCH_SIZE
+    const caption = Math.max(12, Math.round(size * 0.3))
     return (
-      <div className="swatch-font" style={{ fontFamily: frame.font }}>
-        Aa Gg 123
-        <small>{frame.font}</small>
-        {editor}
+      <div className="swatch-font" data-layout={layout} ref={card} style={{ gap: Math.max(8, Math.round(size * 0.18)) }}>
+        {layout !== 'name' && (
+          <div className="swatch-font-name" style={{ fontSize: Math.max(13, Math.round(size * 0.34)) }}>
+            {frame.font}
+          </div>
+        )}
+        <div
+          className="swatch-font-sample"
+          style={{
+            fontFamily: fontStack(frame.font, frame.fontCategory),
+            fontSize: size,
+            fontWeight: frame.weight ?? 400,
+            fontStyle: frame.italic ? 'italic' : undefined,
+          }}
+        >
+          {layout === 'glyphs' ? GLYPHS : layout === 'specimen' ? SPECIMEN : frame.font}
+        </div>
+        <div className="swatch-font-meta" style={{ fontSize: caption }}>
+          {styleName(frame.weight, frame.italic)} · {size}px
+        </div>
       </div>
     )
   }
   return (
     <div className="swatch" style={{ background: frame.color }}>
-      {editor}
+      {interact && (
+        <input
+          className="inline-input"
+          autoFocus
+          value={frame.color || ''}
+          onChange={(e) => updateFrame(frame.id, { color: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' || e.key === 'Enter') setState({ interact: null })
+            e.stopPropagation()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -230,14 +271,27 @@ function replayLinked(videoId: string) {
 function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const size = frame.size ?? 24
+  // The app font unless one was picked for this text; the weight follows the size unless set.
+  useEffect(() => loadFont(frame.fontHref), [frame.fontHref])
   const style = {
+    fontFamily: frame.font ? fontStack(frame.font, frame.fontCategory) : undefined,
     fontSize: size,
-    fontWeight: size >= 24 ? 590 : 450,
+    fontWeight: frame.weight ?? (size >= 24 ? 590 : 450),
+    fontStyle: frame.italic ? ('italic' as const) : undefined,
     letterSpacing: size >= 24 ? '-0.02em' : '-0.006em',
     lineHeight: size >= 32 ? 1.15 : 1.4,
   }
 
   const ta = useRef<HTMLTextAreaElement | null>(null)
+  // Text only exists once it has a character in it: however editing ends (Esc, clicking
+  // away, another tool), an empty block is removed.
+  const empty = !frame.text?.trim()
+  useEffect(() => {
+    if (interact || !empty) return
+    mutateFrames((fs) => fs.filter((f) => f.id !== frame.id))
+    setState((s) => ({ selected: s.selected.filter((id) => id !== frame.id) }))
+  }, [interact, empty, frame.id])
+
   // Grow/shrink the frame to fit the text (layout size ignores canvas zoom). While
   // editing, measure the textarea itself so wrapped lines are never clipped.
   useLayoutEffect(() => {
@@ -262,10 +316,6 @@ function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
           style={style}
           rows={1}
           onChange={(e) => updateFrame(frame.id, { text: e.target.value })}
-          onBlur={() => {
-            // An empty text block isn't worth keeping.
-            if (!frame.text?.trim()) mutateFrames((fs) => fs.filter((f) => f.id !== frame.id))
-          }}
           onKeyDown={(e) => {
             if (e.key === 'Escape') ((e.target as HTMLTextAreaElement).blur(), setState({ interact: null }))
             e.stopPropagation()

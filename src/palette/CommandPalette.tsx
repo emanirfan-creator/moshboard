@@ -18,6 +18,8 @@ import {
   exportBoard,
   fitBoard,
   linkSelected,
+  canLinkSelected,
+  isLinked,
   lockParams,
   makeTunable,
   detectMotionValues,
@@ -121,8 +123,8 @@ function Palette() {
       add('Arrange', 'Align left', () => alignSelection('left'))
       add('Arrange', 'Align top', () => alignSelection('top'))
     }
-    if (sel.length === 2) add('Frame', 'Link to reference', linkSelected)
-    if (sel.some((f) => f!.link)) add('Frame', 'Unlink', unlinkSelected)
+    if (canLinkSelected()) add('Frame', sel.some((f) => isLinked(f!)) ? 'Add to link' : 'Link to reference', linkSelected)
+    if (sel.some((f) => isLinked(f!))) add('Frame', 'Unlink', unlinkSelected)
     if (one)
       add(
         'Frame',

@@ -1,4 +1,4 @@
-// Color math for palettes: sRGB ↔ OKLab/OKLCH, harmony-based generation (Coolors-style),
+// Color math for palettes: sRGB ↔ OKLab/OKLCH, harmony-based generation,
 // whole-palette adjustments, shades, contrast and human color names.
 
 export interface PaletteColor {
@@ -91,7 +91,7 @@ const wrap = (h: number) => ((h % 360) + 360) % 360
 /**
  * Regenerate the unlocked colors of a palette. Locked colors anchor the hue
  * (and stay put); unlocked ones follow a harmony scheme across a light→dark
- * ramp, which is what makes Coolors palettes feel usable.
+ * ramp, which is what makes generated palettes feel usable.
  */
 export function generatePalette(current: PaletteColor[], count = current.length || 5): PaletteColor[] {
   const locked = current.filter((c) => c.locked)
@@ -338,8 +338,3 @@ export function nameColor(hex: string) {
   return best
 }
 
-/** Colors from a Coolors link: coolors.co/22223b-4a4e69-… or coolors.co/palette/… */
-export function parseCoolors(url: string): PaletteColor[] | null {
-  const m = /coolors\.co\/(?:palette\/)?([0-9a-f]{6}(?:-[0-9a-f]{6}){1,9})/i.exec(url)
-  return m ? m[1].split('-').map((h) => ({ hex: `#${h.toLowerCase()}` })) : null
-}

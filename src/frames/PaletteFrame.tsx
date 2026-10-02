@@ -26,7 +26,7 @@ function setColors(frame: Frame, colors: PaletteColor[]) {
 }
 
 /**
- * Coolors-style palette: full-height columns with hex + name. Hovering a column
+ * Palette: full-height columns with hex + name. Hovering a column
  * (once the palette is selected) shows its tools; + between columns inserts a
  * blend. While the inspector's Adjust panel is open, the block shows before/after.
  */

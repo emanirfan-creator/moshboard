@@ -249,7 +249,8 @@ const INSPECTED = new Set(['code', 'video', 'text', 'palette'])
 /** Whether the right-hand inspector is showing (one inspectable frame selected). */
 export const inspectorOpen = (s: State) =>
   s.selected.length > 1 ||
-  (s.selected.length === 1 && INSPECTED.has(s.board?.frames.find((f) => f.id === s.selected[0])?.type ?? ''))
+  (s.selected.length === 1 && inspected(s.board?.frames.find((f) => f.id === s.selected[0])))
+const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || (f.type === 'swatch' && !!f.font))
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
 export const viewLeft = () => (state.sidebar ? SIDEBAR_W : 0)
 

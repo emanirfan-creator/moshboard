@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParams } from '../../shared/params.ts'
+import { SANDBOX_FONT, type UsedFont } from '../../shared/font-probe.ts'
+import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParams, type Param } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
 import { loadFile } from '../actions'
 import { api } from '../api'
-import { getState, setState, useStore } from '../store'
+import { getState, setState, updateFrame, useStore } from '../store'
+import { BLOCK_HEAD, BLOCK_PAD } from '../canvas/blocks'
 import { BlockError } from './BlockError'
 import { BlockLoader } from './BlockLoader'
 import { isJsSite, previewSources } from '../../shared/detect-motion.ts'
@@ -165,15 +167,16 @@ export function CodeFrame({
     (s) => !!frame.link && s.board?.frames.find((f) => f.id === frame.link)?.type === 'video',
   )
   const trigger = source ? annotation(source, 'trigger')?.toLowerCase() : undefined
-  // Only loop things that are about entrance motion: explicitly marked, or carrying timing params.
-  // A pasted component with no params (say, a 3D scene) shouldn't be remounted every few seconds.
+  // Only loop things that are about entrance motion: explicitly marked, or carrying timing params
+  // (a duration, an ease, a spring). Params that only set looks (a 3D globe's colors, an icon
+  // size) don't count: remounting such a component every few seconds rebuilds it from scratch.
   const loops =
     loop &&
     ready &&
     inView &&
     !interact &&
     !linkedToVideo &&
-    (trigger === 'mount' || trigger === 'loop' || (!trigger && params.length > 0))
+    (trigger === 'mount' || trigger === 'loop' || (!trigger && params.some(isTiming)))
   useEffect(() => {
     if (!loops) return
     let t: ReturnType<typeof setTimeout>
@@ -233,6 +236,14 @@ export function CodeFrame({
   }, [values, startup])
   useEffect(() => () => clearTimeout(restart.current), [])
 
+  // A newly added component is sized to what it draws once it has settled (entrance motion done).
+  useEffect(() => {
+    if (!ready || !frame.fit) return
+    if (frame.viewport) return void updateFrame(frame.id, { fit: undefined })
+    const t = setTimeout(() => iframe.current?.contentWindow?.postMessage({ type: 'mb:fit' }, '*'), 900)
+    return () => clearTimeout(t)
+  }, [ready, frame.fit, frame.viewport, frame.id])
+
   // Measured motion (any library) gets tuned from outside the code: saved values plus unsaved tweaks.
   const tune = useMemo(() => runtimeTune(frame.runtime, overrides), [frame.runtime, overrides])
   useEffect(() => {
@@ -257,6 +268,13 @@ export function CodeFrame({
         setError(frame.id)
         setReady(true)
         retried.current = false
+      }
+      if (e.data?.type === 'mb:size') fitToContent(frame.id, e.data.w, e.data.h)
+      if (e.data?.type === 'mb:fonts' && Array.isArray(e.data.fonts)) {
+        // Kept on the frame (like a site's) for font suggestions; the inherited default isn't a choice.
+        const fonts = (e.data.fonts as UsedFont[]).filter((u) => u.stack !== SANDBOX_FONT)
+        const f = getState().board?.frames.find((x) => x.id === frame.id)
+        if (fonts.length && f && JSON.stringify(f.usedFonts) !== JSON.stringify(fonts)) updateFrame(frame.id, { usedFonts: fonts })
       }
     }
     window.addEventListener('message', on)
@@ -287,3 +305,19 @@ export function CodeFrame({
     </>
   )
 }
+
+/**
+ * Size a new code frame to its measured content plus breathing room, keeping its
+ * center in place. Nothing measurable (a full-bleed canvas or 3D scene) keeps the default.
+ */
+function fitToContent(id: string, w: number, h: number) {
+  const f = getState().board?.frames.find((x) => x.id === id)
+  if (!f?.fit) return
+  if (!(w > 0 && h > 0)) return updateFrame(id, { fit: undefined })
+  const fw = Math.round(Math.min(1200, Math.max(220, w + 64)) + BLOCK_PAD * 2)
+  const fh = Math.round(Math.min(900, Math.max(140, h + 64)) + BLOCK_HEAD + BLOCK_PAD)
+  updateFrame(id, { fit: undefined, w: fw, h: fh, x: Math.round(f.x + (f.w - fw) / 2), y: Math.round(f.y + (f.h - fh) / 2) })
+}
+
+/** A param that times motion: an ease or spring, or a number in ms/s (duration, delay, stagger…). */
+const isTiming = (p: Param) => p.kind === 'ease' || p.kind === 'spring' || (p.kind === 'number' && /^m?s$/.test(p.unit))

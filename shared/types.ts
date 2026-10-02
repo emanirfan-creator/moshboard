@@ -21,13 +21,26 @@ export interface Frame {
   modules?: string
   /** note: markdown; text: plain text */
   text?: string
-  /** text: font size in px */
+  /** text: font size in px; font swatch: sample size */
   size?: number
   /** palette: ordered colors (locked ones survive regeneration) */
   colors?: { hex: string; locked?: boolean }[]
   /** swatch */
   color?: string
+  /** font swatch: the family shown; text: a family picked for it (else the app font) */
   font?: string
+  /** font swatch, text: Google Fonts stylesheet for `font` (unset for fonts installed on this Mac) */
+  fontHref?: string
+  /** font swatch, text: Google Fonts category, for the fallback (Serif, Monospace…) */
+  fontCategory?: string
+  /** font swatch: weight shown (100–900, default 400); text: its weight (else it follows the size) */
+  weight?: number
+  /** font swatch, text: shown in italic */
+  italic?: boolean
+  /** url, code: the fonts it sets its text in (read once for a site, on each render for a component; for font suggestions) */
+  usedFonts?: { stack: string; weight: number; score: number }[]
+  /** font swatch: how it presents the family (default 'name') */
+  fontLayout?: 'name' | 'specimen' | 'glyphs'
   /** image/video: the page it came from (e.g. a Cosmos element) */
   origin?: string
   /** id of the frame this one copies (code replica) or annotates (note) */
@@ -42,6 +55,8 @@ export interface Frame {
   snapshot?: string
   /** the frame's own size before any tidy-up layout resized it (layouts work from this) */
   natural?: { w: number; h: number }
+  /** code: not sized yet; set when added, cleared once it's sized to what it renders */
+  fit?: boolean
   /** code/url: logical render width; content is scaled to fit the frame */
   viewport?: number
   /** code: wrapper the component renders inside (frames/<id>.wrapper.tsx): providers, themes, context */

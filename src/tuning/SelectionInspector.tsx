@@ -7,7 +7,10 @@ import {
   duplicateSelected,
   exportBoard,
   lastLayout,
+  canLinkSelected,
+  isLinked,
   linkSelected,
+  unlinkSelected,
   tidySelection,
   type AlignEdge,
 } from '../actions'
@@ -79,6 +82,9 @@ export function SelectionBody() {
   )
   const palettes = useStore((s) => s.selected.filter((id) => frameById(id)?.type === 'palette').length)
   const n = ids.length
+  // Re-read on any board change, so the buttons follow links made or removed elsewhere.
+  const linkable = useStore((s) => (s.board, canLinkSelected()))
+  const anyLinked = useStore((s) => s.selected.some((id) => !!frameById(id) && isLinked(frameById(id)!)))
   return (
     <>
       <header className="insp-head">
@@ -128,7 +134,7 @@ export function SelectionBody() {
             </div>
           )}
         </section>
-        {(colorish >= 2 || n === 2) && (
+        {(colorish >= 2 || linkable || anyLinked) && (
           <section className="insp-section">
             <h3>Combine</h3>
             <div className="insp-buttons">
@@ -137,9 +143,14 @@ export function SelectionBody() {
                   {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
                 </button>
               )}
-              {n === 2 && (
-                <button className="btn" onClick={linkSelected} title="Pair a coded copy (or note) with its reference">
-                  Link pair
+              {linkable && (
+                <button className="btn" onClick={linkSelected} title="Link a reference with its copies and notes">
+                  {anyLinked ? 'Add to link' : 'Link'}
+                </button>
+              )}
+              {anyLinked && (
+                <button className="btn" onClick={unlinkSelected} title="A copy or note leaves the group; a reference releases everything linked to it">
+                  Unlink
                 </button>
               )}
             </div>

@@ -55,6 +55,8 @@ Open http://localhost:5180. Boards are saved in the `boards/` folder on your com
 
 Add a note linked to a reference (select both → ⌘K → **Link to reference**) to tell Claude what to focus on.
 
+A link can hold more than two things: select something already linked plus a new frame → **Add to link**. **Unlink** on a copy or note removes just that one; on the reference it releases the whole group.
+
 ### Exporting
 
 ⌘K → **Export spec** writes `design.md`, `motion.md`, `tokens.css`, `tokens.json` and `snippets/` into `boards/<board>/export/`. Select frames first to export only those.
@@ -105,7 +107,7 @@ What shows up depends on what's selected.
 - **Code frame:** Replay, Save tuned values to code, Reset tuned values, Detect motion values, Add controls to code, Copy /recreate command
 - **Palette:** Generate new colors (from the board), Split into swatches, Merge into one palette
 - **Arrange:** Tidy up into a grid, Align left, Align top
-- **Frame:** Link to reference, Unlink, Duplicate, Delete
+- **Frame:** Link to reference, Add to link, Unlink, Duplicate, Delete
 - **Canvas:** Fit to screen, Control sounds on/off, Export spec, New canvas, Show / hide sidebar, Go to another canvas
 
 ## Working with Claude Code

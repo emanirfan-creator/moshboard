@@ -28,6 +28,18 @@ import {
   viewLeft,
 } from '../store'
 import { CloseIcon } from '../ui/icons'
+import { FontPicker } from '../ui/FontPicker'
+import {
+  FONT_LAYOUTS,
+  fontOf,
+  fontStack,
+  SWATCH_SIZE,
+  boardFonts,
+  swatchFont,
+  WEIGHT_NAMES,
+  weightOptions,
+} from '../../shared/fonts.ts'
+import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
 import { BezierCtl, ColorCtl, NumberCtl, SpringCtl, Timeline } from './controls'
@@ -91,7 +103,7 @@ export function Inspector() {
   )
 }
 
-const KIND: Record<string, string> = { code: 'Component', video: 'Video', text: 'Text', palette: 'Palette' }
+const KIND: Record<string, string> = { code: 'Component', video: 'Video', text: 'Text', palette: 'Palette', swatch: 'Font' }
 
 function Body({ frame }: { frame: Frame }) {
   const modified = useStore((s) => !!s.overrides[frame.id])
@@ -109,6 +121,7 @@ function Body({ frame }: { frame: Frame }) {
       {frame.type === 'video' && <VideoBody frame={frame} />}
       {frame.type === 'text' && <TextBody frame={frame} />}
       {frame.type === 'palette' && <PaletteBody frame={frame} />}
+      {frame.type === 'swatch' && frame.font && <FontBody frame={frame} />}
     </>
   )
 }
@@ -518,12 +531,76 @@ const SIZES: [string, number][] = [
   ['Display', 64],
 ]
 
-const FONT_SIZE: Param = { name: 'fontSize', kind: 'number', value: 24, unit: 'px', min: 8, max: 200, start: 0, end: 0 }
+const FONT_SIZE: Param = { name: 'fontSize', kind: 'number', value: 24, unit: 'px', min: 8, max: 500, start: 0, end: 0 }
+const SAMPLE_SIZE: Param = { ...FONT_SIZE, name: 'sampleSize', value: SWATCH_SIZE }
 
+/** Font blocks: the family's name set at a size and weight, as a type spec. */
+function FontBody({ frame }: { frame: Frame }) {
+  const size = frame.size ?? SWATCH_SIZE
+  const weight = frame.weight ?? 400
+  const weights = useWeights(frame)
+  const layout = frame.fontLayout ?? 'name'
+  return (
+    <div className="insp-scroll insp-font">
+      <Section title="Layout">
+        <div className="segmented">
+          {FONT_LAYOUTS.map((l) => (
+            <button
+              key={l.id}
+              data-active={layout === l.id || undefined}
+              onClick={() => updateFrame(frame.id, { fontLayout: l.id === 'name' ? undefined : l.id })}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </Section>
+      <Section title="Typeface">
+        <FontPicker
+          value={fontOf(frame)}
+          // A weight the new family doesn't come in falls back to Regular.
+          onPick={(f) =>
+            updateFrame(frame.id, {
+              ...swatchFont(f),
+              weight: weightOptions(f).includes(weight) && weight !== 400 ? weight : undefined,
+            })
+          }
+        />
+      </Section>
+      <Section title="Size">
+        <NumberCtl p={SAMPLE_SIZE} value={size} modified={size !== SWATCH_SIZE} onChange={(px) => updateFrame(frame.id, { size: px })} />
+      </Section>
+      <StyleSection frame={frame} weights={weights} weight={weight} onWeight={(w) => updateFrame(frame.id, { weight: w === 400 ? undefined : w })} />
+    </div>
+  )
+}
+
+/** Text: any font, not tied to the board's (the app font until one is picked). */
 function TextBody({ frame }: { frame: Frame }) {
   const size = frame.size ?? 24
+  const weights = useWeights(frame)
+  // The board's fonts are the ones set in its font blocks; text can follow them in one click.
+  const frames = useStore((s) => s.board?.frames)
+  const board = useMemo(() => boardFonts(frames ?? []), [frames])
+  const current = fontOf(frame)
+  const onBoardFont = !!current && board.some((f) => f.family === current.family && f.source === current.source)
   return (
-    <div className="insp-scroll">
+    <div className="insp-scroll insp-font">
+      <Section title="Typeface">
+        {board[0] && !onBoardFont && (
+          <div className="insp-buttons">
+            <button className="btn" onClick={() => updateFrame(frame.id, { ...swatchFont(board[0]), weight: undefined })}>
+              Use board font
+            </button>
+          </div>
+        )}
+        <FontPicker
+          value={current}
+          suggested={board}
+          suggestedLabel="Board fonts"
+          onPick={(f) => updateFrame(frame.id, { ...swatchFont(f), weight: frame.weight && weightOptions(f).includes(frame.weight) ? frame.weight : undefined })}
+        />
+      </Section>
       <Section title="Size">
         <NumberCtl p={FONT_SIZE} value={size} modified={size !== FONT_SIZE.value} onChange={(px) => updateFrame(frame.id, { size: px })} />
         <div className="segmented">
@@ -534,6 +611,55 @@ function TextBody({ frame }: { frame: Frame }) {
           ))}
         </div>
       </Section>
+      <StyleSection frame={frame} weights={weights} weight={frame.weight} auto onWeight={(w) => updateFrame(frame.id, { weight: w })} />
     </div>
+  )
+}
+
+/** Weight buttons (each set in its own weight) plus italic. `auto` adds a choice for "follow the size". */
+function StyleSection({
+  frame,
+  weights,
+  weight,
+  auto,
+  onWeight,
+}: {
+  frame: Frame
+  weights: number[]
+  weight?: number
+  auto?: boolean
+  onWeight: (w: number | undefined) => void
+}) {
+  const family = frame.font ? fontStack(frame.font, frame.fontCategory) : undefined
+  return (
+    <Section title="Weight">
+      <div className="insp-buttons weight-grid">
+        {auto && (
+          <button className="btn" data-active={weight === undefined || undefined} style={{ fontFamily: family }} onClick={() => onWeight(undefined)}>
+            Auto
+          </button>
+        )}
+        {weights.map((w) => (
+          <button
+            key={w}
+            className="btn"
+            data-active={w === weight || undefined}
+            title={`${WEIGHT_NAMES[w] ?? w} ${w}`}
+            style={{ fontFamily: family, fontWeight: w }}
+            onClick={() => onWeight(w)}
+          >
+            {WEIGHT_NAMES[w] ?? w}
+          </button>
+        ))}
+        <button
+          className="btn"
+          data-active={frame.italic || undefined}
+          style={{ fontFamily: family, fontStyle: 'italic' }}
+          onClick={() => updateFrame(frame.id, { italic: frame.italic ? undefined : true })}
+        >
+          Italic
+        </button>
+      </div>
+    </Section>
   )
 }

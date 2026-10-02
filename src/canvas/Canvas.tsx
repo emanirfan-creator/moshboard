@@ -45,11 +45,16 @@ export function Canvas() {
 
   // Apply the camera straight to the DOM: no React render per pan/zoom event.
   useEffect(() => {
+    let zoom = NaN
     const apply = (c: Camera) => {
       const el = world.current
       if (!el) return
       el.style.transform = `translate(${c.x}px, ${c.y}px) scale(${c.z})`
-      el.style.setProperty('--inv', String(1 / c.z))
+      // --inv restyles every block (outlines, labels, handles), so only touch it when the zoom changes.
+      if (c.z !== zoom) {
+        zoom = c.z
+        el.style.setProperty('--inv', String(1 / c.z))
+      }
     }
     apply(getState().camera)
     return onCamera(apply)
@@ -176,7 +181,8 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
   const linked = useStore((s) => {
     const sel = s.selected[0]
     if (!sel || sel === frame.id) return false
-    return frame.link === sel || frameById(sel)?.link === frame.id
+    const other = frameById(sel)
+    return !!other && (frame.link ?? frame.id) === (other.link ?? other.id) && (!!frame.link || !!other.link)
   })
   const modified = useStore((s) => !!s.overrides[frame.id])
   const error = useStore((s) => s.errors[frame.id])
@@ -286,6 +292,7 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
       data-selected={selected || undefined}
       data-interact={interact || undefined}
       data-linked={linked || undefined}
+      data-away={!view.inView || undefined}
       style={{ left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
     >
       {block ? (
@@ -357,7 +364,12 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
           onPointerDown={onDown}
           onDoubleClick={(e) => {
             e.stopPropagation()
-            if (frame.type !== 'image') setState({ interact: frame.id, selected: [frame.id] })
+            // A font swatch has nothing to interact with on the canvas (and interacting would
+            // take away its drag area): double-click jumps to the inspector's font search instead.
+            if (frame.type === 'swatch' && frame.font) {
+              setState({ selected: [frame.id] })
+              requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.inspector .font-picker input')?.focus())
+            } else if (frame.type !== 'image') setState({ interact: frame.id, selected: [frame.id] })
           }}
         />
       )}

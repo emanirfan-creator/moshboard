@@ -1,4 +1,5 @@
 import { transform } from 'sucrase'
+import { FONT_PROBE, SANDBOX_FONT } from '../../shared/font-probe.ts'
 import { TW_THEME } from '../../shared/twTheme.ts'
 
 // Code frames run in a sandboxed iframe (opaque origin). React components get
@@ -55,7 +56,7 @@ const IMPORT_MAP = {
 const BASE_CSS = `
 html, body { margin: 0; height: 100%; }
 :root { color-scheme: dark; }
-body { background: transparent; color: #f7f8f8; font: 13px/1.5 Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+body { background: transparent; color: #f7f8f8; font: 13px/1.5 ${SANDBOX_FONT}; -webkit-font-smoothing: antialiased; }
 #root { min-height: 100%; display: grid; place-items: center; }
 .__mb-error { font: 11px/1.4 ui-monospace, Menlo, monospace; color: #eb5757; padding: 12px; white-space: pre-wrap; }
 `
@@ -104,6 +105,23 @@ const runtime = (values: Record<string, unknown>) => `
     else { var s = document.documentElement.style; for (var k2 in d.css) s.setProperty(k2, d.css[k2]); }
     window.__mb.set(d.values);
     window.dispatchEvent(new CustomEvent("mb:params", { detail: d.values }));
+  });
+  // Sizing a new frame to what it draws: the box around every visible element, skipping
+  // wrappers that only stretch to fill the frame (h-screen centering and the like).
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.type !== "mb:fit") return;
+    var vw = innerWidth, vh = innerHeight, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    var els = document.body ? document.body.querySelectorAll("*") : [];
+    for (var i = 0; i < els.length && i < 3000; i++) {
+      var el = els[i];
+      if (/^(SCRIPT|STYLE|LINK|META|TEMPLATE)$/.test(el.tagName) || el.closest(".__mb-error")) continue;
+      var r = el.getBoundingClientRect();
+      var fillsW = r.width >= vw * 0.98, fillsH = r.height >= vh * 0.98;
+      // A wrapper stretched across the frame says nothing about size; its children do.
+      if (r.width < 1 || r.height < 1 || (fillsW && fillsH) || ((fillsW || fillsH) && el.childElementCount)) continue;
+      x0 = Math.min(x0, r.left); y0 = Math.min(y0, r.top); x1 = Math.max(x1, r.right); y1 = Math.max(y1, r.bottom);
+    }
+    parent.postMessage({ type: "mb:size", w: x1 > x0 ? x1 - x0 : 0, h: y1 > y0 ? y1 - y0 : 0 }, "*");
   });
   // Replay without reloading the frame: React frames remount, HTML frames restart their animations.
   window.addEventListener("message", function (e) {
@@ -168,6 +186,8 @@ const runtime = (values: Record<string, unknown>) => `
     applyCss(); // tuning can arrive before the first measurement
     var items = Object.keys(cssGroups).map(function (k) { return cssGroups[k]; }).concat(waapi);
     parent.postMessage({ type: "mb:motion", items: items }, "*");
+    // The fonts its text is set in, for suggesting fonts that match the board.
+    try { parent.postMessage({ type: "mb:fonts", fonts: ${FONT_PROBE} }, "*"); } catch (e) {}
   }
   function measureSoon() { setTimeout(measure, 300); setTimeout(measure, 1500); }
   function applyCss() {

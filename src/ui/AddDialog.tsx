@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { parseCoolors } from '../../shared/color.ts'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { looksLikeInstall } from '../../shared/install.ts'
 import { addCode, addFrame, addFromRegistry, addLink, addPalette, addNote, addText, looksLikeCode, uploadFiles } from '../actions'
 import { setState, useStore, viewportCenter, type AddKind } from '../store'
+import { DEFAULT_FONT, fontStack, SWATCH_SIZE, swatchBox, swatchFont, type FontFamily } from '../../shared/fonts.ts'
+import { hasColors } from '../boardColors'
+import { loadFont, useFontList } from '../fonts'
+import { suggestFonts, type FontSuggestion } from '../fontSuggest'
 import { ColorPicker } from './ColorPicker'
+import { FontPicker } from './FontPicker'
 import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SwatchIcon, TextIcon, TypeIcon } from './icons'
 
 const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[] = [
@@ -278,31 +282,30 @@ function ModeSwitch({ mode, onMode }: { mode: 'palette' | 'single'; onMode: (m: 
 }
 
 function PaletteForm({ onMode }: { onMode: (m: 'palette' | 'single') => void }) {
-  const [link, setLink] = useState('')
-  const fromLink = link.trim() ? parseCoolors(link) : null
+  // Same rule as the palette itself: the selected references if any have colors, else the whole board.
+  const from = useStore((s) => {
+    const frames = s.board?.frames ?? []
+    if (frames.some((f) => s.selected.includes(f.id) && hasColors(f, true))) return 'selection'
+    return frames.some((f) => hasColors(f, false)) ? 'board' : 'none'
+  })
   const submit = () => {
     close()
-    addPalette(fromLink ?? undefined, undefined, fromLink ? 'Coolors palette' : 'Palette')
+    addPalette(undefined, undefined, 'Palette')
   }
   return (
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Color</h2>
       <ModeSwitch mode="palette" onMode={onMode} />
       <p>
-        Works like Coolors: lock the colors you like and <b>Generate</b> the rest. Exports as named tokens.
+        {from === 'selection'
+          ? 'The colors are picked from the references you’ve selected, so the palette matches them.'
+          : from === 'board'
+            ? 'The colors are picked from the images, videos and sites on this board, so the palette matches them.'
+            : 'Your board has no images, videos or sites yet, so this starts from a fresh color scheme. Once it has some, new palettes match their colors.'}{' '}
+        Lock the colors you like and <b>Generate</b> the rest. Exports as named tokens.
       </p>
-      <label>
-        Start from a Coolors link (optional)
-        <input
-          autoFocus
-          value={link}
-          placeholder="https://coolors.co/22223b-4a4e69-9a8c98-c9ada7-f2e9e4"
-          onChange={(e) => setLink(e.target.value)}
-        />
-        {link.trim() && !fromLink && <small className="field-note">That doesn’t look like a Coolors palette link</small>}
-      </label>
       <Footer>
-        <button className="btn btn-primary" onClick={submit}>
+        <button autoFocus className="btn btn-primary" onClick={submit}>
           Add palette <kbd>↵</kbd>
         </button>
       </Footer>
@@ -348,36 +351,59 @@ function SingleColorForm({ onMode }: { onMode: (m: 'palette' | 'single') => void
 }
 
 function FontForm() {
-  const [font, setFont] = useState('Inter Variable')
+  const [font, setFont] = useState<FontFamily>(DEFAULT_FONT)
   const [name, setName] = useState('')
+  const [suggested, setSuggested] = useState<FontSuggestion[]>([])
+  const picked = useRef(false)
+  const fonts = useFontList()
+  useEffect(() => loadFont(font.href), [font])
+  // Start on the font that best matches the board, unless one was already picked by hand.
+  useEffect(() => {
+    if (!fonts) return
+    let live = true
+    suggestFonts(fonts).then((s) => {
+      if (!live) return
+      setSuggested(s)
+      if (s[0] && !picked.current) setFont(s[0].font)
+    })
+    return () => void (live = false)
+  }, [fonts])
+  const suggestedFonts = useMemo(() => suggested.map((s) => s.font), [suggested])
+  const pick = (f: FontFamily) => {
+    picked.current = true
+    setFont(f)
+  }
   const submit = () => {
     close()
     const at = viewportCenter()
+    const box = swatchBox(SWATCH_SIZE, font.family)
+    // A suggested family comes in at the weight the board uses it at.
+    const weight = suggested.find((s) => s.font.family === font.family && s.font.source === font.source)?.weight
     addFrame({
       type: 'swatch',
-      font,
+      ...swatchFont(font),
+      weight: weight && weight !== 400 ? weight : undefined,
       label: name.trim() || 'Font',
-      x: Math.round(at.x - 130),
-      y: Math.round(at.y - 60),
-      w: 260,
-      h: 120,
+      x: Math.round(at.x - box.w / 2),
+      y: Math.round(at.y - box.h / 2),
+      ...box,
     })
   }
   return (
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Font</h2>
-      <p>Any font installed on this Mac.</p>
-      <label>
-        Font family
-        <input autoFocus value={font} onChange={(e) => setFont(e.target.value)} />
-      </label>
+      <p>Any font installed on this Mac, or anything from Google Fonts.</p>
+      <div className="font-pick-row">
+        <FontPicker autoFocus value={font} onPick={pick} suggested={suggestedFonts} suggestedLabel="Matches your references" />
+        <div className="font-preview" style={{ fontFamily: fontStack(font.family, font.category) }}>
+          {font.family}
+          <small>{font.source === 'google' ? 'Google Fonts' : 'On this Mac'}</small>
+        </div>
+      </div>
       <label>
         Role
         <input value={name} placeholder="e.g. Headings" onChange={(e) => setName(e.target.value)} />
       </label>
-      <div className="font-preview" style={{ fontFamily: font }}>
-        Aa Gg 123
-      </div>
       <Footer>
         <button className="btn btn-primary" onClick={submit}>
           Add font <kbd>↵</kbd>

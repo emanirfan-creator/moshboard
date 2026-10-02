@@ -6,6 +6,7 @@ import type { Plugin, ViteDevServer } from 'vite'
 import type { Board } from '../shared/types.ts'
 import { analyzeVideo } from './analyze-video.ts'
 import { exportBoard } from './export.ts'
+import { listFonts } from './fonts.ts'
 
 export const BOARDS_DIR = path.resolve('boards')
 const NAME_RE = /^[\w-]+$/
@@ -328,6 +329,12 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     json(res, await checkEmbeddable(String(url.searchParams.get('url'))))
     return true
   }
+  if (kind === 'site-fonts' && method === 'POST') {
+    const { url: href } = JSON.parse((await readBody(req)).toString() || '{}')
+    const { siteFonts } = await import('./snapshot.ts')
+    json(res, await siteFonts(String(href)))
+    return true
+  }
   if (kind === 'snapshot' && method === 'POST') {
     const body = JSON.parse((await readBody(req)).toString() || '{}')
     const { snapshotUrl } = await import('./snapshot.ts')
@@ -351,6 +358,10 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const { ids } = JSON.parse((await readBody(req)).toString() || '{}')
     const result = await exportBoard(BOARDS_DIR, board, undefined, Array.isArray(ids) ? ids.map(String) : undefined)
     json(res, { ...result, absDir: boardPath(board, 'export') })
+    return true
+  }
+  if (kind === 'fonts' && method === 'GET') {
+    json(res, await listFonts())
     return true
   }
   if (kind === 'reveal' && method === 'POST') {

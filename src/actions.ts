@@ -9,11 +9,13 @@ import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
 import { arrange, type LayoutKind } from './layout'
 import { copyText } from './clipboard'
-import { generatePalette, nameColor, paletteFromSamples, parseCoolors, type PaletteColor } from '../shared/color.ts'
+import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } from '../shared/color.ts'
 import { boardSamples, hasColors } from './boardColors'
+import { DEFAULT_FONT, SWATCH_SIZE, swatchBox, swatchFont } from '../shared/fonts.ts'
 import { api, mediaUrl } from './api'
 import { ensureDefaultExport } from './frames/sandbox'
 import { videos } from './frames/registry'
+import { BLOCK_HEAD, BLOCK_PAD } from './canvas/blocks'
 import {
   frameById,
   getState,
@@ -30,6 +32,9 @@ import {
 } from './store'
 
 export const newId = () => Math.random().toString(36).slice(2, 8)
+
+/** Frame size for a block whose content is w×h: the content plus the block's header and padding. */
+const blockBox = (w: number, h: number) => ({ w: Math.round(w + BLOCK_PAD * 2), h: Math.round(h + BLOCK_HEAD + BLOCK_PAD) })
 
 // ── boards ──────────────────────────────────────────────
 
@@ -397,7 +402,8 @@ export function splitPalette(id = getState().selected[0]) {
 
 export function addSwatch(kind: 'color' | 'font', at?: { x: number; y: number }) {
   if (kind === 'color') return addFrame({ type: 'swatch', color: '#d0d6e0', label: 'Color', ...place(120, 120, at) })
-  return addFrame({ type: 'swatch', font: 'Inter Variable', label: 'Body', ...place(260, 120, at) })
+  const box = swatchBox(SWATCH_SIZE, DEFAULT_FONT.family)
+  return addFrame({ type: 'swatch', ...swatchFont(DEFAULT_FONT), label: 'Body', ...place(box.w, box.h, at) })
 }
 
 /**
@@ -406,8 +412,6 @@ export function addSwatch(kind: 'color' | 'font', at?: { x: number; y: number })
  */
 export async function addLink(href: string, at?: { x: number; y: number }) {
   const url = /^https?:\/\//.test(href) ? href : `https://${href}`
-  const coolors = parseCoolors(url)
-  if (coolors) return addPalette(coolors, at, 'Coolors palette')
   if (!isMediaLink(url)) return addUrl(url, at)
   const host = new URL(url).hostname.replace(/^www\./, '')
   toast(`Fetching from ${host}…`)
@@ -418,7 +422,8 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     const w0 = m.width ?? 480
     const h0 = m.height ?? 300
     const k = Math.min(1, max / Math.max(w0, h0))
-    const f = addFrame({ type: m.type, src: m.path, origin: m.source, label: m.title, ...place(w0 * k, h0 * k, at) })
+    const box = blockBox(w0 * k, h0 * k)
+    const f = addFrame({ type: m.type, src: m.path, origin: m.source, label: m.title, ...place(box.w, box.h, at) })
     toast(`Added ${m.type} from ${host}`)
     return f
   } catch (e) {
@@ -437,7 +442,7 @@ function addPieces(
 ) {
   const H = 360
   const GAP = 24
-  const sized = items.map((it) => ({ ...it, w: Math.round(H * ((it.width ?? 4) / (it.height ?? 3))) }))
+  const sized = items.map((it) => ({ ...it, w: blockBox(H * ((it.width ?? 4) / (it.height ?? 3)), H).w }))
   let x = Math.round(at.x - (sized.reduce((n, it) => n + it.w, 0) + GAP * (sized.length - 1)) / 2)
   const frames = sized.map((it, i) => {
     const f = {
@@ -449,7 +454,7 @@ function addPieces(
       x,
       y: Math.round(at.y - H / 2),
       w: it.w,
-      h: H,
+      h: blockBox(0, H).h,
     } as Frame
     x += it.w + GAP
     return f
@@ -468,7 +473,9 @@ export function addUrl(href: string, at?: { x: number; y: number }) {
   } catch {
     // keep raw
   }
-  return addFrame({ type: 'url', src: url, label: host, viewport: 1280, ...place(640, 400, at) })
+  // The 1280px-wide page shown at half size, 16:10.
+  const box = blockBox(624, 390)
+  return addFrame({ type: 'url', src: url, label: host, viewport: 1280, ...place(box.w, box.h, at) })
 }
 
 const DEFAULT_TSX = `/* @param duration 420ms 80..1600 */
@@ -516,7 +523,8 @@ export async function addCode(
   const body = kind === 'tsx' ? ensureDefaultExport(text) : text
   await api.writeFile(getState().boardName, file, body)
   setState((s) => ({ files: { ...s.files, [file]: body } }))
-  return addFrame({ type: 'code', file, label: opts.label ?? 'Component', ...place(420, 300), ...opts, id })
+  // `fit`: sized to what it renders once it first loads (see CodeFrame).
+  return addFrame({ type: 'code', file, label: opts.label ?? 'Component', fit: opts.w === undefined, ...place(420, 300), ...opts, id })
 }
 
 export const looksLikeCode = (t: string) =>
@@ -641,7 +649,8 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
       } else toast(`Skipped ${file.name}: unsupported type`, true)
       continue
     }
-    const size = await mediaSize(file, type as 'image' | 'video')
+    const media = await mediaSize(file, type as 'image' | 'video')
+    const size = blockBox(media.w, media.h)
     const up = await api.upload(getState().boardName, file)
     const path = up.path
     addFrame({
@@ -774,27 +783,63 @@ export async function pasteFrames(from: Clip | null = clip) {
 
 // ── linking & replay ────────────────────────────────────
 
-export function linkSelected() {
-  const [a, b] = getState().selected.map(frameById)
-  if (!a || !b) return toast('Select two frames: the reference, then its copy or note', true)
-  // The code frame (or note) points at the other one.
-  const [child, parent] = a.type === 'code' || a.type === 'note' ? (b.type === 'code' || b.type === 'note' ? [b, a] : [a, b]) : [b, a]
-  updateFrame(child.id, { link: parent.id })
-  toast(`Linked ${child.label ?? child.type} → ${parent.label ?? parent.type}`)
-}
+// A link is a group: one reference, with any number of copies and notes pointing at it.
 
-export function unlinkSelected() {
-  for (const id of getState().selected) updateFrame(id, { link: undefined })
-}
+/** The reference a frame's link group hangs off (the frame itself when it is the reference or unlinked). */
+export const linkRoot = (f: Frame) => (f.link && frameById(f.link) ? f.link : f.id)
 
-/** Replay selected frames together with anything they're linked to. */
-export function replay(ids = getState().selected) {
-  const frames = getState().board?.frames ?? []
+/** Whether a frame is in a link group: it points at a reference, or something points at it. */
+export const isLinked = (f: Frame) => !!f.link || !!getState().board?.frames.some((x) => x.link === f.id)
+
+/** Everything in the same link group as these frames, including them. */
+export function linkGroup(ids: string[]) {
+  const roots = new Set(ids.map(frameById).filter((f): f is Frame => !!f).map(linkRoot))
   const set = new Set(ids)
-  for (const f of frames) {
-    if (set.has(f.id) && f.link) set.add(f.link)
-    if (f.link && set.has(f.link)) set.add(f.id)
-  }
+  for (const f of getState().board?.frames ?? []) if (roots.has(f.id) || (f.link && roots.has(f.link))) set.add(f.id)
+  return set
+}
+
+/** Selected frames that aren't all in one group already can be linked (or added to a group). */
+export function canLinkSelected() {
+  const sel = getState().selected.map(frameById).filter((f): f is Frame => !!f)
+  return sel.length >= 2 && new Set(sel.map(linkRoot)).size > 1
+}
+
+/**
+ * Link the selected frames into one group. If any of them is already linked,
+ * the others join that group (keeping its reference); otherwise the reference is
+ * the first selected frame that isn't a code copy or a note. Groups that meet
+ * are merged, so everything points straight at one reference.
+ */
+export function linkSelected() {
+  const sel = getState().selected.map(frameById).filter((f): f is Frame => !!f)
+  if (sel.length < 2) return toast('Select a reference and its copies or notes', true)
+  const grouped = sel.find(isLinked)
+  const root = frameById(grouped ? linkRoot(grouped) : (sel.find((f) => f.type !== 'code' && f.type !== 'note') ?? sel[0]).id)!
+  const members = linkGroup(sel.map((f) => f.id))
+  mutateFrames((fs) =>
+    fs.map((f) => {
+      if (!members.has(f.id)) return f
+      if (f.id === root.id) return f.link ? { ...f, link: undefined } : f
+      return f.link === root.id ? f : { ...f, link: root.id }
+    }),
+  )
+  toast(`${grouped ? 'Added to' : 'Linked to'} ${root.label ?? root.type} · ${members.size} linked`)
+}
+
+/**
+ * A selected copy or note leaves its group; a selected reference releases
+ * everything linked to it.
+ */
+export function unlinkSelected() {
+  const ids = new Set(getState().selected)
+  mutateFrames((fs) => fs.map((f) => (f.link && (ids.has(f.id) || ids.has(f.link)) ? { ...f, link: undefined } : f)))
+  toast('Unlinked · ⌘Z to undo')
+}
+
+/** Replay selected frames together with everything they're linked to. */
+export function replay(ids = getState().selected) {
+  const set = linkGroup(ids)
   setState((s) => {
     const replay = { ...s.replay }
     for (const id of set) replay[id] = (replay[id] ?? 0) + 1

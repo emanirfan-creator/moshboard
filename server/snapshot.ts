@@ -2,6 +2,7 @@
 // full-page snapshot instead of a live iframe.
 import fs from 'node:fs'
 import path from 'node:path'
+import { FONT_PROBE, type UsedFont } from '../shared/font-probe.ts'
 import { launch } from './capture-url.ts'
 
 export async function checkEmbeddable(url: string): Promise<{ embeddable: boolean; reason?: string }> {
@@ -60,6 +61,20 @@ export async function snapshotUrl(boardDir: string, id: string, url: string, wid
     for (const f of fs.readdirSync(path.join(boardDir, 'assets')))
       if (f.startsWith(`${id}.snapshot`) && `assets/${f}` !== rel) fs.rmSync(path.join(boardDir, 'assets', f))
     return { path: rel, width, height: Math.min(height, MAX_HEIGHT), takenAt: new Date().toISOString() }
+  } finally {
+    await browser.close()
+  }
+}
+
+/** The fonts a website sets its text in (headless Chrome), most-used first. */
+export async function siteFonts(url: string): Promise<UsedFont[]> {
+  const browser = await launch()
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+    await page.goto(url, { waitUntil: 'load', timeout: 20000 })
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+    await page.evaluate(() => document.fonts.ready).catch(() => {})
+    return await page.evaluate(FONT_PROBE)
   } finally {
     await browser.close()
   }
