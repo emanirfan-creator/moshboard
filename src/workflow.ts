@@ -16,18 +16,32 @@ const copiesOf = (f: Frame, frames: Frame[]) => frames.filter((c) => c.type === 
 
 /** How far a frame is through measure → recreate → tune, or null when it isn't part of it. */
 export function stageOf(f: Frame, frames: Frame[]): Stage | null {
-  if (isRef(f)) {
-    const copies = copiesOf(f, frames)
-    if (copies.some((c) => c.tuned)) return 'tuned'
-    if (copies.some((c) => c.file?.endsWith('.tsx'))) return 'recreated'
-    return f.analysis ? 'measured' : null
+  return stages(frames).get(f.id) ?? null
+}
+
+// Every block reads its stage on each store change (each pointer move of a drag), so the
+// whole board's stages are worked out once per frames array instead of per block.
+const cache = new WeakMap<Frame[], Map<string, Stage>>()
+function stages(frames: Frame[]) {
+  let m = cache.get(frames)
+  if (m) return m
+  m = new Map()
+  const byId = new Map(frames.map((f) => [f.id, f]))
+  const copies = new Map<string, Frame[]>()
+  for (const c of frames) if (c.type === 'code' && c.link) copies.set(c.link, [...(copies.get(c.link) ?? []), c])
+  for (const f of frames) {
+    let st: Stage | null = null
+    if (isRef(f)) {
+      const cs = copies.get(f.id) ?? []
+      st = cs.some((c) => c.tuned) ? 'tuned' : cs.some((c) => c.file?.endsWith('.tsx')) ? 'recreated' : f.analysis ? 'measured' : null
+    } else if (f.type === 'code' && f.link) {
+      const ref = byId.get(f.link)
+      if (ref && isRef(ref)) st = f.tuned ? 'tuned' : 'recreated'
+    }
+    if (st) m.set(f.id, st)
   }
-  if (f.type === 'code' && f.link) {
-    const ref = frames.find((r) => r.id === f.link)
-    if (!ref || !isRef(ref)) return null
-    return f.tuned ? 'tuned' : 'recreated'
-  }
-  return null
+  cache.set(frames, m)
+  return m
 }
 
 export interface Step {

@@ -4,7 +4,7 @@ import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParam
 import type { Frame } from '../../shared/types.ts'
 import { ensureFile } from '../actions'
 import { api } from '../api'
-import { getState, setState, updateFrame, useStore } from '../store'
+import { frameById, getState, setState, updateFrame, useStore } from '../store'
 import { BLOCK_HEAD, BLOCK_PAD } from '../canvas/blocks'
 import { BlockError } from './BlockError'
 import { BlockLoader } from './BlockLoader'
@@ -170,9 +170,7 @@ export function CodeFrame({
   // Entrance animations loop on their own: play, rest, play again. Hover/click
   // components wait for the user, and copies linked to a video follow its loop.
   const loop = useStore((s) => s.loop)
-  const linkedToVideo = useStore(
-    (s) => !!frame.link && s.board?.frames.find((f) => f.id === frame.link)?.type === 'video',
-  )
+  const linkedToVideo = useStore(() => !!frame.link && frameById(frame.link)?.type === 'video')
   const trigger = source ? annotation(source, 'trigger')?.toLowerCase() : undefined
   // Only loop things that are about entrance motion: explicitly marked, or carrying timing params
   // (a duration, an ease, a spring). Params that only set looks (a 3D globe's colors, an icon

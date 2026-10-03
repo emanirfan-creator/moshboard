@@ -17,8 +17,20 @@ export function parseModules(raw: string | undefined): Record<string, string> {
 /** Motion values found in a frame's code and its modules. Explicit `@param` names win on a clash. */
 export function detectFor(frame: Frame, source: string | undefined, modulesRaw: string | undefined): Detection {
   if (!frame.file || source === undefined) return NONE
-  const kind = frame.file.endsWith('.html') ? 'html' : 'tsx'
-  const d = detectMotion(source, parseModules(modulesRaw), kind, frame.file.split('/').pop())
+  // The block and the side panel both scan the same code: do it once per version of it.
+  const key = `${frame.file}\n${frame.modules ?? ''}`
+  const hit = scans.get(key)
+  if (hit && hit.source === source && hit.modulesRaw === modulesRaw) return hit.d
+  const d = scan(frame.file, source, modulesRaw)
+  scans.set(key, { source, modulesRaw, d })
+  return d
+}
+
+const scans = new Map<string, { source: string; modulesRaw: string | undefined; d: Detection }>()
+
+function scan(file: string, source: string, modulesRaw: string | undefined): Detection {
+  const kind = file.endsWith('.html') ? 'html' : 'tsx'
+  const d = detectMotion(source, parseModules(modulesRaw), kind, file.split('/').pop())
   const explicit = new Set(parseParams(source).map((p) => p.name))
   if (!d.params.some((p) => explicit.has(p.name))) return d
   const params = d.params.filter((p) => !explicit.has(p.name))
