@@ -63,6 +63,12 @@ export interface Frame {
   wrapper?: string
   /** code: tuned values for motion measured in the running frame, keyed by what was measured (see shared/runtime-motion.ts) */
   runtime?: Record<string, RuntimeTune>
+  /** code: a copy whose tuned values have been saved (⌘S) at least once */
+  tuned?: boolean
+  /** code: names given to its controls in the side panel, by param name (double-click a control's name) */
+  labels?: Record<string, string>
+  /** code: values set on the component's own props in the side panel (see shared/props.ts) */
+  props?: Record<string, unknown>
 }
 
 /** A measured transition/animation, tuned on the canvas. It comes from a library or stylesheet, not a literal in the code. */

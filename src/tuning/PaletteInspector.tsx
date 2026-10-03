@@ -1,10 +1,12 @@
 import { useEffect, useState, type PointerEvent as RPE } from 'react'
 import { adjustHex, NO_ADJUST, nameColor, type Adjust, type PaletteColor } from '../../shared/color.ts'
 import type { Frame } from '../../shared/types.ts'
-import { regeneratePalette, setPaletteColors, splitPalette } from '../actions'
+import { randomizePalette, regeneratePalette, setPaletteColors, splitPalette } from '../actions'
 import { clamp, drag } from '../drag'
 import { setState, useStore } from '../store'
 import { ColorPicker } from '../ui/ColorPicker'
+import { useGlide } from '../ui/glide'
+import { cue, detent } from '../ui/sound'
 
 const SLIDERS: { key: keyof Adjust; label: string; min: number; max: number; track: string }[] = [
   {
@@ -20,10 +22,16 @@ const SLIDERS: { key: keyof Adjust; label: string; min: number; max: number; tra
 ]
 
 function Slider({ s, value, onChange }: { s: (typeof SLIDERS)[number]; value: number; onChange: (n: number) => void }) {
-  const pct = ((value - s.min) / (s.max - s.min)) * 100
+  const span = s.max - s.min
+  const track = useGlide<HTMLDivElement>({ '--t': (value - s.min) / span })
+  const set = (n: number) => {
+    // A detent every 10 units, a heavier one at either end.
+    detent(`adj:${s.key}`, Math.round(n / 10), (n - s.min) / span, n === s.min || n === s.max)
+    onChange(n)
+  }
   const onDown = (e: RPE<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const at = (x: number) => onChange(Math.round(s.min + clamp((x - rect.left) / rect.width, 0, 1) * (s.max - s.min)))
+    const at = (x: number) => set(Math.round(s.min + clamp((x - rect.left) / rect.width, 0, 1) * span))
     at(e.clientX)
     drag(e, (_dx, _dy, ev) => at(ev.clientX), undefined, 0, 'tune')
   }
@@ -35,9 +43,9 @@ function Slider({ s, value, onChange }: { s: (typeof SLIDERS)[number]; value: nu
           {value > 0 ? `+${value}` : value}
         </span>
       </div>
-      <div className="adj-track" style={{ background: s.track }} onPointerDown={onDown}>
-        <span className="adj-zero" style={{ left: `${((0 - s.min) / (s.max - s.min)) * 100}%` }} />
-        <span className="adj-knob" style={{ left: `${pct}%` }} />
+      <div ref={track} className="adj-track" style={{ background: s.track }} onPointerDown={onDown}>
+        <span className="adj-zero" style={{ left: `${((0 - s.min) / span) * 100}%` }} />
+        <span className="adj-knob" />
       </div>
     </div>
   )
@@ -89,7 +97,10 @@ export function PaletteBody({ frame }: { frame: Frame }) {
                     className="icon-btn"
                     data-on={c.locked || undefined}
                     title={c.locked ? 'Unlock' : 'Lock'}
-                    onClick={() => set(colors.map((x, j) => (j === i ? { ...x, locked: !x.locked } : x)))}
+                    onClick={() => {
+                      cue(c.locked ? 'toggle-off' : 'toggle-on')
+                      set(colors.map((x, j) => (j === i ? { ...x, locked: !x.locked } : x)))
+                    }}
                   >
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                       <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
@@ -104,7 +115,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
             ))}
           </div>
           <p className="ctl-help">
-            Generate replaces unlocked colors. Hover a column for its tools; + between columns adds a blend.
+            Generate picks another combination from the board; Random tries any harmony. Both keep locked colors. Hover a column for its tools; + between columns adds a blend.
           </p>
         </section>
         <section className="insp-section">
@@ -112,7 +123,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
           {SLIDERS.map((s) => (
             <Slider key={s.key} s={s} value={adjust[s.key]} onChange={(n) => change(s.key, n)} />
           ))}
-          <p className="ctl-help">The frame previews the change until you apply it.</p>
+          <p className="ctl-help">Previewing until you apply.</p>
         </section>
       </div>
       <footer className="insp-foot">
@@ -132,7 +143,10 @@ export function PaletteBody({ frame }: { frame: Frame }) {
               Split into swatches
             </button>
             <span className="grow" />
-            <button className="btn btn-primary" onClick={() => regeneratePalette(frame.id)} title="Balanced colors from the board's images, videos and sites">
+            <button className="btn" onClick={() => randomizePalette(frame.id)} title="A random harmony, not from the board">
+              Random
+            </button>
+            <button className="btn btn-primary" onClick={() => regeneratePalette(frame.id)} title="Another mix from the board">
               Generate
             </button>
           </>

@@ -7,11 +7,11 @@ import {
   tidySelection,
   combineSwatches,
   regeneratePalette,
+  randomizePalette,
   splitPalette,
   addText,
   addSwatch,
   analyzeSelected,
-  captureSelected,
   copyRecreate,
   deleteSelected,
   duplicateSelected,
@@ -30,9 +30,12 @@ import {
   switchBoard,
   createCanvas,
   renameCanvas,
+  duplicateCanvas,
+  openSample,
   unlinkSelected,
 } from '../actions'
 import { isTunable } from '../../shared/autoParams.ts'
+import { shareBoard } from '../share'
 import { setSounds, soundsOn } from '../ui/sound'
 import { frameById, getState, setState, toggleSidebar, updateFrame, useStore } from '../store'
 
@@ -95,17 +98,7 @@ function Palette() {
       add('Video', 'Replay with linked copy', () => replay(), 'R')
     }
     if (one?.type === 'url') {
-      add(
-        'Site',
-        'Capture motion…',
-        ask({
-          placeholder: 'Selector and trigger, e.g. .card hover · nav a click · section scroll',
-          submit: (v) => {
-            const m = /^(.*?)\s+(hover|click|focus|scroll|load)$/i.exec(v.trim())
-            return captureSelected(m ? m[1] : v.trim() || 'body', m ? m[2].toLowerCase() : 'hover')
-          },
-        }),
-      )
+      add('Site', 'Capture motion…', () => setState({ picking: one.id }))
       add('Site', 'Copy /recreate command', copyRecreate)
     }
     if (one?.type === 'code' || one?.type === 'url') {
@@ -113,7 +106,8 @@ function Palette() {
       if (one.viewport) add('Frame', 'Render at frame size', () => setViewport(undefined))
     }
     if (one?.type === 'palette') {
-      add('Palette', 'Generate new colors', () => regeneratePalette())
+      add('Palette', 'Generate colors from the board', () => regeneratePalette())
+      add('Palette', 'Random colors', () => randomizePalette())
       add('Palette', 'Split into swatches', () => splitPalette())
     }
     if (sel.filter((f) => f!.type === 'swatch' || f!.type === 'palette').length >= 2)
@@ -152,12 +146,15 @@ function Palette() {
     add('Canvas', 'Fit to screen', fitBoard, '⌘0')
     add('Canvas', soundsOn() ? 'Turn control sounds off' : 'Turn control sounds on', () => setSounds(!soundsOn()))
     add('Canvas', 'Export spec (design.md, motion.md)', exportBoard)
+    add('Canvas', 'Share as a page (one HTML file)', shareBoard)
     add('Canvas', 'New canvas…', ask({ placeholder: 'Canvas name', submit: (v) => createCanvas(v) }))
     add(
       'Canvas',
       'Rename canvas…',
       ask({ placeholder: 'Canvas name', initial: s.board?.name, submit: (v) => renameCanvas(v) }),
     )
+    add('Canvas', 'Duplicate canvas', () => duplicateCanvas(s.boardName))
+    add('Canvas', 'Open the example board', openSample)
     add('Canvas', s.sidebar ? 'Hide sidebar' : 'Show sidebar', () => toggleSidebar(), '[')
     add('Help', 'Keyboard shortcuts', () => setState({ shortcuts: true }), '?')
     for (const c of s.canvases) if (c.id !== s.boardName) add('Go to', c.name, () => switchBoard(c.id))

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
-import { defaults, parseParams, type Bezier, type Param, type Spring } from '../../shared/params.ts'
+import { defaults, humanize, paramUse, parseParams, type Bezier, type Param, type Spring } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
 import {
   analyzeSelected,
@@ -9,7 +9,10 @@ import {
   makeTunable,
   markSegment,
   readAnalysis,
+  referenceTiming,
+  renameParam,
   replay,
+  resetParam,
   resetParams,
   setParam,
 } from '../actions'
@@ -42,9 +45,11 @@ import {
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
-import { BezierCtl, ColorCtl, NumberCtl, SpringCtl, Timeline } from './controls'
+import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, Timeline } from './controls'
 import { useDetection } from './detection'
+import { PropsSections, useComponentProps } from './PropsInspector'
 import { runtimeGroups } from '../../shared/runtime-motion.ts'
+import { Segmented } from '../ui/Segmented'
 import { scanChirp } from '../ui/sound'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
 
@@ -133,7 +138,7 @@ function Section({
   index,
   children,
 }: {
-  title: string
+  title: ReactNode
   note?: string
   /** file:line, right of the title */
   where?: string
@@ -169,12 +174,20 @@ function DetectedSection({
   values,
   mod,
   set,
+  reset,
+  rename,
+  labels,
+  reference,
 }: {
   group: DetectedGroup
   index: number
   values: Record<string, unknown>
   mod: (name: string) => boolean
   set: (name: string, v: unknown) => void
+  reset: (name: string) => void
+  rename: (name: string, label: string) => void
+  labels?: Record<string, string>
+  reference?: { duration?: number; ease?: Bezier }
 }) {
   const by = (label: string) => group.params.find((p) => p.label === label && isMs(p))
   const duration = by('duration')
@@ -193,15 +206,25 @@ function DetectedSection({
           values={values as Record<string, number>}
           modified={mod}
           onChange={set}
+          onReset={reset}
+          reference={reference?.duration ? { duration: reference.duration } : undefined}
         />
       )}
       {rest.map((p) =>
         p.kind === 'ease' ? (
-          <BezierCtl key={p.name} p={p} width={INNER_W} value={values[p.name] as Bezier} modified={mod(p.name)} onChange={(v) => set(p.name, v)} />
+          <BezierCtl key={p.name} p={p} width={INNER_W} value={values[p.name] as Bezier} modified={mod(p.name)} onChange={(v) => set(p.name, v)} onReset={() => reset(p.name)} reference={reference?.ease} />
         ) : p.kind === 'spring' ? (
-          <SpringCtl key={p.name} p={p} value={values[p.name] as Spring} modified={mod(p.name)} onChange={(v) => set(p.name, v)} />
+          <SpringCtl key={p.name} p={p} value={values[p.name] as Spring} modified={mod(p.name)} onChange={(v) => set(p.name, v)} onReset={() => reset(p.name)} />
         ) : (
-          <NumberCtl key={p.name} p={p} value={values[p.name] as number} modified={mod(p.name)} onChange={(v) => set(p.name, v)} />
+          <NumberCtl
+            key={p.name}
+            p={labels?.[p.name] ? { ...p, label: labels[p.name] } : p}
+            value={values[p.name] as number}
+            modified={mod(p.name)}
+            onChange={(v) => set(p.name, v)}
+            onReset={() => reset(p.name)}
+            onRename={(l) => rename(p.name, l)}
+          />
         ),
       )}
     </Section>
@@ -215,6 +238,7 @@ function CodeBody({ frame }: { frame: Frame }) {
   const overrides = useStore((s) => s.overrides[frame.id] ?? EMPTY) as Record<string, unknown>
   const params = useMemo(() => (source ? parseParams(source) : []), [source])
   const detection = useDetection(frame)
+  const props = useComponentProps(frame)
   // The first time a component's controls show up, they "scan in": a rising chirp and a staggered reveal.
   useEffect(() => {
     if (!detection.groups.length || scanned.has(frame.id)) return
@@ -240,6 +264,27 @@ function CodeBody({ frame }: { frame: Frame }) {
   } as Record<string, unknown>
   const mod = (name: string) => name in overrides
   const change = (name: string) => (v: unknown) => setParam(frame.id, name, v as never)
+  const reset = (name: string) => resetParam(frame.id, name)
+  const rename = (name: string, label: string) => renameParam(frame.id, name, label)
+  // Timing measured on the reference this copy is linked to, so the controls show what to aim for.
+  const refKey = useStore((s) => (frame.link && s.files ? JSON.stringify(referenceTiming(frame)) : 'null'))
+  const reference = useMemo(() => JSON.parse(refKey) as ReturnType<typeof referenceTiming>, [refKey]) ?? undefined
+  // Where the code uses each param ("<Pause size={…}>"): a readable name, and a section per element.
+  const uses = useMemo(
+    () => Object.fromEntries(params.map((p) => [p.name, source ? paramUse(source, p.name) : {}])),
+    [params, source],
+  )
+  const named = (p: Param): Param => {
+    const use = uses[p.name]
+    return { ...p, label: frame.labels?.[p.name] ?? (use?.element && use.prop ? humanize(use.prop) : p.label) }
+  }
+  const title = (p: Param, fallback: string, many: boolean) => (
+    <NameLabel
+      className="insp-h3-name"
+      text={frame.labels?.[p.name] ?? (many ? humanize(p.name) : fallback)}
+      onRename={(l) => rename(p.name, l)}
+    />
+  )
 
   const find = (re: RegExp) => params.find((p) => re.test(p.name) && isMs(p))
   const duration = find(/^(duration|dur)$/i)
@@ -251,15 +296,21 @@ function CodeBody({ frame }: { frame: Frame }) {
   const springs = rest.filter((p) => p.kind === 'spring')
   const numbers = rest.filter((p) => p.kind === 'number')
   const colors = rest.filter((p) => p.kind === 'color')
+  const numberGroups = new Map<string, Param[]>()
+  for (const p of numbers) {
+    const el = uses[p.name]?.element ?? ''
+    numberGroups.set(el, [...(numberGroups.get(el) ?? []), p])
+  }
   const dirty = Object.keys(overrides).length > 0
 
   return (
     <>
       <div className="insp-scroll">
-        {params.length === 0 && detection.params.length === 0 && running.length === 0 && (
+        {props.length > 0 && <PropsSections frame={frame} props={props} />}
+        {params.length === 0 && detection.params.length === 0 && running.length === 0 && props.length === 0 && (
           <Section title="No controls yet">
             <p className="ctl-help">
-              No timing values found in this code.
+              No timing values in this code.
             </p>
             <div className="insp-buttons">
               <button className="btn btn-primary" onClick={() => detectMotionValues(frame.id)}>
@@ -272,7 +323,7 @@ function CodeBody({ frame }: { frame: Frame }) {
               )}
             </div>
             <p className="ctl-help">
-              Or run <b>Copy /recreate</b> (⌘K) in Claude Code, or annotate the code:{' '}
+              Or run <b>Copy /recreate</b> (⌘K) in Claude Code, or annotate:{' '}
               <span className="mono">{'/* @param duration 320ms 80..1200 */'}</span>
             </p>
           </Section>
@@ -287,54 +338,75 @@ function CodeBody({ frame }: { frame: Frame }) {
               values={values as Record<string, number>}
               modified={mod}
               onChange={(name, n) => setParam(frame.id, name, n)}
+              onReset={reset}
+              reference={reference?.duration ? { duration: reference.duration } : undefined}
             />
           </Section>
         )}
         {eases.map((p) => (
-          <Section key={p.name} title={eases.length > 1 ? p.name : 'Easing'}>
-            <BezierCtl p={p} width={INNER_W} value={values[p.name] as Bezier} modified={mod(p.name)} onChange={change(p.name)} />
+          <Section key={p.name} title={title(p, 'Easing', eases.length > 1)}>
+            <BezierCtl
+              p={p}
+              width={INNER_W}
+              value={values[p.name] as Bezier}
+              modified={mod(p.name)}
+              onChange={change(p.name)}
+              onReset={() => reset(p.name)}
+              reference={reference?.ease}
+            />
           </Section>
         ))}
         {springs.map((p) => (
-          <Section key={p.name} title={springs.length > 1 ? p.name : 'Spring'}>
-            <SpringCtl p={p} value={values[p.name] as Spring} modified={mod(p.name)} onChange={change(p.name)} />
+          <Section key={p.name} title={title(p, 'Spring', springs.length > 1)}>
+            <SpringCtl p={p} value={values[p.name] as Spring} modified={mod(p.name)} onChange={change(p.name)} onReset={() => reset(p.name)} />
           </Section>
         ))}
-        {numbers.length > 0 && (
-          <Section title="Values">
+        {[...numberGroups].map(([element, list]) => (
+          <Section key={element || 'values'} title={element ? humanize(element) : 'Values'}>
             <div className="insp-stack">
-              {numbers.map((p) => (
+              {list.map((p) => (
                 <NumberCtl
                   key={p.name}
-                  p={p}
+                  p={named(p)}
                   value={values[p.name] as number}
                   modified={mod(p.name)}
                   onChange={change(p.name)}
+                  onReset={() => reset(p.name)}
+                  onRename={(l) => rename(p.name, l)}
+                />
+              ))}
+            </div>
+          </Section>
+        ))}
+        {colors.length > 0 && (
+          <Section title="Colors">
+            <div className="insp-stack">
+              {colors.map((p) => (
+                <ColorCtl
+                  key={p.name}
+                  p={named(p)}
+                  value={values[p.name] as string}
+                  onChange={change(p.name)}
+                  modified={mod(p.name)}
+                  onReset={() => reset(p.name)}
                 />
               ))}
             </div>
           </Section>
         )}
-        {colors.length > 0 && (
-          <Section title="Colors">
-            <div className="insp-stack">
-              {colors.map((p) => (
-                <ColorCtl key={p.name} p={p} value={values[p.name] as string} onChange={change(p.name)} />
-              ))}
-            </div>
-          </Section>
-        )}
-        {detection.groups.map((g, i) => (
-          <DetectedSection key={g.id} group={g} index={i} values={values} mod={mod} set={(n, v) => setParam(frame.id, n, v as never)} />
-        ))}
-        {running.map((g, i) => (
+        {[...detection.groups, ...running].map((g, i) => (
           <DetectedSection
             key={g.id}
             group={g}
-            index={detection.groups.length + i}
+            index={i}
             values={values}
             mod={mod}
             set={(n, v) => setParam(frame.id, n, v as never)}
+            reset={reset}
+            rename={rename}
+            labels={frame.labels}
+            // The reference's timing goes on the first animation when the code has no @param timing of its own.
+            reference={i === 0 && !duration ? reference : undefined}
           />
         ))}
       </div>
@@ -359,7 +431,7 @@ function CodeBody({ frame }: { frame: Frame }) {
               <button
                 className="btn btn-ghost"
                 onClick={() => detectMotionValues(frame.id)}
-                title="Scan the code for motion values again"
+                title="Scan for motion values again"
               >
                 Rescan
               </button>
@@ -470,8 +542,8 @@ function VideoBody({ frame }: { frame: Frame }) {
             </div>
             <span className="ctl-help">
               {seg
-                ? `${t2(seg.in)} → ${t2(seg.out)} · ${Math.round((seg.out - seg.in) * 1000)}ms. Drag the ends to adjust.`
-                : 'Scrub to the start and press I, then to the end and press O.'}
+                ? `${t2(seg.in)} → ${t2(seg.out)} · ${Math.round((seg.out - seg.in) * 1000)}ms. Drag the ends.`
+                : 'Scrub to the start, press I. To the end, press O.'}
             </span>
           </div>
           <div className="insp-buttons">
@@ -505,13 +577,13 @@ function VideoBody({ frame }: { frame: Frame }) {
             </dl>
           ) : (
             <p className="ctl-help">
-              {analysis ? 'No clear motion found in this segment.' : 'Analyze motion to measure timing and easing.'}
+              {analysis ? 'No clear motion in this segment.' : 'Analyze to measure timing and easing.'}
             </p>
           )}
         </Section>
       </div>
       <footer className="insp-foot">
-        <button className="btn" onClick={copyRecreate} title="Then paste it in Claude Code">
+        <button className="btn" onClick={copyRecreate} title="Paste in Claude Code">
           Copy /recreate
         </button>
         <span className="grow" />
@@ -543,17 +615,11 @@ function FontBody({ frame }: { frame: Frame }) {
   return (
     <div className="insp-scroll insp-font">
       <Section title="Layout">
-        <div className="segmented">
-          {FONT_LAYOUTS.map((l) => (
-            <button
-              key={l.id}
-              data-active={layout === l.id || undefined}
-              onClick={() => updateFrame(frame.id, { fontLayout: l.id === 'name' ? undefined : l.id })}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          options={FONT_LAYOUTS}
+          value={layout}
+          onChange={(id) => updateFrame(frame.id, { fontLayout: id === 'name' ? undefined : id })}
+        />
       </Section>
       <Section title="Typeface">
         <FontPicker
@@ -603,13 +669,11 @@ function TextBody({ frame }: { frame: Frame }) {
       </Section>
       <Section title="Size">
         <NumberCtl p={FONT_SIZE} value={size} modified={size !== FONT_SIZE.value} onChange={(px) => updateFrame(frame.id, { size: px })} />
-        <div className="segmented">
-          {SIZES.map(([name, px]) => (
-            <button key={name} data-active={size === px || undefined} onClick={() => updateFrame(frame.id, { size: px })}>
-              {name}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          options={SIZES.map(([name, px]) => ({ id: px, label: name }))}
+          value={size}
+          onChange={(px) => updateFrame(frame.id, { size: px })}
+        />
       </Section>
       <StyleSection frame={frame} weights={weights} weight={frame.weight} auto onWeight={(w) => updateFrame(frame.id, { weight: w })} />
     </div>

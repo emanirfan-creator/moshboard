@@ -10,6 +10,7 @@ import { BlockError } from './BlockError'
 import { BlockLoader } from './BlockLoader'
 import { isJsSite, previewSources } from '../../shared/detect-motion.ts'
 import { presetFor } from '../../shared/providers.ts'
+import { componentProps } from '../../shared/props.ts'
 import { runtimeTune, type RuntimeItem } from '../../shared/runtime-motion.ts'
 import { useDetection } from '../tuning/detection'
 import { buildSrcdoc } from './sandbox'
@@ -113,6 +114,11 @@ export function CodeFrame({
   const sentParams = (ov: Record<string, unknown>) => [...params, ...detection.params.filter((p) => p.name in ov)]
   const sent = useMemo(() => sentParams(overrides), [params, detection, overrides])
 
+  // The component's own props: saved on the frame, plus unsaved tweaks from the side panel.
+  const props = useMemo(() => componentProps(frame.props, overrides), [frame.props, overrides])
+  const latestProps = useRef(props)
+  latestProps.current = props
+
   const kind = file.endsWith('.html') ? 'html' : 'tsx'
   // A hard reload only happens on source change, a retry, or replaying a broken frame.
   const [reload, setReload] = useState(0)
@@ -127,6 +133,7 @@ export function CodeFrame({
             preview.modules,
             twCss ?? undefined,
             wrapper,
+            latestProps.current,
           )
         : '',
     [source, kind, params, reload, preview, waitingForModules, twCss, wrapper],
@@ -146,7 +153,7 @@ export function CodeFrame({
         retried.current = true
         setReload((n) => n + 1)
       } else if (!getState().errors[frame.id]) {
-        setError(frame.id, 'This component didn’t finish loading. Check your connection, then press R to retry.')
+        setError(frame.id, 'Didn’t finish loading. Check your connection, then press R.')
       }
     }, 12000)
     return () => clearTimeout(t)
@@ -199,6 +206,10 @@ export function CodeFrame({
       '*',
     )
   }, [sent, values])
+
+  useEffect(() => {
+    iframe.current?.contentWindow?.postMessage({ type: 'mb:props', props }, '*')
+  }, [props])
 
   // Detected JS values often only take effect when the animation (re)starts, e.g. a GSAP
   // tween in an effect, so replay shortly after tuning. Values in module-level code

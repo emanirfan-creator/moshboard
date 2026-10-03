@@ -34,7 +34,8 @@ Open http://localhost:5180. Boards are saved in the `boards/` folder on your com
 
 - Press **⌘K** for the command menu. Everything can be done from there.
 - Press **?** to see all keyboard shortcuts.
-- Select a frame to see its controls underneath it.
+- Select a frame to see its controls in the panel on the right.
+- New here? ⌘K → **Open the example board** shows a reference that's been measured, recreated and tuned.
 
 ### Adding things
 
@@ -47,7 +48,7 @@ Open http://localhost:5180. Boards are saved in the `boards/` folder on your com
 ### Recreating motion with Claude (`/recreate`)
 
 1. For a video: select it, optionally mark the part you care about with **I** (start) and **O** (end), then ⌘K → **Analyze motion**.
-   For a website: ⌘K → **Capture motion…**
+   For a website: ⌘K → **Capture motion…**, click the element on the page screenshot, and choose what sets it off (hover, click, focus, scroll, load).
 2. ⌘K → **Copy /recreate command**.
 3. Open Claude Code in this folder and paste it. It looks like:
 
@@ -63,7 +64,11 @@ A link can hold more than two things: select something already linked plus a new
 
 ### Exporting
 
-⌘K → **Export spec** writes `design.md`, `motion.md`, `tokens.css`, `tokens.json` and `snippets/` into `boards/<board>/export/`. Select frames first to export only those.
+⌘K → **Export spec** writes `design.md`, `motion.md`, `tokens.css`, `tokens.json`, `snippets/` and `presets/` (ready-made transitions for motion/framer-motion and GSAP) into `boards/<board>/export/`. Select frames first to export only those.
+
+⌘K → **Share as a page** makes one HTML file of the whole canvas that anyone can open in a browser: clips play, components run, and live sites stay live.
+
+Each reference and its copy show their progress (measured → recreated → tuned) in the header, and the selected one shows its next step as a button.
 
 From the terminal:
 

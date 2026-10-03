@@ -4,6 +4,7 @@ import type { Frame } from '../../shared/types.ts'
 import { setPaletteColors } from '../actions'
 import { copyText } from '../clipboard'
 import { setState, toast, useStore } from '../store'
+import { cue, drop, grab, shift } from '../ui/sound'
 
 const ICON = {
   width: 16,
@@ -34,37 +35,33 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
   const colors = frame.colors ?? []
   const draft = useStore((s) => (s.paletteDraft?.id === frame.id ? s.paletteDraft.colors : null))
   const [shades, setShades] = useState<number | null>(null)
-  // Reorder drag: which column is lifted and where it would land. Columns re-render
-  // in the would-be order while dragging and FLIP-animate into their new slots.
-  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null)
+  // Reorder drag: which column is moving, where it would land, and whether it's
+  // still held (false while it springs into its slot after release).
+  const [drag, setDrag] = useState<{ from: number; to: number; held: boolean } | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
   const cols = useRef(new Map<number, HTMLDivElement>())
-  const lastLeft = useRef(new Map<number, number>())
+  const landed = useRef(false)
   const order = colors.map((_, i) => i)
   if (drag) order.splice(drag.to, 0, ...order.splice(drag.from, 1))
 
-  // Measure only while reordering (reading layout on every render is wasted work).
+  // Saving the new order re-renders the columns in it, so drop the transforms that
+  // were holding them there (before paint, so nothing jumps).
   useLayoutEffect(() => {
-    if (!drag) {
-      lastLeft.current.clear()
-      return
-    }
-    for (const [key, el] of cols.current) {
-      const prev = lastLeft.current.get(key)
-      const now = el.offsetLeft
-      if (prev !== undefined && prev !== now) {
-        el.animate([{ transform: `translateX(${prev - now}px)` }, { transform: 'none' }], {
-          duration: 200,
-          easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
-        })
-      }
-      lastLeft.current.set(key, now)
-    }
-  }, [drag?.from, drag?.to])
+    if (!landed.current) return
+    landed.current = false
+    for (const el of cols.current.values()) el.style.transform = ''
+  }, [colors])
 
   const update = (next: PaletteColor[]) => setColors(frame, next)
-  const remove = (i: number) => colors.length > 2 && update(colors.filter((_, j) => j !== i))
-  const toggleLock = (i: number) => update(colors.map((c, j) => (j === i ? { ...c, locked: !c.locked } : c)))
+  const remove = (i: number) => {
+    if (colors.length <= 2) return
+    update(colors.filter((_, j) => j !== i))
+    cue('remove')
+  }
+  const toggleLock = (i: number) => {
+    cue(colors[i].locked ? 'toggle-off' : 'toggle-on')
+    update(colors.map((c, j) => (j === i ? { ...c, locked: !c.locked } : c)))
+  }
   const insert = (i: number) => {
     if (colors.length >= 10) return toast('A palette holds up to 10 colors')
     const hex = mixHex(colors[i - 1].hex, colors[i].hex)
@@ -77,33 +74,103 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
       setTimeout(() => setCopied((c) => (c === i ? null : c)), 1400)
     })
 
-  // Drag a column's handle sideways to reorder.
+  // Drag a column's handle sideways to reorder, after Space UI's liquid sortable
+  // list: the held column follows the pointer, stretching and leaning with its
+  // speed, and the others spring aside into their new slots. The order is saved
+  // once everything has landed.
   const startReorder = (i: number) => (e: RPE<HTMLButtonElement>) => {
     e.stopPropagation()
     e.preventDefault()
-    const row = (e.currentTarget.closest('.pal-block') as HTMLElement).getBoundingClientRect()
-    const slot = (x: number) =>
-      Math.max(0, Math.min(colors.length - 1, Math.floor(((x - row.left) / row.width) * colors.length)))
+    if (drag) return // still landing from the last one
+    const block = e.currentTarget.closest('.pal-block') as HTMLElement
+    const n = colors.length
+    const zoom = block.getBoundingClientRect().width / block.offsetWidth || 1
+    const w = block.offsetWidth / n
+    const at = (slot: number) => slot / (n - 1)
+    const springs = colors.map(() => ({ x: 0, v: 0 }))
+    const startX = e.clientX
     let to = i
-    setDrag({ from: i, to })
-    document.body.dataset.grabbing = ''
+    let held = true
+    let dragX = 0
+    let momentum = 0
+    let lastX = e.clientX
+    let lastT = performance.now()
+    let prev = lastT
+    const slotOf = (j: number) => {
+      const o = colors.map((_, k) => k)
+      o.splice(to, 0, ...o.splice(i, 1))
+      return o.indexOf(j)
+    }
+
+    const frame = (t: number) => {
+      const dt = Math.min((t - prev) / 1000, 1 / 30)
+      prev = t
+      momentum *= Math.exp(-dt * 8)
+      let busy = held || Math.abs(momentum) > 0.01
+      springs.forEach((s, j) => {
+        if (j === i && held) s.x = dragX
+        else {
+          // Space UI's spring (stiffness 420, damping 28, mass 0.8): settles with a small overshoot.
+          const target = (slotOf(j) - j) * w
+          s.v += ((target - s.x) * 525 - s.v * 35) * dt
+          s.x += s.v * dt
+          if (Math.abs(target - s.x) < 0.3 && Math.abs(s.v) < 5) {
+            s.x = target
+            s.v = 0
+          } else busy = true
+        }
+        const el = cols.current.get(j)
+        if (!el) return
+        if (j !== i) el.style.transform = `translateX(${s.x}px)`
+        else {
+          const stretch = 1 + Math.abs(momentum) * 0.03
+          el.style.transform = `translateX(${s.x}px) scale(${stretch}, ${2 - stretch}) skewX(${-momentum * 0.5}deg)`
+        }
+      })
+      if (busy) requestAnimationFrame(frame)
+      else land()
+    }
     const move = (ev: PointerEvent) => {
-      const next = slot(ev.clientX)
-      if (next !== to) setDrag({ from: i, to: (to = next) })
+      const now = performance.now()
+      const speed = ((ev.clientX - lastX) / zoom / Math.max(8, now - lastT)) * 16
+      momentum += (Math.max(-3, Math.min(3, speed)) - momentum) * 0.5
+      lastX = ev.clientX
+      lastT = now
+      // A little give past either end, then it stops.
+      dragX = Math.max(-(i + 0.3) * w, Math.min((n - 1 - i + 0.3) * w, (ev.clientX - startX) / zoom))
+      const next = Math.max(0, Math.min(n - 1, Math.round(i + dragX / w)))
+      if (next !== to) {
+        to = next
+        setDrag({ from: i, to, held: true })
+        shift(at(to))
+      }
     }
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       delete document.body.dataset.grabbing
-      setDrag(null)
+      held = false
+      setDrag({ from: i, to, held: false })
+      drop(at(to))
+    }
+    const land = () => {
+      delete block.dataset.reordering
       if (to !== i) {
+        landed.current = true
         const next = [...colors]
         next.splice(to, 0, ...next.splice(i, 1))
         update(next)
-      }
+      } else for (const el of cols.current.values()) el.style.transform = ''
+      setDrag(null)
     }
+
+    block.dataset.reordering = ''
+    document.body.dataset.grabbing = ''
+    setDrag({ from: i, to, held: true })
+    grab(at(i))
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    requestAnimationFrame(frame)
   }
 
   if (draft) {
@@ -117,7 +184,7 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
 
   return (
     <div className="pal-block" data-active={active || undefined}>
-      {order.map((i) => {
+      {colors.map((_, i) => {
         const c = colors[i]
         const ink = inkFor(c.hex)
         const showShades = shades === i
@@ -129,7 +196,8 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
               else cols.current.delete(i)
             }}
             className="palette-col"
-            data-lifted={drag?.from === i || undefined}
+            data-lifted={(drag?.held && drag.from === i) || undefined}
+            data-moving={drag?.from === i || undefined}
             style={{ background: c.hex, color: ink }}
             onDoubleClick={(e) => {
               e.stopPropagation()

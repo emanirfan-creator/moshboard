@@ -3,8 +3,10 @@ import type { Frame } from '../../shared/types.ts'
 import { addText, pasteText, regeneratePalette, uploadFiles } from '../actions'
 import { clamp, drag } from '../drag'
 import { FrameContent } from '../frames/Contents'
+import { BlockLoader } from '../frames/BlockLoader'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './blocks'
 import { useInView } from './useInView'
+import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
 import {
   frameById,
   getState,
@@ -36,6 +38,7 @@ const HANDLE_POS: Record<Dir, [number, number]> = {
 export function Canvas() {
   const ref = useRef<HTMLDivElement>(null)
   const frames = useStore((s) => s.board?.frames)
+  const pending = useStore((s) => s.pending)
   const space = useStore((s) => s.space)
   const gesture = useStore((s) => s.gesture)
   const panning = useRef(false)
@@ -168,6 +171,17 @@ export function Canvas() {
         {frames?.map((f) => (
           <FrameView key={f.id} frame={f} />
         ))}
+        {pending.map((p) => (
+          <div key={p.id} className="frame pending" data-block style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
+            <div className="block-head">
+              <span className="block-dot" />
+              <span className="block-title">{p.label}</span>
+            </div>
+            <div className="frame-body">
+              <BlockLoader loading />
+            </div>
+          </div>
+        ))}
       </div>
       <div ref={marquee} className="marquee" />
     </div>
@@ -187,6 +201,14 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
   const modified = useStore((s) => !!s.overrides[frame.id])
   const error = useStore((s) => s.errors[frame.id])
   const ref = useStore(() => (frame.link ? frameById(frame.link) : undefined))
+  const stage = useStore((s) => (s.board ? stageOf(frame, s.board.frames) : null))
+  // A long job on this frame (measuring, capturing, fetching): the loader plays over it.
+  const job = useStore((s) => s.jobs[frame.id])
+  const lastJob = useRef('')
+  if (job) lastJob.current = job
+  // The selected frame's next step in measure → recreate → tune (its label, so the selector stays stable).
+  const stepLabel = useStore((s) => (s.selected.length === 1 && s.selected[0] === frame.id && !s.interact ? (nextStep(frame)?.label ?? null) : null))
+  const step = stepLabel ? nextStep(frame) : null
   const [renaming, setRenaming] = useState(false)
   const el = useRef<HTMLDivElement>(null)
   const view = useInView(el)
@@ -324,6 +346,16 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
               {frame.label || kind}
             </span>
           )}
+          {stage && (
+            <span className="block-stage" title={`Measure → recreate → tune: ${STAGE_LABEL[stage].toLowerCase()}`}>
+              <span className="stage-dots" aria-hidden>
+                {STAGES.map((st, i) => (
+                  <i key={st} data-on={i <= STAGES.indexOf(stage) || undefined} />
+                ))}
+              </span>
+              {STAGE_LABEL[stage]}
+            </span>
+          )}
           {ref && <span className="block-meta">↔ {ref.label || ref.type}</span>}
           {modified && <span className="block-meta mod">Unsaved</span>}
           {frame.type === 'palette' && (
@@ -331,9 +363,20 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
               className="head-action"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => regeneratePalette(frame.id)}
-              title="New colors from the board, around the locked ones"
+              title="New colors from the board, keeping locked ones"
             >
               Generate
+            </button>
+          )}
+          {step && (
+            <button
+              className="head-action head-step"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => step.run()}
+              title={step.hint}
+            >
+              {step.label}
+              {step.kbd && <kbd>{step.kbd}</kbd>}
             </button>
           )}
           <span className="block-meta block-kind">{interact ? 'Interacting · Esc' : meta}</span>
@@ -357,6 +400,8 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
           seen={view.seen}
           active={bodyOwnsPointer}
         />
+        {job && <div className="job-scrim" />}
+        <BlockLoader loading={!!job} label={job ?? lastJob.current} />
       </div>
       {!interact && !bodyOwnsPointer && (
         <div

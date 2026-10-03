@@ -17,6 +17,9 @@ importers:
       '@tailwindcss/oxide':
         specifier: ^4.3.3
         version: 4.3.3
+      '@usespaceui/sounds':
+        specifier: ^0.1.4
+        version: 0.1.4(react@19.3.0)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -384,6 +387,15 @@ packages:
     engines: {node: '>=16.20.0'}
     cpu: [x64]
     os: [win32]
+
+  '@usespaceui/sounds@0.1.4':
+    resolution: {integrity: sha512-1sxUp8Vc21fa8T2wR3zQrj6n+LliznFpkwsGXAV/PsaSIIr8c+tq9m/NNIOP29ZvDtPiq0LpHQp1NcQrp4tc3Q==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   '@vitejs/plugin-react@6.1.1':
     resolution: {integrity: sha512-yxLaQV9gkhS8ezJqCM6+ndU7mDY6gqAg75NQ+0IjwEI8IYOmQCgkRwHKVSfWXW076DsqMo0Dk+0FK1U+M5RgFw==}
@@ -925,6 +937,10 @@ snapshots:
 
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
+
+  '@usespaceui/sounds@0.1.4(react@19.3.0)':
+    optionalDependencies:
+      react: 19.3.0
 
   '@vitejs/plugin-react@6.1.1(vite@8.3.2(@types/node@26.6.4)(jiti@2.7.0))':
     dependencies:

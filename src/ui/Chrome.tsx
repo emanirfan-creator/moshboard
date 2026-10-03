@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { addNote, addText, exportBoard, fitBoard } from '../actions'
 import { getState, INSPECTOR_W, useCamera, inspectorOpen, setCamera, setState, toggleLoop, useStore, viewLeft } from '../store'
 import {
@@ -6,6 +6,7 @@ import {
   CodeIcon,
   CommandIcon,
   ExportIcon,
+  FontIcon,
   LinkIcon,
   HandIcon,
   MediaIcon,
@@ -49,18 +50,11 @@ function Toolbar({ left, right }: { left: number; right: number }) {
     { id: 'code', label: 'Component', icon: <CodeIcon />, run: () => setState({ add: 'code' }) },
     { id: 'url', label: 'Link', icon: <LinkIcon />, run: () => setState({ add: 'url' }) },
     { id: 'color', label: 'Color', icon: <SwatchIcon />, run: () => setState({ add: 'color' }) },
+    { id: 'font', label: 'Font', icon: <FontIcon />, run: () => setState({ add: 'font' }) },
   ]
 
-  // One highlight that glides between tools. On first entry it fades in where you
-  // are (no slide from the last spot); moving along the bar it slides.
   const bar = useRef<HTMLDivElement>(null)
-  const [hover, setHover] = useState<{ x: number; y: number; w: number; h: number; slide: boolean } | null>(null)
-  const onEnter = (e: React.PointerEvent<HTMLButtonElement>) => {
-    const b = e.currentTarget.getBoundingClientRect()
-    const t = bar.current!.getBoundingClientRect()
-    setHover((h) => ({ x: b.left - t.left, y: b.top - t.top, w: b.width, h: b.height, slide: !!h }))
-  }
-  const tool = { onPointerEnter: onEnter }
+  useDock(bar)
 
   return (
     <div className="toolbar-wrap" style={{ left, right }}>
@@ -70,48 +64,103 @@ function Toolbar({ left, right }: { left: number; right: number }) {
         role="toolbar"
         aria-label="Tools"
         onPointerDown={(e) => e.stopPropagation()}
-        onPointerLeave={() => setHover(null)}
       >
-        <span
-          className="tool-hover"
-          data-visible={hover ? '' : undefined}
-          data-slide={hover?.slide ? '' : undefined}
-          style={
-            hover ? { width: hover.w, height: hover.h, transform: `translate(${hover.x}px, ${hover.y}px)` } : undefined
-          }
-        />
         {tools.map((t) => (
           <button
             key={t.id}
-            className="tool"
+            className="tool dock-item"
             data-active={(t.id === 'select' && idle && !hand) || (t.id === 'hand' && hand) || undefined}
             onClick={t.run}
-            {...tool}
             aria-label={t.label}
             data-tip={t.key ? `${t.label}  ${t.key}` : t.label}
           >
-            {t.icon}
+            <span className="dock-icon">{t.icon}</span>
           </button>
         ))}
         <span className="toolbar-sep" />
         <div className="toolbar-group">
-          <button className="tool" onClick={() => exportBoard()} {...tool} aria-label="Export spec"
+          <button className="tool dock-item" onClick={() => exportBoard()} aria-label="Export spec"
             data-tip={selectedCount ? `Export selection (${selectedCount})` : 'Export canvas'}>
-            <ExportIcon />
+            <span className="dock-icon"><ExportIcon /></span>
           </button>
           <button
-            className="tool"
+            className="tool dock-item"
             onClick={() => setState({ palette: true })}
-            {...tool}
             aria-label="Command menu"
             data-tip="Commands  ⌘K"
           >
-            <CommandIcon />
+            <span className="dock-icon"><CommandIcon /></span>
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+const DOCK_MAX = 1.6
+/** How far either side of the pointer (px) an icon still swells. */
+const DOCK_RANGE = 150
+
+/**
+ * macOS Dock magnification: icons near the pointer grow and push their neighbours
+ * apart, each on its own spring so the wave trails the pointer slightly. Writes the
+ * scale to `--s` on each `.dock-item`; the CSS does the rest.
+ */
+function useDock(bar: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = bar.current
+    if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const items = [...el.querySelectorAll<HTMLElement>('.dock-item')]
+    const springs = items.map(() => ({ s: 1, v: 0 }))
+    let x: number | null = null
+    let raf = 0
+    let last = 0
+
+    const frame = (t: number) => {
+      const dt = Math.min((t - last) / 1000, 1 / 30)
+      last = t
+      // Read every rect before writing any scale, so the frame lays out once.
+      const centers = items.map((item) => {
+        const r = item.getBoundingClientRect()
+        return r.left + r.width / 2
+      })
+      let moving = false
+      items.forEach((item, i) => {
+        const sp = springs[i]
+        const d = x === null ? Infinity : Math.abs(x - centers[i])
+        const target = d < DOCK_RANGE ? 1 + ((DOCK_MAX - 1) * (1 + Math.cos((Math.PI * d) / DOCK_RANGE))) / 2 : 1
+        sp.v += ((target - sp.s) * 420 - sp.v * 30) * dt
+        sp.s += sp.v * dt
+        if (Math.abs(target - sp.s) < 0.001 && Math.abs(sp.v) < 0.01) {
+          sp.s = target
+          sp.v = 0
+        } else moving = true
+        item.style.setProperty('--s', sp.s.toFixed(4))
+      })
+      raf = moving ? requestAnimationFrame(frame) : 0
+    }
+    const start = () => {
+      if (raf) return
+      last = performance.now()
+      raf = requestAnimationFrame(frame)
+    }
+    const move = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return
+      x = e.clientX
+      start()
+    }
+    const leave = () => {
+      x = null
+      start()
+    }
+    el.addEventListener('pointermove', move)
+    el.addEventListener('pointerleave', leave)
+    return () => {
+      el.removeEventListener('pointermove', move)
+      el.removeEventListener('pointerleave', leave)
+      cancelAnimationFrame(raf)
+    }
+  }, [bar])
 }
 
 function ViewControls({ right }: { right: number }) {

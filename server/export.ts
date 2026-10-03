@@ -89,6 +89,8 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
 
   // ── motion sections ─────────────────────────────────────
   const motion: string[] = []
+  // One transition per animation, for presets/motion.ts and presets/gsap.ts.
+  const presets: Preset[] = []
   const codeFrames = board.frames.filter((f) => f.type === 'code' && f.file)
   for (const f of codeFrames) {
     const srcPath = path.join(bdir, f.file!)
@@ -135,13 +137,30 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
         springs.set(key, t)
         token = t.name
       }
-      rows.push(`| \`${p.name}\` | \`${shown}\` | ${p.kind} | ${token ? `\`${token}\`` : ''} |`)
+      const label = f.labels?.[p.name]
+      rows.push(`| ${label ? `${label} (\`${p.name}\`)` : `\`${p.name}\``} | \`${shown}\` | ${p.kind} | ${token ? `\`${token}\`` : ''} |`)
     }
+    const timing = (re: RegExp) => params.find((p) => re.test(p.name) && p.kind === 'number' && p.unit === 'ms')?.value as number | undefined
+    presets.push({
+      label: name(f),
+      duration: timing(/^(duration|dur)$/i),
+      delay: timing(/^delay$/i),
+      ease: params.find((p) => p.kind === 'ease')?.value as Bezier | undefined,
+      spring: params.find((p) => p.kind === 'spring')?.value as Spring | undefined,
+    })
 
     // Motion values found in the code itself (as currently saved), one block per animation.
     const explicit = new Set(params.map((p) => p.name))
     const detection = detectMotion(source, modules, ext === '.html' ? 'html' : 'tsx', path.basename(f.file!))
     for (const g of detection.groups) {
+      const by = (label: string) => g.params.find((p) => p.label === label && !explicit.has(p.name))?.value
+      presets.push({
+        label: `${name(f)} ${g.label}`,
+        duration: by('duration') as number | undefined,
+        delay: by('delay') as number | undefined,
+        ease: g.params.find((p) => p.kind === 'ease' && !explicit.has(p.name))?.value as Bezier | undefined,
+        spring: g.params.find((p) => p.kind === 'spring' && !explicit.has(p.name))?.value as Spring | undefined,
+      })
       for (const p of g.params) {
         if (explicit.has(p.name)) continue
         let token = ''
@@ -170,6 +189,7 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
 
     // Motion measured in the running frame and tuned on the board (library or theme values, not in the code).
     for (const saved of Object.values(f.runtime ?? {})) {
+      presets.push({ label: `${name(f)} ${saved.label}`, duration: saved.duration, delay: saved.delay, ease: saved.ease })
       const t = { ...saved, label: saved.label.replace(/</g, '&lt;').replace(/>/g, '&gt;') }
       const how = 'measured while running, tuned on the board (not in the snippet)'
       if (t.duration !== undefined) rows.push(`| ${t.label} · duration | \`${Math.round(t.duration)}ms\` | number, ${how} | |`)
@@ -184,6 +204,11 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     if (animates) lines.push(`- **Animates:** ${animates}`)
     if (f.wrapper) lines.push(`- **Renders inside:** \`${f.wrapper}\` (providers/context it needs)`)
     lines.push(`- **Snippet:** [\`${snippet}\`](${snippet}) (exact, locked values)`)
+    // Props set on the board: the snippet is the component as published, so say how it's configured.
+    if (f.props && Object.keys(f.props).length) {
+      const attrs = Object.entries(f.props).map(([k, v]) => (typeof v === 'string' ? `${k}=${JSON.stringify(v)}` : v === true ? k : `${k}={${JSON.stringify(v)}}`))
+      lines.push(`- **Props:** \`<${componentTag(source)} ${attrs.join(' ')} />\` (set on the board; the snippet keeps the component's defaults)`)
+    }
     if (extra.length) lines.push(`- **Imports:** ${extra.map((e) => `[\`${e}\`](${e})`).join(', ')} (\`@/…\` paths from the component library)`)
 
     const ref = f.link ? byId.get(f.link) : undefined
@@ -273,6 +298,13 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     ) + '\n',
   )
 
+  // ── presets: the same timings for motion (framer-motion) and GSAP ──
+  const usable = presets.filter((p) => p.duration !== undefined || p.spring)
+  if (usable.length) {
+    write('presets/motion.ts', motionPresets(usable))
+    write('presets/gsap.ts', gsapPresets(usable))
+  }
+
   // ── motion.md ───────────────────────────────────────────
   write(
     'motion.md',
@@ -284,6 +316,7 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
       '- Durations are in ms. When using motion/framer-motion, divide by 1000.',
       '- Easings are CSS `cubic-bezier`. In motion, pass the four numbers as an array.',
       '- Shared values live in [`tokens.css`](tokens.css) / [`tokens.json`](tokens.json).',
+      ...(usable.length ? ['- Ready-made transitions: [`presets/motion.ts`](presets/motion.ts) (motion / framer-motion) and [`presets/gsap.ts`](presets/gsap.ts) (GSAP).'] : []),
       '',
       ...(motion.length ? motion.join('\n\n---\n\n').split('\n') : ['_No coded interactions on this board yet._']),
       '',
@@ -390,4 +423,80 @@ function standaloneSnippet(source: string, ext: string, params: Param[], css: Re
   )
   if (cssDecl) out = `/* CSS variables used below. Define them on :root or a wrapper: ${cssDecl} */\n${out}`
   return out
+}
+
+/** The name to write a component as in JSX: its default export's, else "Component". */
+function componentTag(source: string) {
+  return (
+    /export\s+default\s+(?:async\s+)?function\s+([A-Z]\w*)/.exec(source)?.[1] ??
+    /export\s+default\s+([A-Z]\w*)/.exec(source)?.[1] ??
+    /export\s+(?:function|const)\s+([A-Z]\w*)/.exec(source)?.[1] ??
+    'Component'
+  )
+}
+
+interface Preset {
+  label: string
+  /** ms */
+  duration?: number
+  delay?: number
+  ease?: Bezier
+  spring?: Spring
+}
+
+/** Unique camelCase export names: "Card slide (copy)" → `cardSlideCopy`. */
+function presetNames(presets: Preset[]) {
+  const used = new Set<string>()
+  return presets.map((p) => {
+    const words = p.label.replace(/[^A-Za-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
+    let base = words.map((w, i) => (i ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase())).join('') || 'transition'
+    if (/^\d/.test(base)) base = `t${base}`
+    let n = base
+    for (let i = 2; used.has(n); i++) n = `${base}${i}`
+    used.add(n)
+    return n
+  })
+}
+
+const sec = (ms: number) => +(ms / 1000).toFixed(3)
+
+function motionPresets(presets: Preset[]) {
+  const names = presetNames(presets)
+  const body = presets.map((p, i) => {
+    const fields = p.spring
+      ? [`type: 'spring'`, `stiffness: ${p.spring.stiffness}`, `damping: ${p.spring.damping}`, ...(p.spring.mass !== undefined ? [`mass: ${p.spring.mass}`] : [])]
+      : [`duration: ${sec(p.duration!)}`, ...(p.ease ? [`ease: [${p.ease.join(', ')}]`] : [])]
+    if (p.delay) fields.push(`delay: ${sec(p.delay)}`)
+    return `/** ${p.label} */\nexport const ${names[i]} = { ${fields.join(', ')} } as const`
+  })
+  return [
+    '// Generated by Moshboard: transitions tuned against references, for motion (framer-motion).',
+    `// <motion.div animate={{ x: 0 }} transition={${names[0]}} />`,
+    '',
+    ...body,
+    '',
+  ].join('\n')
+}
+
+function gsapPresets(presets: Preset[]) {
+  const names = presetNames(presets)
+  const body = presets.map((p, i) => {
+    if (p.spring && p.duration === undefined)
+      return `/** ${p.label}: a spring (stiffness ${p.spring.stiffness}, damping ${p.spring.damping}). GSAP has no springs; use presets/motion.ts, or approximate with ease: 'elastic.out(1, 0.5)'. */`
+    const fields = [`duration: ${sec(p.duration!)}`]
+    if (p.delay) fields.push(`delay: ${sec(p.delay)}`)
+    if (p.ease) fields.push(`ease: CustomEase.create('${names[i]}', 'M0,0 C${p.ease[0]},${p.ease[1]} ${p.ease[2]},${p.ease[3]} 1,1')`)
+    return `/** ${p.label} */\nexport const ${names[i]} = { ${fields.join(', ')} }`
+  })
+  return [
+    '// Generated by Moshboard: tween timings tuned against references, for GSAP.',
+    `// gsap.to('.card', { x: 240, ...${names.find((_, i) => presets[i].duration !== undefined) ?? names[0]} })`,
+    "import gsap from 'gsap'",
+    "import { CustomEase } from 'gsap/CustomEase'",
+    '',
+    'gsap.registerPlugin(CustomEase)',
+    '',
+    ...body,
+    '',
+  ].join('\n')
 }

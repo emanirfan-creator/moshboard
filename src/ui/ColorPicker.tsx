@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as RPE } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
 import { clamp, drag } from '../drag'
 
 type HSV = [number, number, number] // h 0–360, s 0–1, v 0–1
@@ -154,17 +154,31 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
 }
 
 /** A swatch + hex row that opens the picker inline below it. */
-export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (hex: string) => void }) {
+export function ColorField({
+  label,
+  value,
+  onChange,
+  after,
+}: {
+  label: string
+  value: string
+  onChange: (hex: string) => void
+  /** shown after the row, e.g. a reset dot */
+  after?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
   return (
     <div className="cf">
-      <button className="cf-row" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="ctl-name">{label}</span>
-        <span className="cf-value">
-          <span className="cf-chip" style={{ background: value }} />
-          <span className="mono">{value}</span>
-        </span>
-      </button>
+      <div className="cf-line">
+        <button className="cf-row" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <span className="ctl-name">{label}</span>
+          <span className="cf-value">
+            <span className="cf-chip" style={{ background: value }} />
+            <span className="mono">{value}</span>
+          </span>
+        </button>
+        {after}
+      </div>
       {open && <ColorPicker value={value} onChange={onChange} />}
     </div>
   )

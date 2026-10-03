@@ -1,10 +1,11 @@
-import { applyParams, defaults, parseParams, type ParamValue } from '../shared/params.ts'
+import { applyParams, defaults, parseParams, type Bezier, type ParamValue } from '../shared/params.ts'
 import { autoParams } from '../shared/autoParams.ts'
 import { writeBack } from '../shared/detect-motion.ts'
-import { isRuntimeName, saveRuntime } from '../shared/runtime-motion.ts'
+import { easingBezier, isRuntimeName, saveRuntime } from '../shared/runtime-motion.ts'
+import { detectProps, isPropName, PROP_PREFIX } from '../shared/props.ts'
 import { detectFor, parseModules } from './tuning/detection'
-import { scanChirp, scanEmpty } from './ui/sound'
-import type { Frame, FrameType, VideoAnalysis } from '../shared/types.ts'
+import { cue, scanChirp, scanEmpty } from './ui/sound'
+import type { Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
 import { arrange, type LayoutKind } from './layout'
@@ -14,9 +15,11 @@ import { boardSamples, hasColors } from './boardColors'
 import { DEFAULT_FONT, SWATCH_SIZE, swatchBox, swatchFont } from '../shared/fonts.ts'
 import { api, mediaUrl } from './api'
 import { ensureDefaultExport } from './frames/sandbox'
+import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
 import { BLOCK_HEAD, BLOCK_PAD } from './canvas/blocks'
 import {
+  flushSave,
   frameById,
   getState,
   mutateFrames,
@@ -24,6 +27,8 @@ import {
   saveSoon,
   setCamera,
   setState,
+  startJob,
+  startPending,
   storedCamera,
   toast,
   updateFrame,
@@ -42,7 +47,10 @@ export async function loadBoard(name: string): Promise<void> {
   let board
   try {
     board = await api.board(name)
-  } catch {
+  } catch (e) {
+    // A renamed canvas: follow it to its new address.
+    const moved = (e as { moved?: string }).moved
+    if (moved && moved !== name) return loadBoard(moved)
     // Deleted or unknown canvas (e.g. a stale tab): open the first one instead.
     const first = (await api.boards())[0]?.id ?? 'default'
     if (first !== name) return loadBoard(first)
@@ -58,6 +66,8 @@ export async function loadBoard(name: string): Promise<void> {
     overrides: s.boardName === name ? s.overrides : {},
   }))
   resetHistory(board.frames, getState().boardName === name && sameBoardReload)
+  // Undo history starts fresh here, so files no block uses can't come back: they go to the canvas's trash.
+  if (!sameBoardReload) api.sweep(name).catch(() => {})
   if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`)
   const cam = storedCamera(name)
   if (cam) setCamera(cam)
@@ -105,13 +115,47 @@ export async function createCanvas(name: string) {
   toast(`Created “${name.trim() || 'Untitled'}”`)
 }
 
-export function renameCanvas(name: string) {
-  const { board } = getState()
+/** Adds the sample board (a reference measured, recreated and tuned) and opens it. */
+export async function openSample() {
+  try {
+    const { id } = await api.addSample()
+    await switchBoard(id)
+  } catch (e) {
+    toast(`Couldn’t add the sample: ${(e as Error).message}`, true)
+  }
+}
+
+/** Copies a canvas (frames, code, uploads) and opens the copy. */
+export async function duplicateCanvas(id: string) {
+  if (id === getState().boardName) await flushSave()
+  try {
+    const copy = await api.duplicateBoard(id)
+    await switchBoard(copy.id)
+    toast(`Duplicated as “${copy.name}”`)
+  } catch (e) {
+    toast(`Couldn’t duplicate: ${(e as Error).message}`, true)
+  }
+}
+
+/** Renames the open canvas. Its folder (and so its address) follows the name; the old address still opens it. */
+export async function renameCanvas(name: string) {
+  const { board, boardName } = getState()
   const title = name.trim()
-  if (!board || !title) return
-  setState({ board: { ...board, name: title } })
-  saveSoon()
-  setState((s) => ({ canvases: s.canvases.map((c) => (c.id === s.boardName ? { ...c, name: title } : c)) }))
+  if (!board || !title || title === board.name) return
+  await flushSave()
+  try {
+    const r = await api.renameBoard(boardName, title)
+    if (r.id !== boardName) history.replaceState(null, '', `#${r.id}`)
+    setState((s) => ({
+      boardName: r.id,
+      board: s.board && { ...s.board, name: title },
+      canvases: s.canvases.map((c) => (c.id === boardName ? { ...c, id: r.id, name: title } : c)),
+    }))
+    // Settle the camera under the new address too.
+    setCamera(getState().camera)
+  } catch (e) {
+    toast(`Couldn’t rename: ${(e as Error).message}`, true)
+  }
 }
 
 export async function deleteCanvas(id: string) {
@@ -313,15 +357,30 @@ async function addSuggestedPalette(at: { x: number; y: number } | undefined, lab
   addFrame({ type: 'palette', colors: c, label, ...place(paletteWidth(c.length), 360, at) })
 }
 
+/** Each palette's recent Generate results, so generating again moves on to other combos. */
+const generated = new Map<string, string[][]>()
+
 /**
- * New colors around the locked ones: suggested from the board when it has
- * anything to read colors from (each run varies a little), otherwise random harmony.
+ * New colors around the locked ones, picked from the board when it has anything
+ * to read colors from (a different combination each time), otherwise random harmony.
  */
 export async function regeneratePalette(id = getState().selected[0]) {
   const f = frameById(id)
   if (f?.type !== 'palette') return
   const count = f.colors?.length || 5
-  setPaletteColors(f.id, (await fromBoard(f.colors ?? [], count, f.id)) ?? generatePalette(f.colors ?? [], count))
+  const recent = generated.get(f.id) ?? []
+  const next = (await fromBoard(f.colors ?? [], count, f.id, recent)) ?? generatePalette(f.colors ?? [], count)
+  generated.set(f.id, [next.map((c) => c.hex), ...recent].slice(0, 8))
+  setPaletteColors(f.id, next)
+  cue('sparkle')
+}
+
+/** New colors around the locked ones from a random harmony, ignoring the board. */
+export function randomizePalette(id = getState().selected[0]) {
+  const f = frameById(id)
+  if (f?.type !== 'palette') return
+  setPaletteColors(f.id, generatePalette(f.colors ?? [], f.colors?.length || 5))
+  cue('droplet')
 }
 
 /**
@@ -329,14 +388,14 @@ export async function regeneratePalette(id = getState().selected[0]) {
  * palettes) if any are selected, otherwise from everything on the board.
  * Null when there's nothing to read colors from.
  */
-async function fromBoard(current: PaletteColor[], count: number, exclude?: string) {
+async function fromBoard(current: PaletteColor[], count: number, exclude?: string, avoid: string[][] = []) {
   const { board, selected, boardName } = getState()
   const frames = (board?.frames ?? []).filter((f) => f.id !== exclude)
   const picked = frames.filter((f) => selected.includes(f.id) && hasColors(f, true))
   const sources = picked.length ? picked : frames.filter((f) => hasColors(f, false))
   if (!sources.length) return null
   const samples = await boardSamples(boardName, sources)
-  return samples.length ? paletteFromSamples(samples, current, count) : null
+  return samples.length ? paletteFromSamples(samples, current, count, avoid) : null
 }
 
 /**
@@ -414,9 +473,12 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
   const url = /^https?:\/\//.test(href) ? href : `https://${href}`
   if (!isMediaLink(url)) return addUrl(url, at)
   const host = new URL(url).hostname.replace(/^www\./, '')
-  toast(`Fetching from ${host}…`)
+  // A placeholder where it will land, so the canvas shows it's coming (and you can keep working).
+  const spot = place(blockBox(480, 300).w, blockBox(480, 300).h, at)
+  at = { x: spot.x + spot.w / 2, y: spot.y + spot.h / 2 }
+  const done = startPending({ ...spot, label: `Fetching from ${host}` })
   try {
-    const m = await api.mediaLink(getState().boardName, url)
+    const m = await api.mediaLink(getState().boardName, url).finally(done)
     if (m.items && m.items.length > 1) return addPieces(m.items, m.title, m.source, host, at)
     const max = m.type === 'video' ? 480 : 360
     const w0 = m.width ?? 480
@@ -425,6 +487,7 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     const box = blockBox(w0 * k, h0 * k)
     const f = addFrame({ type: m.type, src: m.path, origin: m.source, label: m.title, ...place(box.w, box.h, at) })
     toast(`Added ${m.type} from ${host}`)
+    cue('ready')
     return f
   } catch (e) {
     toast(`${(e as Error).message}. Added as a website.`, true)
@@ -462,6 +525,7 @@ function addPieces(
   mutateFrames((fs) => [...fs, ...frames])
   setState({ selected: frames.map((f) => f.id), interact: null })
   toast(`Added ${frames.length} pieces from ${host}`)
+  cue('ready')
   return frames[0]
 }
 
@@ -520,7 +584,9 @@ export async function addCode(
     opts = { ...opts, modules: rel }
   }
   const text = source ?? (kind === 'tsx' ? DEFAULT_TSX : DEFAULT_HTML)
-  const body = kind === 'tsx' ? ensureDefaultExport(text) : text
+  const snippet = kind === 'tsx' ? parseSnippet(text) : null
+  // A README snippet: its props become controls, typed from the package when it publishes types.
+  const body = snippet ? buildSnippet(snippet, await packageTypes(snippet).catch(() => ({}))) : kind === 'tsx' ? ensureDefaultExport(text) : text
   await api.writeFile(getState().boardName, file, body)
   setState((s) => ({ files: { ...s.files, [file]: body } }))
   // `fit`: sized to what it renders once it first loads (see CodeFrame).
@@ -532,12 +598,14 @@ export const looksLikeCode = (t: string) =>
 
 /** Fetch a component from a shadcn-style registry ("npx shadcn@latest add …") and add it. */
 export async function addFromRegistry(input: string) {
-  toast('Fetching component from the registry…')
+  const spot = place(520, 420)
+  const done = startPending({ ...spot, label: 'Fetching component' })
   try {
-    const r = await api.registry(input)
-    const f = await addCode('tsx', r.entry, { label: r.title, w: 520, h: 420 }, r.modules)
+    const r = await api.registry(input).finally(done)
+    const f = await addCode('tsx', r.entry, { label: r.title, ...spot }, r.modules)
     const n = Object.keys(r.modules).length
     toast(`Added ${r.title}${n ? ` with ${n} supporting file${n > 1 ? 's' : ''}` : ''}`)
+    cue('ready')
     return f
   } catch (e) {
     toast(`Couldn’t add it: ${(e as Error).message}`, true)
@@ -553,7 +621,7 @@ export async function addFromRegistry(input: string) {
 export async function fetchIntoFrame(id: string, input: string) {
   const f = frameById(id)
   if (!f?.file) return
-  toast('Fetching component from the registry…')
+  const done = startJob(id, 'Fetching component')
   try {
     // Read the block's code from disk if it hasn't been loaded yet (off-screen blocks):
     // never mistake "not loaded" for "empty" and overwrite someone's code.
@@ -580,8 +648,11 @@ export async function fetchIntoFrame(id: string, input: string) {
     replay([id])
     const n = Object.keys(r.modules).length + (replace ? 0 : 1)
     toast(replace ? `Fetched ${r.title}` : `Added ${n} missing file${n === 1 ? '' : 's'} · your code is unchanged`)
+    cue('ready')
   } catch (e) {
     toast(`Couldn’t fetch it: ${(e as Error).message}`, true)
+  } finally {
+    done()
   }
 }
 
@@ -606,8 +677,10 @@ export async function pasteText(text: string, at?: { x: number; y: number }) {
     const name = /export\s+(?:default\s+)?(?:function|const)\s+([A-Z]\w*)/.exec(t)?.[1]
     const f = await addCode(kind, t, { label: name ?? 'Pasted component' })
     toast(`Added ${kind === 'tsx' ? 'React' : 'HTML'} component`)
+    cue('paste')
     return f
   }
+  cue('paste')
   return addNote(at, t)
 }
 
@@ -651,7 +724,9 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
     }
     const media = await mediaSize(file, type as 'image' | 'video')
     const size = blockBox(media.w, media.h)
-    const up = await api.upload(getState().boardName, file)
+    // Big clips take a moment to copy in: show where they'll land meanwhile.
+    const done = startPending({ ...place(size.w, size.h, { x: at.x + offset, y: at.y + offset }), label: `Adding ${file.name}` })
+    const up = await api.upload(getState().boardName, file).finally(done)
     const path = up.path
     addFrame({
       type: up.type ?? type,
@@ -661,18 +736,23 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
     })
     offset += 32
   }
+  if (offset) cue('paste')
 }
 
 export function deleteSelected() {
-  const { selected, board, boardName } = getState()
-  if (!selected.length || !board) return
-  const doomed = board.frames.filter((f) => selected.includes(f.id))
+  if (removeSelection()) cue('remove')
+}
+
+/** Removes the selected frames (and their code files). False when nothing was selected. */
+function removeSelection() {
+  const { selected, board } = getState()
+  if (!selected.length || !board) return false
   mutateFrames((fs) =>
     fs.filter((f) => !selected.includes(f.id)).map((f) => (f.link && selected.includes(f.link) ? { ...f, link: undefined } : f)),
   )
   setState({ selected: [], interact: null })
-  // Code sources go too; uploaded assets stay on disk in case they're referenced elsewhere.
-  for (const f of doomed) for (const rel of [f.file, f.modules]) if (rel) api.deleteFile(boardName, rel).catch(() => {})
+  // Its files stay on disk so undo can bring it back whole; the canvas's next open clears them out (server/sweep.ts).
+  return true
 }
 
 export async function duplicateSelected() {
@@ -720,8 +800,9 @@ export async function copySelection(cut = false) {
   }
   clip = { board: s.boardName, frames, files }
   pasteCount = 0
-  copyText(CLIP_MARK + JSON.stringify(clip)).catch(() => {})
-  if (cut) deleteSelected()
+  // The in-app copy works even when the system clipboard refuses, so it sounds either way.
+  copyText(CLIP_MARK + JSON.stringify(clip)).then((ok) => ok || cue('copy'), () => cue('copy'))
+  if (cut) removeSelection()
   toast(`${cut ? 'Cut' : 'Copied'} ${frames.length} frame${frames.length > 1 ? 's' : ''} · ⌘V to paste`)
 }
 
@@ -779,6 +860,7 @@ export async function pasteFrames(from: Clip | null = clip) {
     made.push(id)
   }
   setState({ selected: made, interact: null })
+  cue('paste')
 }
 
 // ── linking & replay ────────────────────────────────────
@@ -860,6 +942,56 @@ export function setParam(id: string, name: string, value: ParamValue) {
   setState((s) => ({ overrides: { ...s.overrides, [id]: { ...s.overrides[id], [name]: value } } }))
 }
 
+/** One control back to where it started (drops its unsaved tweak). */
+export function resetParam(id: string, name: string) {
+  setState((s) => {
+    const mine = { ...s.overrides[id] }
+    delete mine[name]
+    const overrides = { ...s.overrides }
+    if (Object.keys(mine).length) overrides[id] = mine
+    else delete overrides[id]
+    return { overrides }
+  })
+}
+
+/** Name a control in the side panel; an empty name goes back to the one read from the code. */
+export function renameParam(id: string, name: string, label: string) {
+  const f = frameById(id)
+  if (!f) return
+  const labels = { ...f.labels }
+  if (label) labels[name] = label
+  else delete labels[name]
+  updateFrame(id, { labels: Object.keys(labels).length ? labels : undefined })
+}
+
+/**
+ * Timing measured on the reference a copy is linked to: a video's analysis, or a site's
+ * captured transition. Shown on the copy's controls so tuning can aim at it.
+ */
+export function referenceTiming(f: Frame): { duration?: number; ease?: Bezier } | null {
+  const ref = f.link ? frameById(f.link) : undefined
+  if (!ref?.analysis) return null
+  if (ref.type === 'video') {
+    const p = readAnalysis(ref)?.primary
+    return p ? { duration: p.durationMs, ease: p.ease.bezier } : null
+  }
+  if (ref.type === 'url') {
+    try {
+      const c = JSON.parse(getState().files[ref.analysis] ?? '') as MotionCapture
+      const t = c.transitions.find((x) => parseFloat(x.duration) > 0)
+      if (t) {
+        const ms = parseFloat(t.duration) * (t.duration.trim().endsWith('ms') ? 1 : 1000)
+        return { duration: ms, ease: easingBezier(t.timingFunction.split(',')[0]) ?? undefined }
+      }
+      const a = c.animations.find((x) => x.duration > 0)
+      return a ? { duration: a.duration, ease: easingBezier(a.easing) ?? undefined } : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 export function resetParams(id = getState().selected[0]) {
   setState((s) => {
     const overrides = { ...s.overrides }
@@ -892,9 +1024,22 @@ export async function lockParams(id = getState().selected[0]) {
   const all = getState().overrides[id] ?? {}
   // Measured values (from a library or stylesheet) have no literal to write back: they're saved on the frame.
   const measured = Object.fromEntries(Object.entries(all).filter(([k]) => isRuntimeName(k)))
-  const tuned = Object.fromEntries(Object.entries(all).filter(([k]) => !isRuntimeName(k)))
+  // Values for the component's own props aren't in the code either: they're saved on the frame.
+  const propValues = Object.entries(all).filter(([k]) => isPropName(k))
+  const tuned = Object.fromEntries(Object.entries(all).filter(([k]) => !isRuntimeName(k) && !isPropName(k)))
   if (Object.keys(measured).length) {
     updateFrame(id, { runtime: saveRuntime(f.runtime, measured, getState().motion[id]) })
+  }
+  if (propValues.length) {
+    const defs = detectProps(src, parseModules(modulesRaw))
+    const props = { ...f.props }
+    for (const [k, v] of propValues) {
+      const name = k.slice(PROP_PREFIX.length)
+      // Back to the component's own default: nothing to keep.
+      if (JSON.stringify(v) === JSON.stringify(defs.find((d) => d.name === name)?.value)) delete props[name]
+      else props[name] = v
+    }
+    updateFrame(id, { props: Object.keys(props).length ? props : undefined })
   }
 
   // Explicit @param annotations first, then detected values in their original literals.
@@ -923,10 +1068,12 @@ export async function lockParams(id = getState().selected[0]) {
     delete overrides[id]
     return { files: { ...st.files, ...files }, overrides }
   })
+  // A linked copy that's been saved has been tuned: its reference moves on to the last step.
+  if (f.link && !frameById(id)?.tuned) updateFrame(id, { tuned: true })
   const where = [
     main !== src && f.file.split('/').pop(),
     moduleChanged && 'its component files',
-    Object.keys(measured).length && 'this canvas',
+    (Object.keys(measured).length || propValues.length) && 'this canvas',
   ].filter(Boolean)
   toast(where.length ? `Saved to ${where.join(' and ')}` : 'Saved to code')
 }
@@ -993,9 +1140,8 @@ export function copySetupFix(id = getState().selected[0]) {
     `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix boards/${s.boardName}/${f.wrapper}` : `Create boards/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
       `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in boards/${s.boardName}/board.json`}. Don’t change the component itself.`,
   ].join('\n')
-  navigator.clipboard.writeText(prompt).then(
-    () => toast('Copied a fix. Paste it into Claude Code'),
-    () => toast('Couldn’t copy to the clipboard', true),
+  copyText(prompt).then((ok) =>
+    ok ? toast('Copied a fix. Paste it into Claude Code') : toast('Couldn’t copy to the clipboard', true),
   )
 }
 
@@ -1015,15 +1161,18 @@ export function markSegment(edge: 'in' | 'out') {
 export async function analyzeSelected() {
   const f = frameById(getState().selected[0])
   if (!f || f.type !== 'video' || !f.src) return toast('Select a video to analyze', true)
-  toast('Analyzing motion…')
+  const done = startJob(f.id, 'Measuring motion')
   try {
     const a = await api.analyze(getState().boardName, f.id, f.src, f.segment)
     const rel = `assets/${f.id}.analysis.json`
     setState((s) => ({ files: { ...s.files, [rel]: JSON.stringify(a) } }))
     updateFrame(f.id, { analysis: rel })
     toast(a.primary ? `Motion ≈ ${a.primary.durationMs}ms, ${a.primary.ease.nearest}` : 'No clear motion found in this segment')
+    cue(a.primary ? 'ready' : 'deny')
   } catch (e) {
     toast(`Analysis failed: ${(e as Error).message}`, true)
+  } finally {
+    done()
   }
 }
 
@@ -1039,7 +1188,7 @@ export const readAnalysis = (f?: Frame): VideoAnalysis | null => {
 export async function captureSelected(selector: string, trigger: string) {
   const f = frameById(getState().selected[0])
   if (!f || f.type !== 'url' || !f.src) return toast('Select a URL frame to capture', true)
-  toast(`Capturing ${trigger} on ${selector}…`)
+  const done = startJob(f.id, `Capturing ${trigger === 'load' ? 'page load' : trigger}`)
   try {
     const { capture, path, scaffold } = await api.capture(getState().boardName, f.id, { url: f.src, selector, trigger })
     setState((s) => ({ files: { ...s.files, [path]: JSON.stringify(capture) } }))
@@ -1054,8 +1203,11 @@ export async function captureSelected(selector: string, trigger: string) {
       h: 300,
     })
     toast(n ? `Captured ${n} timing${n > 1 ? 's' : ''}. Scaffold added` : 'No transitions fired. Try another selector or trigger')
+    cue(n ? 'ready' : 'deny')
   } catch (e) {
     toast(`Capture failed: ${(e as Error).message}`, true)
+  } finally {
+    done()
   }
 }
 
@@ -1093,6 +1245,7 @@ export async function exportBoard(scope: 'auto' | 'all' = 'auto') {
   try {
     const r = await api.exportBoard(getState().boardName, ids.length ? ids : undefined)
     setState({ exported: r, toast: null })
+    cue('ready')
   } catch (e) {
     toast(`Export failed: ${(e as Error).message}`, true)
   }
@@ -1102,10 +1255,7 @@ export function copyRecreate() {
   const id = getState().selected[0]
   if (!id) return
   const cmd = `/recreate ${getState().boardName} ${id}`
-  navigator.clipboard.writeText(cmd).then(
-    () => toast(`Copied "${cmd}". Run it in Claude Code`),
-    () => toast(cmd),
-  )
+  copyText(cmd).then((ok) => toast(ok ? `Copied "${cmd}". Run it in Claude Code` : cmd))
 }
 
 export const assetUrl = (rel: string) => mediaUrl(getState().boardName, rel)

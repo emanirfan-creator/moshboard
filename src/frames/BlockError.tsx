@@ -23,8 +23,8 @@ function describe(message: string, frameId: string): Described {
       title: 'A file is missing',
       body: (
         <>
-          This component imports <code>{missing.join(', ') || 'another file'}</code>, which wasn’t pasted. Paste the
-          install command to fetch all its files.
+          It imports <code>{missing.join(', ') || 'another file'}</code>, which wasn’t pasted. Paste the install command
+          to get every file.
         </>
       ),
       action: { label: 'Paste install command', run: openPasteDialog },
@@ -38,8 +38,7 @@ function describe(message: string, frameId: string): Described {
       title: 'Couldn’t read this code',
       body: (
         <>
-          {where ? `Line ${where[1]} doesn’t parse.` : 'It doesn’t parse.'} Copy the whole file, or paste the install
-          command instead.
+          {where ? `Line ${where[1]} doesn’t parse.` : 'It doesn’t parse.'} Paste the whole file or the install command.
         </>
       ),
       action: { label: 'Paste again', run: openPasteDialog },
@@ -49,21 +48,21 @@ function describe(message: string, frameId: string): Described {
   if (/failed to load|didn’t finish loading|Failed to fetch|NetworkError/i.test(message)) {
     return {
       title: 'Couldn’t load this component',
-      body: 'A package didn’t download. Check your connection and try again.',
+      body: 'A package didn’t download. Check your connection.',
     }
   }
   // Library components that render outside their provider (Chakra, MUI, Mantine, React context).
   if (/provider|must be (used|rendered) (within|inside)|useContext|context/i.test(message)) {
     return {
       title: 'It needs its library set up',
-      body: 'This component only shows once the design library it comes from is set up around it. Claude Code can do that for you.',
+      body: 'Its design library has to be set up around it. Claude Code can do it.',
       action: { label: 'Copy fix for Claude Code', run: () => copySetupFix(frameId) },
     }
   }
   if (/no default export/i.test(message)) {
     return {
       title: 'Nothing to render',
-      body: 'Add a default export, like export default function Card.',
+      body: 'Add a default export, e.g. export default function Card.',
     }
   }
   return {
@@ -80,7 +79,7 @@ export function BlockError({ frame, message }: { frame: Frame; message: string }
         title: 'That’s an install command',
         body: (
           <>
-            Fetch <code>{install}</code> to load the component and all its files here.
+            Fetch <code>{install}</code> to load it here.
           </>
         ),
         action: { label: 'Fetch component', run: () => fetchIntoFrame(frame.id, install) },

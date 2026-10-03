@@ -26,6 +26,10 @@ export interface Param {
   max?: number
   /** display name when it differs from `name` (detected params) */
   label?: string
+  /** values snap to this (a count steps by 1) */
+  step?: number
+  /** min/max only span the slider; a typed value can go past them */
+  soft?: boolean
   /** offsets of the value text inside the source, for writing locked values back */
   start: number
   end: number
@@ -72,6 +76,7 @@ const round = (n: number, d = 2) => {
 }
 
 export function roundFor(p: Param, n: number) {
+  if (p.step) return round(Math.round(n / p.step) * p.step)
   return p.unit === 'ms' || p.unit === 'px' ? Math.round(n) : round(n)
 }
 
@@ -193,3 +198,32 @@ export function startupParams(source: string, names: string[]): Set<string> {
   }
   return out
 }
+
+/**
+ * Where the code uses a param, for a readable label and a section to put it in:
+ * `<Pause size={getParams().size2} />` → { element: 'Pause', prop: 'size' }.
+ */
+export function paramUse(source: string, name: string): { element?: string; prop?: string } {
+  const n = esc(name)
+  const aliases = [...source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:useParams|getParams)\(\)/g)].map((m) => esc(m[1]))
+  const reads = [`getParams\\(\\)\\s*\\.\\s*${n}\\b`, ...aliases.map((a) => `\\b${a}\\s*\\.\\s*${n}\\b`), `var\\(--p-${n}\\b`]
+  for (const m of source.matchAll(new RegExp(reads.join('|'), 'g'))) {
+    const before = source.slice(Math.max(0, m.index! - 400), m.index)
+    // A JSX attribute: `<Tag … prop={… here`, or `prop={{ key: here` (then the key is the prop).
+    const jsx = /<([A-Za-z][\w.]*)\b[^<>]*?\s([A-Za-z][\w-]*)=\{(\{[^{}]*?([A-Za-z_][\w-]*)\s*:\s*)?[^{}]*$/.exec(before)
+    // Only components name things (`<Pause>`); a plain `<div style>` says nothing a param name doesn't.
+    const element = jsx?.[1].split('.').pop()
+    if (jsx && element && /^[A-Z]/.test(element)) return { element, prop: jsx[4] ?? jsx[2] }
+  }
+  return {}
+}
+
+/** `autoRotateSpeed` / `auto_rotate-speed` → "Auto rotate speed" */
+export const humanize = (name: string) =>
+  name
+    .replace(/[-_]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\d+$/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/^./, (c) => c.toUpperCase())

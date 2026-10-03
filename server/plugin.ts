@@ -7,6 +7,7 @@ import type { Board } from '../shared/types.ts'
 import { analyzeVideo } from './analyze-video.ts'
 import { exportBoard } from './export.ts'
 import { listFonts } from './fonts.ts'
+import { sweepBoard, TRASH } from './sweep.ts'
 
 export const BOARDS_DIR = path.resolve('boards')
 const NAME_RE = /^[\w-]+$/
@@ -178,6 +179,67 @@ function uniqueAsset(board: string, original: string) {
   return `assets/${base}-${Math.random().toString(36).slice(2, 6)}${ext}`
 }
 
+const slugOf = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 40) || 'canvas'
+
+/** A folder slug for a canvas name that no canvas uses yet ("Moodboard" → `moodboard`, then `moodboard-2`). */
+function freeBoardId(title: string) {
+  const base = slugOf(title)
+  let id = base
+  for (let i = 2; fs.existsSync(path.join(BOARDS_DIR, id)); i++) id = `${base}-${i}`
+  return id
+}
+
+/** Copies the sample board (samples/starter) in as a new canvas and returns it. */
+function addSample(): { id: string; name: string } {
+  const src = path.resolve('samples/starter')
+  const b: Board = JSON.parse(fs.readFileSync(path.join(src, 'board.json'), 'utf8'))
+  const id = freeBoardId(b.name)
+  fs.cpSync(src, path.join(BOARDS_DIR, id), { recursive: true })
+  return { id, name: b.name }
+}
+
+// A renamed canvas moves to a folder named after it; its old address keeps working through this map.
+const ALIASES = () => path.join(BOARDS_DIR, '.aliases.json')
+function readAliases(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(ALIASES(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+/** Where an old canvas address points now, if it moved. */
+function movedTo(board: string) {
+  const aliases = readAliases()
+  let id = aliases[board]
+  for (let i = 0; id && aliases[id] && i < 10; i++) id = aliases[id]
+  return id && fs.existsSync(path.join(BOARDS_DIR, id, 'board.json')) ? id : undefined
+}
+
+/** Renames a canvas, and moves its folder so the address matches the name (`#moodboard-tester`). */
+function renameBoard(board: string, title: string): { id: string; name: string } {
+  const file = boardPath(board, 'board.json')
+  if (!fs.existsSync(file)) throw new HttpError(404, 'canvas not found')
+  const b: Board = JSON.parse(fs.readFileSync(file, 'utf8'))
+  let id = board
+  // `moodboard-2` named "Moodboard" already matches; only move when the slug would change.
+  if (slugOf(title) !== board.replace(/-\d+$/, '')) {
+    id = freeBoardId(title)
+    fs.renameSync(boardPath(board), path.join(BOARDS_DIR, id))
+    const aliases = readAliases()
+    for (const k of Object.keys(aliases)) if (aliases[k] === board) aliases[k] = id
+    aliases[board] = id
+    delete aliases[id]
+    fs.writeFileSync(ALIASES(), JSON.stringify(aliases, null, 2) + '\n')
+  }
+  writeOwn(boardPath(id, 'board.json'), JSON.stringify({ ...b, name: title }, null, 2) + '\n')
+  return { id, name: title }
+}
+
 async function route(server: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url ?? '/', 'http://local')
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
@@ -201,6 +263,8 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
 
   if (kind === 'boards' && method === 'GET') {
     fs.mkdirSync(BOARDS_DIR, { recursive: true })
+    // First run: start with the sample board rather than an empty canvas.
+    if (!fs.readdirSync(BOARDS_DIR).some((d) => NAME_RE.test(d)) && fs.existsSync('samples/starter')) addSample()
     const list = fs
       .readdirSync(BOARDS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory() && NAME_RE.test(d.name))
@@ -222,21 +286,47 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     json(res, list)
     return true
   }
+  if (kind === 'boards' && method === 'POST' && board === 'sample') {
+    json(res, addSample())
+    return true
+  }
   if (kind === 'boards' && method === 'POST') {
     // Create a canvas from a display name; the folder gets a unique slug.
     const { name } = JSON.parse((await readBody(req)).toString() || '{}')
     const title = String(name ?? '').trim() || 'Untitled'
-    const base =
-      title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 40) || 'canvas'
-    let id = base
-    for (let i = 2; fs.existsSync(path.join(BOARDS_DIR, id)); i++) id = `${base}-${i}`
+    const id = freeBoardId(title)
     ensureBoard(id)
     const file = boardPath(id, 'board.json')
     writeOwn(file, JSON.stringify({ name: title, frames: [] }, null, 2) + '\n')
+    json(res, { id, name: title })
+    return true
+  }
+  if (kind === 'board' && method === 'POST' && rest[0] === 'rename') {
+    const { name } = JSON.parse((await readBody(req)).toString() || '{}')
+    const title = String(name ?? '').trim()
+    if (!title) throw new HttpError(400, 'name required')
+    json(res, renameBoard(board, title))
+    return true
+  }
+  if (kind === 'board' && method === 'POST' && rest[0] === 'sweep') {
+    if (!fs.existsSync(boardPath(board, 'board.json'))) throw new HttpError(404, 'canvas not found')
+    json(res, sweepBoard(boardPath(board)))
+    return true
+  }
+  if (kind === 'board' && method === 'POST' && rest[0] === 'duplicate') {
+    // Copy the whole canvas folder (frames, code, uploads, analysis) under a new
+    // slug. Paths in board.json are relative, so the copy stands on its own. The
+    // export folder (generated output) and the trash are left behind.
+    const src = boardPath(board)
+    if (!fs.existsSync(src)) throw new HttpError(404, 'canvas not found')
+    // A listed folder without a board.json copies as an empty canvas, like it shows.
+    const file = path.join(src, 'board.json')
+    const b: Board = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { name: board, frames: [] }
+    const title = `${b.name || board} copy`
+    const id = freeBoardId(title)
+    const dest = path.join(BOARDS_DIR, id)
+    fs.cpSync(src, dest, { recursive: true, filter: (p) => p !== path.join(src, 'export') && p !== path.join(src, TRASH) })
+    writeOwn(path.join(dest, 'board.json'), JSON.stringify({ ...b, name: title }, null, 2) + '\n')
     json(res, { id, name: title })
     return true
   }
@@ -252,8 +342,22 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     return true
   }
   if (kind === 'board' && method === 'GET') {
-    // Only the default canvas is created on demand; a deleted canvas stays deleted.
-    if (board !== 'default' && !fs.existsSync(boardPath(board, 'board.json'))) throw new HttpError(404, 'canvas not found')
+    if (!fs.existsSync(boardPath(board, 'board.json'))) {
+      // No `default` canvas: open an existing one, or on first run the sample board.
+      let moved = movedTo(board)
+      if (!moved && board === 'default') {
+        fs.mkdirSync(BOARDS_DIR, { recursive: true })
+        const ids = fs.readdirSync(BOARDS_DIR).filter((d) => NAME_RE.test(d) && fs.existsSync(path.join(BOARDS_DIR, d, 'board.json')))
+        moved = ids[0] ?? (fs.existsSync('samples/starter') ? addSample().id : undefined)
+      }
+      if (moved) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'canvas moved', moved }))
+        return true
+      }
+      // Only the default canvas is created on demand; a deleted canvas stays deleted.
+      if (board !== 'default') throw new HttpError(404, 'canvas not found')
+    }
     json(res, ensureBoard(board))
     return true
   }
@@ -294,6 +398,12 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const body = JSON.parse((await readBody(req)).toString() || '{}')
     const result = await analyzeVideo(boardPath(board), String(body.src), String(rest[0]), body.segment)
     json(res, result)
+    return true
+  }
+  if (kind === 'pick' && method === 'POST') {
+    const body = JSON.parse((await readBody(req)).toString() || '{}')
+    const { pickTargets } = await import('./pick-element.ts')
+    json(res, await pickTargets(boardPath(board), String(rest[0]), String(body.url)))
     return true
   }
   if (kind === 'capture' && method === 'POST') {

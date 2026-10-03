@@ -1,6 +1,7 @@
 import { transform } from 'sucrase'
 import { FONT_PROBE, SANDBOX_FONT } from '../../shared/font-probe.ts'
 import { TW_THEME } from '../../shared/twTheme.ts'
+import { buildSnippet, parseSnippet } from '../../shared/snippet.ts'
 
 // Code frames run in a sandboxed iframe (opaque origin). React components get
 // an import map (React from esm.sh, any other bare import rewritten to esm.sh),
@@ -34,6 +35,30 @@ export function cn(...inputs) { return twMerge(clsx(inputs)); }
 const SHARED = ['react', 'react-dom', 'three', '@react-three/fiber']
 const EXTERNAL = SHARED.join(',')
 
+// Registry components are often written for Next.js. Outside a Next app its
+// image optimizer (`/_next/image`) and router don't exist, so these stand in:
+// images load from their own URL, links are plain anchors.
+const NEXT_IMAGE_MODULE = dataModule(`
+import { createElement, forwardRef } from "react";
+const srcOf = (s) => (s && typeof s === "object" ? s.src : s);
+export function getImageProps({ src, fill, priority, loader, quality, placeholder, blurDataURL, unoptimized, ...rest }) {
+  return { props: { ...rest, src: srcOf(src), loading: priority ? "eager" : rest.loading } };
+}
+const Image = forwardRef(function Image({ src, fill, priority, loader, quality, placeholder, blurDataURL, unoptimized, style, ...rest }, ref) {
+  const fillStyle = fill ? { position: "absolute", inset: 0, width: "100%", height: "100%" } : null;
+  return createElement("img", { ref, ...rest, src: srcOf(src), loading: priority ? "eager" : rest.loading, style: { ...fillStyle, ...style } });
+});
+export default Image;
+`)
+
+const NEXT_LINK_MODULE = dataModule(`
+import { createElement, forwardRef } from "react";
+const Link = forwardRef(function Link({ href, prefetch, replace, scroll, shallow, passHref, legacyBehavior, locale, ...rest }, ref) {
+  return createElement("a", { ref, ...rest, href: typeof href === "object" ? href.pathname ?? "#" : href });
+});
+export default Link;
+`)
+
 const IMPORT_MAP = {
   imports: {
     three: 'https://esm.sh/three',
@@ -48,6 +73,8 @@ const IMPORT_MAP = {
     'react-dom/server.browser': `${REACT_DOM}/server.browser?external=react`,
     moodboard: MOODBOARD_MODULE,
     '@/lib/utils': UTILS_MODULE,
+    'next/image': NEXT_IMAGE_MODULE,
+    'next/link': NEXT_LINK_MODULE,
   },
 }
 
@@ -267,14 +294,42 @@ function rootVars(css: Record<string, string>) {
 }
 
 /**
- * Bare npm imports go to esm.sh. `@/…` imports must be one of the frame's own
- * modules (or a built-in like `@/lib/utils`); anything else is reported as missing.
+ * Resolve a relative import (`./display.wgsl`) to one of the frame's `@/…` modules.
+ * From a module, it's resolved against that module's own path; from the frame
+ * source (whose path isn't kept), it matches the one module ending in that path.
  */
-function rewriteImports(code: string, mapped: Set<string>, missing: Set<string>) {
+function resolveRelative(spec: string, importer: string | undefined, mapped: Set<string>) {
+  const clean = spec.replace(/\.(tsx|ts|jsx|js)$/, '')
+  if (importer) {
+    const parts = importer.split('/').slice(0, -1)
+    for (const seg of clean.split('/')) {
+      if (seg === '..') parts.pop()
+      else if (seg !== '.' && seg) parts.push(seg)
+    }
+    const joined = parts.join('/')
+    if (mapped.has(joined)) return joined
+  }
+  const tail = '/' + clean.replace(/^(\.\.?\/)+/, '')
+  const hits = [...mapped].filter((m) => m.startsWith('@/') && m.endsWith(tail))
+  return hits.length === 1 ? hits[0] : undefined
+}
+
+/**
+ * Bare npm imports go to esm.sh. `@/…` and relative imports must be one of the
+ * frame's own modules (or a built-in like `@/lib/utils`); anything else is
+ * reported as missing. `importer` is the module's own `@/…` path, if it has one.
+ */
+function rewriteImports(code: string, mapped: Set<string>, missing: Set<string>, importer?: string) {
   return code
     .replace(/^\s*import\s+['"][^'"]+\.css['"];?\s*$/gm, '')
     .replace(/(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])([^'"]+)\2/g, (m, pre: string, q: string, spec: string) => {
-      if (/^(\.|\/|https?:|data:|blob:)/.test(spec) || mapped.has(spec) || spec.startsWith('three/')) return m
+      if (/^\.\.?\//.test(spec)) {
+        const local = resolveRelative(spec, importer, mapped)
+        if (local) return `${pre}${q}${local}${q}`
+        missing.add(spec)
+        return m
+      }
+      if (/^(\/|https?:|data:|blob:)/.test(spec) || mapped.has(spec) || spec.startsWith('three/')) return m
       if (spec.startsWith('@/')) {
         missing.add(spec)
         return m
@@ -290,7 +345,9 @@ export function ensureDefaultExport(source: string) {
     /export\s+(?:function|const|let|class)\s+([A-Z]\w*)/.exec(source)?.[1] ??
     /export\s*\{\s*([A-Z]\w*)/.exec(source)?.[1] ??
     /(?:function|const)\s+([A-Z]\w*)/.exec(source)?.[1]
-  return named ? `${source.trimEnd()}\n\nexport default ${named}\n` : source
+  if (named) return `${source.trimEnd()}\n\nexport default ${named}\n`
+  const snippet = parseSnippet(source)
+  return snippet ? buildSnippet(snippet) : source
 }
 
 export function compileTsx(
@@ -298,6 +355,7 @@ export function compileTsx(
   mapped: Set<string> = new Set(Object.keys(IMPORT_MAP.imports)),
   missing: Set<string> = new Set(),
   filePath = 'frame.tsx',
+  importer?: string,
 ): string {
   const { code } = transform(source.replace(/^\s*['"]use client['"];?/m, ''), {
     transforms: ['typescript', 'jsx'],
@@ -305,7 +363,7 @@ export function compileTsx(
     production: true,
     filePath,
   })
-  return rewriteImports(code, mapped, missing)
+  return rewriteImports(code, mapped, missing, importer)
 }
 
 /** Import map for a frame: the built-ins plus its own modules (from a registry install), compiled. */
@@ -313,14 +371,14 @@ function frameImports(modules: Record<string, string>, missing: Set<string>) {
   const imports: Record<string, string> = { ...IMPORT_MAP.imports }
   const mapped = new Set([...Object.keys(imports), ...Object.keys(modules)])
   for (const [spec, src] of Object.entries(modules)) {
-    imports[spec] = dataModule(compileTsx(src, mapped, missing, `${spec.slice(2)}.tsx`))
+    imports[spec] = dataModule(compileTsx(src, mapped, missing, `${spec.slice(2)}.tsx`, spec))
   }
   return { imports, mapped }
 }
 
 const missingMessage = (missing: Set<string>) =>
   `This component imports ${[...missing].map((m) => `“${m}”`).join(', ')}, which isn’t part of what was pasted.\n\n` +
-  `Paste the library’s install command instead (e.g. npx shadcn@latest add @aceternity/…). Moshboard fetches the component with every file it needs.`
+  `Paste the install command instead (e.g. npx shadcn@latest add @aceternity/…) to get every file.`
 
 // Painted before any script loads, so a frame is never a white box while
 // Tailwind or esm.sh are still downloading.
@@ -357,6 +415,8 @@ export function buildSrcdoc(
   twCss?: string,
   /** source of a wrapper component (providers) the frame renders inside */
   wrapper?: string,
+  /** values for the component's own props, set in the side panel (later changes arrive as `mb:props`) */
+  props: Record<string, unknown> = {},
 ): string {
   if (kind === 'html') {
     const h = head(css, values, IMPORT_MAP.imports, twCss)
@@ -392,14 +452,21 @@ try {
   const C = mod.default;
   if (!C) throw new Error("Frame has no default export to render");
   const W = ${wrapper ? `(await import(${JSON.stringify(WRAPPER)})).default` : 'null'};
+  // Props set in the side panel; a change re-renders with the new values (no remount).
+  let props = ${safeJson(props)};
   // The wrapper (providers) stays mounted; replay remounts only the component.
-  const el = (key) => (W ? React.createElement(W, null, React.createElement(C, { key })) : React.createElement(C, { key }));
+  const el = (key) => (W ? React.createElement(W, null, React.createElement(C, { ...props, key })) : React.createElement(C, { ...props, key }));
   const root = createRoot(document.getElementById("root"));
   let n = 0;
   window.__mbRemount = () => (root.render(el(++n)), window.dispatchEvent(new Event("mb:measure")));
   root.render(el(n));
   // Re-render (not remount) on param changes, so getParams() reads stay live.
   window.__mb.subscribe(() => root.render(el(n)));
+  window.addEventListener("message", (e) => {
+    if (!e.data || e.data.type !== "mb:props") return;
+    props = e.data.props || {};
+    root.render(el(n));
+  });
   window.__mbReady = true;
   parent.postMessage({ type: "mb:ready" }, "*");
   window.dispatchEvent(new Event("mb:measure"));
@@ -407,7 +474,7 @@ try {
   let msg = String(e && e.message || e);
   // The browser hides which import failed behind the blob URL; say something useful.
   if (/dynamically imported module|Importing a module script failed/i.test(msg))
-    msg = "One of this component’s packages failed to load from esm.sh. Check your connection, then press R to retry.";
+    msg = "A package failed to load from esm.sh. Check your connection, then press R.";
   const el = document.createElement("div");
   el.className = "__mb-error";
   el.textContent = msg;

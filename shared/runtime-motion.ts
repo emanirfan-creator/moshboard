@@ -89,7 +89,7 @@ const PROPS: [RegExp, string][] = [
 
 /** What changes, in plain words: "color, shadow, movement". */
 export function changeNames(props: string): string {
-  if (props === 'all') return 'everything'
+  if (props === 'all') return 'any property'
   const out: string[] = []
   for (const p of props.split(/,\s*/)) {
     const hit = PROPS.find(([re]) => re.test(p))?.[1] ?? p.replace(/-/g, ' ')
