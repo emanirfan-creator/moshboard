@@ -50,7 +50,7 @@ Open http://localhost:5180. Boards are saved in the `boards/` folder on your com
 1. For a video: select it, optionally mark the part you care about with **I** (start) and **O** (end), then ⌘K → **Analyze motion**.
    For a website: ⌘K → **Capture motion…**, click the element on the page screenshot, and choose what sets it off (hover, click, focus, scroll, load).
 2. ⌘K → **Copy /recreate command**.
-3. Open Claude Code in this folder and paste it. It looks like:
+3. Open Claude Code in this folder (or in your project, if its boards live there) and paste it. It looks like:
 
    ```
    /recreate <board> <frameId>
@@ -64,7 +64,7 @@ A link can hold more than two things: select something already linked plus a new
 
 ### Exporting
 
-⌘K → **Export spec** writes `design.md`, `motion.md`, `tokens.css`, `tokens.json`, `snippets/` and `presets/` (ready-made transitions for motion/framer-motion and GSAP) into `boards/<board>/export/`. Select frames first to export only those.
+⌘K → **Export spec** writes `design.md`, `motion.md` (in the [Design Harness](#using-it-in-your-own-project) motion format), `interactions.md` (how each animation was measured), `tokens.css`, `tokens.json`, `snippets/` and `presets/` (ready-made transitions for motion/framer-motion and GSAP) into `boards/<board>/export/`. Select frames first to export only those.
 
 ⌘K → **Share as a page** makes one HTML file of the whole canvas that anyone can open in a browser: clips play, components run, and live sites stay live.
 
@@ -118,6 +118,40 @@ What shows up depends on what's selected.
 - **Arrange:** Tidy up into a grid, Align left, Align top
 - **Frame:** Link to reference, Add to link, Unlink, Duplicate, Delete
 - **Canvas:** Fit to screen, Control sounds on/off, Export spec, New canvas, Show / hide sidebar, Go to another canvas
+
+## Using it in your own project
+
+Install Moshboard once, then keep each project's boards inside that project, next to its code. Claude Code working in the project can then read the board and its exported specs.
+
+1. In the Moshboard folder, start it pointed at a folder in your project:
+
+   ```bash
+   MOSHBOARD_BOARDS=~/projects/my-app/design pnpm dev
+   ```
+
+   Boards are saved in `my-app/design/<board>/`. Commit them with the rest of the project.
+
+2. Make `/recreate` work in any project (one time):
+
+   ```bash
+   pnpm skill:install
+   ```
+
+3. Export writes into the board's folder (`my-app/design/<board>/export/`). From the terminal, `--out` writes somewhere else:
+
+   ```bash
+   MOSHBOARD_BOARDS=~/projects/my-app/design pnpm export <board> --out ~/projects/my-app/docs/design
+   ```
+
+4. Tell Claude where the specs are. Add this to the project's `CLAUDE.md`:
+
+   ```markdown
+   ## Design
+   The moodboard and its specs live in `design/<board>/` (made with Moshboard).
+   Before building UI, read `design/<board>/export/design.md` and `motion.md`.
+   Use the colors, fonts and spacing in `tokens.css`, and the timing and easing in `motion.md`.
+   Coded references are in `export/snippets/`.
+   ```
 
 ## Working with Claude Code
 

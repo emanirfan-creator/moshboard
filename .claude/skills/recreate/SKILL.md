@@ -7,9 +7,13 @@ description: Recreate a Moshboard reference (video, live site, or image) as a tu
 
 Turn one reference frame into a **coded copy** with `@param` handles, placed next to it and linked to it. The user then tunes it side by side in the app, so aim for structure and motion character first. Exact values get dialed in on the canvas.
 
+## Where the board is
+
+Paths below are relative to the board folder, `<boards>/<board>/` (the one holding `board.json`). In the Moshboard folder itself that's `boards/<board>/`. In an app repo, boards sit wherever Moshboard was pointed with `MOSHBOARD_BOARDS` (often `design/<board>/`); find `<board>/board.json` if it isn't obvious.
+
 ## 1. Read the reference
 
-- `boards/<board>/board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis`, `label`, and any `note` frames whose `link` is this id (they hold the user's intent; follow them).
+- `board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis`, `label`, and any `note` frames whose `link` is this id (they hold the user's intent; follow them).
 - **video**: if `analysis` is missing, ask the user to select the video and press "Analyze motion" (or mark a segment with I/O first). Then read:
   - `assets/<id>.analysis.json`: `primary.startMs`, `primary.durationMs`, `primary.ease.bezier`, and `bursts` (several bursts usually mean stagger or a sequence).
   - `assets/<id>.sheet.png`: the keyframe contact sheet (6×4, left→right, top→bottom, evenly spaced across the segment). **Look at it.** It's how you see what moves, in what order, and how far.
@@ -18,7 +22,7 @@ Turn one reference frame into a **coded copy** with `@param` handles, placed nex
 
 ## 2. Write the frame
 
-Create `boards/<board>/frames/<frameId>-copy.tsx` (React) or `.html` for plain CSS work.
+Create `frames/<frameId>-copy.tsx` (React) or `.html` for plain CSS work.
 
 Conventions:
 - Default export a component (tsx). Tailwind v4 classes work, plus shadcn tokens (`bg-background`, `text-foreground`, `bg-primary`, `text-muted-foreground`, `border-border`). Frames render inside a block whose inner panel is `#1b1c1f`; keep the component background transparent unless the reference has its own surface.

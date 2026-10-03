@@ -7,7 +7,8 @@ import { CloseIcon } from './icons'
 
 const DESCRIBE: Record<string, string> = {
   'design.md': 'Colors, type, notes and references',
-  'motion.md': 'Each animation’s timing, easing and source',
+  'motion.md': 'Motion tokens and patterns',
+  'interactions.md': 'How each animation was measured, with exact values',
   'tokens.css': 'Tokens as CSS variables',
   'tokens.json': 'Tokens as JSON',
 }
@@ -32,7 +33,7 @@ export function ExportDialog() {
   const top = result.files.filter((f) => !f.includes('/')).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
   const snippets = result.files.filter((f) => f.startsWith('snippets/'))
   const refs = result.files.filter((f) => f.startsWith('refs/'))
-  const prompt = `Build this UI from the spec in ${result.absDir}. Read motion.md and design.md first. Use tokens.css for timing, easing and color. Treat snippets/ as exact references: their values were tuned by hand.`
+  const prompt = `Build this UI from the spec in ${result.absDir}. Read design.md and motion.md first. Use tokens.css for timing, easing and color. Treat snippets/ as exact references: their values were tuned by hand.`
 
   const copy = (what: string, text: string) =>
     navigator.clipboard.writeText(text).then(

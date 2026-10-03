@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { flushSync } from 'react-dom'
 import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
@@ -274,13 +275,14 @@ export const screenToWorld = (sx: number, sy: number) => {
   return { x: (sx - x) / z, y: (sy - y) / z }
 }
 
-export const SIDEBAR_W = 240
+/** sidebar width plus its inset from the screen edge */
+export const SIDEBAR_W = 252
 export const INSPECTOR_W = 300
 const INSPECTED = new Set(['code', 'video', 'text', 'palette'])
 /** Whether the right-hand inspector is showing (one inspectable frame selected). */
 export const inspectorOpen = (s: State) =>
   s.selected.length > 1 ||
-  (s.selected.length === 1 && inspected(s.board?.frames.find((f) => f.id === s.selected[0])))
+  (s.selected.length === 1 && inspected(frameById(s.selected[0])))
 const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || (f.type === 'swatch' && !!f.font))
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
 export const viewLeft = () => (state.sidebar ? SIDEBAR_W : 0)
@@ -318,7 +320,19 @@ export function toast(text: string, error = false) {
 }
 
 export function toggleSidebar(open = !state.sidebar) {
-  setState({ sidebar: open })
+  if (open === state.sidebar) return
+  // The bar morphs into the panel (and back): its box, mark and canvas name are shared
+  // elements of a view transition (see "Sidebar morph" in theme.css).
+  const root = document.documentElement
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.dataset.navMorph = open ? 'open' : 'close'
+    const vt = document.startViewTransition(() => flushSync(() => setState({ sidebar: open })))
+    // Skipped (hidden tab, a second toggle mid-flight): the state change still lands.
+    vt.ready.catch(() => {})
+    vt.finished.finally(() => {
+      if (root.dataset.navMorph === (open ? 'open' : 'close')) delete root.dataset.navMorph
+    })
+  } else setState({ sidebar: open })
   try {
     localStorage.setItem('mb:sidebar', open ? '1' : '0')
   } catch {

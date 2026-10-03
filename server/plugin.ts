@@ -5,11 +5,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin, ViteDevServer } from 'vite'
 import type { Board } from '../shared/types.ts'
 import { analyzeVideo } from './analyze-video.ts'
+import { BOARDS_DIR } from './boards-dir.ts'
 import { exportBoard } from './export.ts'
 import { listFonts } from './fonts.ts'
 import { sweepBoard, TRASH } from './sweep.ts'
 
-export const BOARDS_DIR = path.resolve('boards')
+export { BOARDS_DIR }
 const NAME_RE = /^[\w-]+$/
 
 const MIME: Record<string, string> = {

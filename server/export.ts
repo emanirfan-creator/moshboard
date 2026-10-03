@@ -16,6 +16,7 @@ import {
   type Spring,
 } from '../shared/params.ts'
 import type { Board, Frame, MotionCapture, VideoAnalysis } from '../shared/types.ts'
+import { displayPath } from './boards-dir.ts'
 
 const slug = (s: string) =>
   s
@@ -31,6 +32,11 @@ interface Token {
   value: string
   uses: string[]
 }
+
+type TimingKind = 'duration' | 'delay' | 'stagger'
+const timingKind = (param: string): TimingKind => (/stagger/i.test(param) ? 'stagger' : /delay/i.test(param) ? 'delay' : 'duration')
+/** One animation's token names, for motion.md's enter/exit patterns. */
+type Step = Partial<Record<TimingKind | 'ease' | 'spring', string>>
 
 /**
  * Export the whole canvas, or only `ids` plus what they're linked to (a copy's
@@ -73,22 +79,47 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
   }
 
   // ── tokens ──────────────────────────────────────────────
+  // Motion tokens follow the Design Harness motion format: duration, delay, easing, spring, stagger.
   const easings = new Map<string, Token>()
-  const durations = new Map<string, Token>()
-  const springs = new Map<string, Token>()
+  const timings: Record<TimingKind, Map<string, Token>> = { duration: new Map(), delay: new Map(), stagger: new Map() }
+  const springs = new Map<string, Token & { spring: Spring }>()
   const colors = new Map<string, Token>()
 
+  // Token names stay unique: a second curve from the same frame becomes `ease-<frame>-2`.
+  const names = new Set<string>()
+  const unique = (base: string) => {
+    let n = base
+    for (let k = 2; names.has(n); k++) n = `${base}-${k}`
+    names.add(n)
+    return n
+  }
   const addEase = (b: Bezier, use: string) => {
     const value = `cubic-bezier(${b.join(', ')})`
     const named = Object.entries(NAMED_EASES).find(([, nb]) => sameBezier(b, nb))?.[0]
-    const t = easings.get(value) ?? { name: named ?? `ease-${slug(use)}`, value, uses: [] }
+    const t = easings.get(value) ?? { name: unique(named ? (named.startsWith('ease') ? named : `ease-${named}`) : `ease-${slug(use.split(' · ')[0])}`), value, uses: [] }
     t.uses.push(use)
     easings.set(value, t)
+    return t.name
+  }
+  const addMs = (kind: TimingKind, ms: number, use: string) => {
+    const n = Math.round(ms)
+    const t = timings[kind].get(`${n}ms`) ?? { name: `${kind}-${n}`, value: `${n}ms`, uses: [] }
+    t.uses.push(use)
+    timings[kind].set(t.value, t)
+    return t.name
+  }
+  const addSpring = (sp: Spring, value: string, use: string) => {
+    const key = `${sp.stiffness}/${sp.damping}/${sp.mass ?? 1}`
+    const t = springs.get(key) ?? { name: unique(`spring-${Math.round(sp.stiffness)}-${Math.round(sp.damping)}`), value, uses: [], spring: sp }
+    t.uses.push(use)
+    springs.set(key, t)
     return t.name
   }
 
   // ── motion sections ─────────────────────────────────────
   const motion: string[] = []
+  // Enter/exit patterns for motion.md: per animation, its trigger and token names.
+  const patterns: { key: string; lines: string[] }[] = []
   // One transition per animation, for presets/motion.ts and presets/gsap.ts.
   const presets: Preset[] = []
   const codeFrames = board.frames.filter((f) => f.type === 'code' && f.file)
@@ -118,26 +149,23 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     }
 
     const rows: string[] = []
+    const trigger = annotation(source, 'trigger')
+    const animates = annotation(source, 'animates')
+    const step: Step = {}
+    const steps: [string, Step][] = [[trigger || 'animate', step]]
     for (const p of params) {
       const shown = formatParam(p, p.value).replace(/ -?[\d.]+\.\.-?[\d.]+$/, '')
-      let token = ''
-      if (p.kind === 'ease') token = `--${addEase(p.value as Bezier, name(f))}`
-      if (p.kind === 'number' && p.unit === 'ms' && p.value !== 0) {
-        const v = `${p.value}ms`
-        const t = durations.get(v) ?? { name: `dur-${p.value}`, value: v, uses: [] }
-        t.uses.push(`${name(f)}.${p.name}`)
-        durations.set(v, t)
-        token = `--${t.name}`
-      }
-      if (p.kind === 'spring') {
-        const s = p.value as Spring
-        const key = `${s.stiffness}/${s.damping}/${s.mass ?? 1}`
-        const t = springs.get(key) ?? { name: `spring-${s.stiffness}-${s.damping}`, value: shown, uses: [] }
-        t.uses.push(name(f))
-        springs.set(key, t)
-        token = t.name
-      }
       const label = f.labels?.[p.name]
+      const use = `${name(f)} · ${label ?? p.name}`
+      let token = ''
+      if (p.kind === 'ease') token = `--${(step.ease ??= addEase(p.value as Bezier, name(f)))}`
+      if (p.kind === 'number' && p.unit === 'ms' && p.value !== 0) {
+        const kind = timingKind(p.name)
+        const t = addMs(kind, p.value as number, use)
+        step[kind] ??= t
+        token = `--${t}`
+      }
+      if (p.kind === 'spring') token = step.spring ??= addSpring(p.value as Spring, shown, use)
       rows.push(`| ${label ? `${label} (\`${p.name}\`)` : `\`${p.name}\``} | \`${shown}\` | ${p.kind} | ${token ? `\`${token}\`` : ''} |`)
     }
     const timing = (re: RegExp) => params.find((p) => re.test(p.name) && p.kind === 'number' && p.unit === 'ms')?.value as number | undefined
@@ -153,6 +181,8 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     const explicit = new Set(params.map((p) => p.name))
     const detection = detectMotion(source, modules, ext === '.html' ? 'html' : 'tsx', path.basename(f.file!))
     for (const g of detection.groups) {
+      const gStep: Step = {}
+      steps.push([g.label, gStep])
       const by = (label: string) => g.params.find((p) => p.label === label && !explicit.has(p.name))?.value
       presets.push({
         label: `${name(f)} ${g.label}`,
@@ -164,23 +194,15 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
       for (const p of g.params) {
         if (explicit.has(p.name)) continue
         let token = ''
-        if (p.kind === 'ease') token = `--${addEase(p.value as Bezier, `${name(f)} · ${g.label}`)}`
+        const use = `${name(f)} · ${g.label} ${p.label}`
+        if (p.kind === 'ease') token = `--${(gStep.ease ??= addEase(p.value as Bezier, `${name(f)} · ${g.label}`))}`
         if (p.kind === 'number' && p.unit === 'ms' && p.value !== 0) {
-          const ms = Math.round(p.value as number)
-          const v = `${ms}ms`
-          const t = durations.get(v) ?? { name: `dur-${ms}`, value: v, uses: [] }
-          t.uses.push(`${name(f)} · ${g.label} ${p.label}`)
-          durations.set(v, t)
-          token = `--${t.name}`
+          const kind = timingKind(p.label)
+          const t = addMs(kind, p.value as number, use)
+          gStep[kind] ??= t
+          token = `--${t}`
         }
-        if (p.kind === 'spring') {
-          const s = p.value as Spring
-          const key = `${s.stiffness}/${s.damping}/${s.mass ?? 1}`
-          const t = springs.get(key) ?? { name: `spring-${s.stiffness}-${s.damping}`, value: describeValue(p), uses: [] }
-          t.uses.push(`${name(f)} · ${g.label}`)
-          springs.set(key, t)
-          token = t.name
-        }
+        if (p.kind === 'spring') token = gStep.spring ??= addSpring(p.value as Spring, describeValue(p), use)
         rows.push(
           `| ${g.label} · ${p.label} | \`${describeValue(p)}\` | ${p.kind}, detected in ${g.file}:${p.line} | ${token ? `\`${token}\`` : ''} |`,
         )
@@ -192,14 +214,39 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
       presets.push({ label: `${name(f)} ${saved.label}`, duration: saved.duration, delay: saved.delay, ease: saved.ease })
       const t = { ...saved, label: saved.label.replace(/</g, '&lt;').replace(/>/g, '&gt;') }
       const how = 'measured while running, tuned on the board (not in the snippet)'
-      if (t.duration !== undefined) rows.push(`| ${t.label} · duration | \`${Math.round(t.duration)}ms\` | number, ${how} | |`)
-      if (t.delay !== undefined) rows.push(`| ${t.label} · delay | \`${Math.round(t.delay)}ms\` | number, ${how} | |`)
-      if (t.ease) rows.push(`| ${t.label} · easing | \`cubic-bezier(${t.ease.join(', ')})\` | ease, ${how} | \`--${addEase(t.ease, `${name(f)} · ${t.label}`)}\` |`)
+      const rStep: Step = {}
+      steps.push([saved.label, rStep])
+      if (t.duration) {
+        rStep.duration = addMs('duration', t.duration, `${name(f)} · ${saved.label}`)
+        rows.push(`| ${t.label} · duration | \`${Math.round(t.duration)}ms\` | number, ${how} | \`--${rStep.duration}\` |`)
+      }
+      if (t.delay) {
+        rStep.delay = addMs('delay', t.delay, `${name(f)} · ${saved.label}`)
+        rows.push(`| ${t.label} · delay | \`${Math.round(t.delay)}ms\` | number, ${how} | \`--${rStep.delay}\` |`)
+      }
+      if (t.ease) {
+        rStep.ease = addEase(t.ease, `${name(f)} · ${t.label}`)
+        rows.push(`| ${t.label} · easing | \`cubic-bezier(${t.ease.join(', ')})\` | ease, ${how} | \`--${rStep.ease}\` |`)
+      }
+    }
+    const used = steps.filter(([, st]) => Object.keys(st).length)
+    if (used.length) {
+      // Keyed by what sets it off (or the animation's kind), with the element it's on as a comment.
+      const keys = new Set<string>()
+      const rows = used.map(([label, st], i) => {
+        const [kind, ...where] = label.split(' · ')
+        let key = slug(kind)
+        for (let k = 2; keys.has(key); k++) key = `${slug(kind)}-${k}`
+        keys.add(key)
+        const recipe = [i === 0 ? animates?.split(/\s*,\s*/).join(' + ') : '', st.ease ?? st.spring, st.duration, st.delay, st.stagger].filter(Boolean).join(', ')
+        return { line: `  ${key}: ${recipe}`, where: where.join(' · ') }
+      })
+      const width = Math.max(...rows.map((r) => r.line.length))
+      const lines = rows.map((r) => (r.where ? `${r.line.padEnd(width)}   # ${r.where}` : r.line))
+      patterns.push({ key: slug(name(f).replace(/\s*\(copy\)$/i, '')), lines })
     }
 
-    const lines = [`### ${name(f)}`, '']
-    const trigger = annotation(source, 'trigger')
-    const animates = annotation(source, 'animates')
+    const lines = [`## ${name(f)}`, '']
     if (trigger) lines.push(`- **Trigger:** ${trigger}`)
     if (animates) lines.push(`- **Animates:** ${animates}`)
     if (f.wrapper) lines.push(`- **Renders inside:** \`${f.wrapper}\` (providers/context it needs)`)
@@ -229,11 +276,11 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
   if (pending.length) {
     motion.push(
       [
-        '### Not yet recreated',
+        '## Not yet recreated',
         '',
-        'These references have no tuned code copy. Treat any timing below as an estimate.',
+        'These references have no tuned code copy. Treat any timing below as an estimate; none of it is in the tokens.',
         '',
-        ...pending.flatMap((f) => [`**${name(f)}**`, ...describeReference(f, name(f), copyRef, readJson), '']),
+        ...pending.flatMap((f) => [`### ${name(f)}`, '', ...describeReference(f, name(f), copyRef, readJson), '']),
       ].join('\n'),
     )
   }
@@ -248,13 +295,17 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     })
   const palettes = board.frames.filter((f) => f.type === 'palette' && f.colors?.length)
   const taken = new Set([...colors.keys()])
+  const paletteTokens = new Map<Frame, string[]>()
   for (const p of palettes) {
+    const own: string[] = []
     for (const c of p.colors!) {
       let n = `color-${slug(nameColor(c.hex))}`
       for (let k = 2; taken.has(n); k++) n = `color-${slug(nameColor(c.hex))}-${k}`
       taken.add(n)
       colors.set(n, { name: n, value: c.hex, uses: [name(p)] })
+      own.push(n)
     }
+    paletteTokens.set(p, own)
   }
   const fonts = swatches.filter((s) => s.font)
   const fontTokens = new Map<string, string>()
@@ -280,7 +331,7 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     ...[...fontTokens].map(([n, v]) => `  --${n}: ${v};`),
     ...[...colors.values()].map((t) => `  --${t.name}: ${t.value};`),
     ...[...easings.values()].map((t) => `  --${t.name}: ${t.value}; /* ${t.uses.join(', ')} */`),
-    ...[...durations.values()].map((t) => `  --${t.name}: ${t.value}; /* ${t.uses.join(', ')} */`),
+    ...Object.values(timings).flatMap((m) => [...m.values()].map((t) => `  --${t.name}: ${t.value}; /* ${t.uses.join(', ')} */`)),
     '}',
     ...(springs.size
       ? ['', '/* Springs (no CSS equivalent; use with motion/framer-motion `transition={{ type: "spring", … }}`):', ...[...springs.values()].map((t) => ` * ${t.name}: ${t.value}  (${t.uses.join(', ')})`), ' */']
@@ -292,7 +343,7 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
   write(
     'tokens.json',
     JSON.stringify(
-      { colors: tokenJson(colors), fonts: Object.fromEntries(fontTokens), easings: tokenJson(easings), durations: tokenJson(durations), springs: tokenJson(springs) },
+      { colors: tokenJson(colors), fonts: Object.fromEntries(fontTokens), easings: tokenJson(easings), durations: tokenJson(timings.duration), delays: tokenJson(timings.delay), staggers: tokenJson(timings.stagger), springs: tokenJson(springs) },
       null,
       2,
     ) + '\n',
@@ -305,46 +356,140 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
     write('presets/gsap.ts', gsapPresets(usable))
   }
 
-  // ── motion.md ───────────────────────────────────────────
+  // ── motion.md: the Design Harness motion format (references/motion.md) ──
+  const byMs = (m: Map<string, Token>) => [...m.values()].sort((a, b) => parseFloat(a.value) - parseFloat(b.value))
+  const tokenBlock = (title: string, about: string, list: { name: string; value: string; uses: string[] }[]) => {
+    if (!list.length) return []
+    const width = Math.max(...list.map((t) => `${t.name}: ${t.value}`.length))
+    return [`## ${title}`, '', about, '', '```', ...list.map((t) => `${`${t.name}: ${t.value}`.padEnd(width)}   use: ${[...new Set(t.uses)].join(', ')}`), '```', '']
+  }
   write(
     'motion.md',
     [
-      `# ${board.name}: motion spec`,
+      `# ${board.name} · Motion`,
       '',
-      'Each interaction below was recreated as code and tuned side by side with its reference. The values in the snippets are exact: build from them instead of re-estimating from the references.',
+      'The motion system: values, the patterns built from them, and the stance on how much motion is right. Generated by Moshboard from references tuned side by side on the board, so the values are exact. How each one was measured: [`interactions.md`](interactions.md).',
       '',
-      '- Durations are in ms. When using motion/framer-motion, divide by 1000.',
-      '- Easings are CSS `cubic-bezier`. In motion, pass the four numbers as an array.',
-      '- Shared values live in [`tokens.css`](tokens.css) / [`tokens.json`](tokens.json).',
+      '**Rules:**',
+      '- Patterns reference tokens by name, never raw values.',
+      '- Each value\'s `use` is where it\'s used on the board.',
+      '- The same names are CSS variables in [`tokens.css`](tokens.css) and keys in [`tokens.json`](tokens.json). Durations are in ms; divide by 1000 for motion / framer-motion.',
       ...(usable.length ? ['- Ready-made transitions: [`presets/motion.ts`](presets/motion.ts) (motion / framer-motion) and [`presets/gsap.ts`](presets/gsap.ts) (GSAP).'] : []),
+      ...(pending.length ? [`- ${pending.length} reference${pending.length === 1 ? ' isn\'t' : 's aren\'t'} recreated yet. Their timings are estimates in [\`interactions.md\`](interactions.md), not tokens.`] : []),
+      '',
+      '---',
+      '',
+      ...(patterns.length ? [] : ['_No coded interactions on this board yet._', '']),
+      ...tokenBlock('Duration', 'Named times in ms, each with where it\'s used.', byMs(timings.duration)),
+      ...tokenBlock('Delay', 'Named times in ms.', byMs(timings.delay)),
+      ...tokenBlock('Easing', 'Named curves, each with where it\'s used.', [...easings.values()]),
+      ...tokenBlock('Spring', 'Named physics presets: stiffness, damping, mass.', [...springs.values()].map((t) => ({ ...t, value: `{ stiffness: ${t.spring.stiffness}, damping: ${t.spring.damping}, mass: ${t.spring.mass ?? 1} }` }))),
+      ...tokenBlock('Stagger', 'Named intervals in ms between items animating in sequence.', byMs(timings.stagger)),
+      ...(patterns.length
+        ? [
+            '## Enter/exit patterns',
+            '',
+            'Per interaction, what sets it off and its recipe: what animates, easing, duration, delay. Every value is a token name from above.',
+            '',
+            '```',
+            ...patterns.flatMap((pt) => [`${pt.key}:`, ...pt.lines]),
+            '```',
+            '',
+          ]
+        : []),
+      '## Philosophy',
+      '',
+      'One to three sentences. Sets stance, not values: how much motion is appropriate, whether it should be felt or barely noticed.',
+      '',
+      '```',
+      '[Yours to write.]',
+      '```',
+      '',
+    ].join('\n'),
+  )
+
+  // ── interactions.md: each recreated reference, how it was measured, and its exact values ──
+  write(
+    'interactions.md',
+    [
+      `# ${board.name} · Interactions`,
+      '',
+      'Each interaction below was recreated as code and tuned side by side with its reference. The values in the snippets are exact: build from them instead of re-estimating from the references. Tokens are named in [`motion.md`](motion.md).',
       '',
       ...(motion.length ? motion.join('\n\n---\n\n').split('\n') : ['_No coded interactions on this board yet._']),
       '',
     ].join('\n'),
   )
 
-  // ── design.md ───────────────────────────────────────────
+  // ── design.md: the visual system, in the Design Harness token style ──
+  // Notes are the designer's words: lines that read as rules go under Rules, the rest is intent.
+  const RULE = /^(do|don['’]?t|do not|never|always|avoid|must|only)\b/i
   const unlinkedNotes = notes.filter((n) => !n.link)
+  const noteLines = unlinkedNotes.flatMap((n) => n.text!.trim().split(/\n+/).map((l) => l.trim()).filter(Boolean))
+  const rules = noteLines.filter((l) => RULE.test(l.replace(/^[-•*]\s*/, '')))
+  const intent = unlinkedNotes.map((n) => n.text!.trim().split(/\n+/).filter((l) => !RULE.test(l.trim().replace(/^[-•*]\s*/, ''))).join('\n')).filter((t) => t.trim())
+  // `name:  value   note`, with names and values each in a column.
+  const block = (rows: [string, string, string?][], sep = ':') => {
+    const kw = Math.max(...rows.map(([k]) => k.length)) + sep.length
+    const vw = Math.max(...rows.map(([, v]) => v.length))
+    return rows.map(([k, v, note]) => `${(k + sep).padEnd(kw)}  ${note ? `${v.padEnd(vw)}   ${note}` : v}`)
+  }
+  const colorRow = (n: string, locked?: boolean): [string, string, string] => {
+    const hex = colors.get(n)!.value
+    const ink = inkFor(hex)
+    return [n, hex.toUpperCase(), `text: ${ink === '#ffffff' ? 'white' : 'dark'} ${contrast(hex, ink).toFixed(1)}:1${locked ? '   locked' : ''}`]
+  }
+  const groupNames = new Map<string, number>()
+  const group = (label: string) => {
+    const k = (groupNames.get(label) ?? 0) + 1
+    groupNames.set(label, k)
+    return k > 1 ? `${label} ${k}` : label
+  }
+  const swatchColors = [...colors.values()].filter((t) => swatches.some((s) => name(s) === t.uses[0]))
+  const colorLines = [
+    ...palettes.flatMap((p) => [`# ${group(name(p))}`, ...block(p.colors!.map((c, i) => colorRow(paletteTokens.get(p)![i], c.locked)))]),
+    ...(swatchColors.length ? ['# Swatches', ...block(swatchColors.map((t) => colorRow(t.name)))] : []),
+  ]
+  const typeLines = fonts.length ? block([...fontTokens].map(([k, v]) => [k, v])) : []
   const design = [
-    `# ${board.name}: design reference`,
+    `# ${board.name} · Design`,
     '',
-    'Exported from Moshboard. Motion lives in [`motion.md`](motion.md); tokens are in [`tokens.css`](tokens.css).',
+    'The visual system from this board: colors, type, references and the intent behind them. Generated by Moshboard. Motion lives in [`motion.md`](motion.md).',
     '',
-    ...(unlinkedNotes.length ? ['## Intent', '', ...unlinkedNotes.map((n) => n.text!.trim()), ''] : []),
-    ...palettes.flatMap((p) => [
-      `## ${name(p)}`,
+    '**Rules:**',
+    '- Build from these values. Every color and font below is a token; don\'t add new ones.',
+    '- If something you need isn\'t here, say what\'s missing and ask. Don\'t invent it.',
+    '- The same names are CSS variables in [`tokens.css`](tokens.css) and keys in [`tokens.json`](tokens.json).',
+    '',
+    '## Where to look',
+    '',
+    '```',
+    ...block(
+      [
+        ['Need a color or font?', '→ Color, Type below · tokens.css'],
+        ['Animating something?', '→ motion.md'],
+        ...(codeFrames.length ? [['Rebuilding an interaction?', '→ interactions.md + snippets/'] as [string, string]] : []),
+        ...(images.length ? [['Matching a look?', '→ Visual references below · refs/'] as [string, string]] : []),
+      ],
       '',
-      '| Color | Hex | Token | Text on it |',
-      '|---|---|---|---|',
-      ...p.colors!.map((c) => {
-        const t = [...colors.values()].find((x) => x.value === c.hex && x.uses.includes(name(p)))
-        const ink = inkFor(c.hex)
-        return `| ${nameColor(c.hex)}${c.locked ? ' (locked)' : ''} | \`${c.hex.toUpperCase()}\` | \`--${t?.name}\` | ${ink === '#ffffff' ? 'white' : 'dark'} (${contrast(c.hex, ink).toFixed(1)}:1) |`
-      }),
-      '',
-    ]),
-    ...(swatches.some((s) => s.color) ? ['## Swatches', '', '| Token | Value |', '|---|---|', ...[...colors.values()].filter((t) => swatches.some((s) => name(s) === t.uses[0])).map((t) => `| \`--${t.name}\` | \`${t.value}\` |`), ''] : []),
-    ...(fonts.length ? ['## Type', '', ...fonts.map((f) => `- **${f.font}** ${styleName(f.weight, f.italic)}, ${f.size ?? SWATCH_SIZE}px${f.label ? `: ${f.label}` : ''} (${f.fontHref ? `Google Fonts, loaded by \`tokens.css\`` : 'installed locally; make sure it ships with the product'})`), ''] : []),
+    ),
+    '```',
+    '',
+    ...(intent.length ? ['## Intent', '', intent.join('\n\n'), ''] : []),
+    ...(rules.length ? ['## Rules', '', 'From notes on the board.', '', ...rules.map((r) => `- ${r.replace(/^[-•*]\s*/, '')}`), ''] : []),
+    ...(colorLines.length ? ['## Color', '', 'Named colors, each with the text color that reads on it and its contrast.', '', '```', ...colorLines, '```', ''] : []),
+    ...(typeLines.length
+      ? [
+          '## Type',
+          '',
+          '```',
+          ...typeLines,
+          '```',
+          '',
+          ...fonts.map((f) => `- **${f.font}** ${styleName(f.weight, f.italic)}${f.label && f.label !== 'Font' ? `: ${f.label}` : ''}. ${f.fontHref ? 'Google Fonts, loaded by `tokens.css`.' : 'Installed locally; make sure it ships with the product.'}`),
+          '',
+        ]
+      : []),
     ...(images.length
       ? [
           '## Visual references',
@@ -357,15 +502,14 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
           '',
         ]
       : []),
-    `## Interactions`,
-    '',
-    ...(codeFrames.length ? codeFrames.map((f) => `- ${name(f)} (see motion.md)`) : ['_None yet._']),
-    '',
+    ...(codeFrames.length
+      ? ['## Interactions', '', 'Recreated as code. Timing and easing are in [`motion.md`](motion.md); how each was measured is in [`interactions.md`](interactions.md).', '', ...codeFrames.map((f) => `- ${name(f)}`), '']
+      : []),
   ].join('\n')
   write('design.md', design)
 
   return {
-    dir: path.relative(process.cwd(), out),
+    dir: displayPath(out),
     files: written,
     warnings,
     scope: { frames: board.frames.length, total: full.frames.length },

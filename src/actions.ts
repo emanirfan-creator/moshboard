@@ -43,7 +43,21 @@ const blockBox = (w: number, h: number) => ({ w: Math.round(w + BLOCK_PAD * 2), 
 
 // ── boards ──────────────────────────────────────────────
 
-export async function loadBoard(name: string): Promise<void> {
+// Opening a canvas twice at once (React's dev double-mount, a hash change mid-load) shares one
+// request. Reloads of the open canvas (an edit on disk) always fetch again.
+const opening = new Map<string, Promise<void>>()
+export function loadBoard(name: string): Promise<void> {
+  const s = getState()
+  if (s.boardName === name && s.board) return readBoard(name)
+  let p = opening.get(name)
+  if (!p) {
+    p = readBoard(name).finally(() => opening.delete(name))
+    opening.set(name, p)
+  }
+  return p
+}
+
+async function readBoard(name: string): Promise<void> {
   let board
   try {
     board = await api.board(name)
@@ -73,7 +87,7 @@ export async function loadBoard(name: string): Promise<void> {
   if (cam) setCamera(cam)
   else requestAnimationFrame(fitBoard)
   // Analysis files are small; load them so strips and exports have them.
-  for (const f of board.frames) if (f.analysis && !(f.analysis in getState().files)) loadFile(f.analysis)
+  for (const f of board.frames) if (f.analysis) ensureFile(f.analysis)
   convertGifs(name)
 }
 
@@ -175,7 +189,7 @@ export async function deleteCanvas(id: string) {
     if (rest.length) await switchBoard(rest[0].id)
     else await createCanvas('Untitled')
   }
-  toast(`Moved “${info?.name ?? id}” to boards/.trash`)
+  toast(`Moved “${info?.name ?? id}” to ${__BOARDS__}/.trash`)
 }
 
 // ── frames ──────────────────────────────────────────────
@@ -879,7 +893,15 @@ export async function pasteFrames(from: Clip | null = clip) {
 export const linkRoot = (f: Frame) => (f.link && frameById(f.link) ? f.link : f.id)
 
 /** Whether a frame is in a link group: it points at a reference, or something points at it. */
-export const isLinked = (f: Frame) => !!f.link || !!getState().board?.frames.some((x) => x.link === f.id)
+export const isLinked = (f: Frame) => !!f.link || linkTargets(getState().board?.frames ?? []).has(f.id)
+
+// Ids something links to, rebuilt only when the frames array changes.
+const targets = new WeakMap<Frame[], Set<string>>()
+function linkTargets(frames: Frame[]) {
+  let t = targets.get(frames)
+  if (!t) targets.set(frames, (t = new Set(frames.flatMap((f) => (f.link ? [f.link] : [])))))
+  return t
+}
 
 /** Everything in the same link group as these frames, including them. */
 export function linkGroup(ids: string[]) {
@@ -985,7 +1007,8 @@ export function referenceTiming(f: Frame): { duration?: number; ease?: Bezier } 
   }
   if (ref.type === 'url') {
     try {
-      const c = JSON.parse(getState().files[ref.analysis] ?? '') as MotionCapture
+      const c = parseFile<MotionCapture>(ref.analysis)
+      if (!c) return null
       const t = c.transitions.find((x) => parseFloat(x.duration) > 0)
       if (t) {
         const ms = parseFloat(t.duration) * (t.duration.trim().endsWith('ms') ? 1 : 1000)
@@ -1142,11 +1165,11 @@ export function copySetupFix(id = getState().selected[0]) {
   const s = getState()
   const rel = `frames/${f.id}.wrapper.tsx`
   const prompt = [
-    `In Moshboard board "${s.boardName}", the component in boards/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
+    `In Moshboard board "${s.boardName}", the component in ${__BOARDS__}/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
     `"${s.errors[f.id] ?? 'it needs a provider or context'}"`,
     ``,
-    `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix boards/${s.boardName}/${f.wrapper}` : `Create boards/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
-      `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in boards/${s.boardName}/board.json`}. Don’t change the component itself.`,
+    `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix ${__BOARDS__}/${s.boardName}/${f.wrapper}` : `Create ${__BOARDS__}/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
+      `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in ${__BOARDS__}/${s.boardName}/board.json`}. Don’t change the component itself.`,
   ].join('\n')
   copyText(prompt).then((ok) =>
     ok ? toast('Copied a fix. Paste it into Claude Code') : toast('Couldn’t copy to the clipboard', true),
@@ -1184,14 +1207,25 @@ export async function analyzeSelected() {
   }
 }
 
-export const readAnalysis = (f?: Frame): VideoAnalysis | null => {
-  const raw = f?.analysis ? getState().files[f.analysis] : ''
+// Parsed json files, kept until the file's text changes: analysis files are read from
+// store selectors, which run on every store change (each pointer move of a drag).
+const parsed = new Map<string, { raw: string; value: unknown }>()
+function parseFile<T>(rel: string): T | null {
+  const raw = getState().files[rel]
+  if (!raw) return null
+  const hit = parsed.get(rel)
+  if (hit?.raw === raw) return hit.value as T | null
+  let value: unknown = null
   try {
-    return raw ? JSON.parse(raw) : null
+    value = JSON.parse(raw)
   } catch {
-    return null
+    // not valid json yet
   }
+  parsed.set(rel, { raw, value })
+  return value as T | null
 }
+
+export const readAnalysis = (f?: Frame): VideoAnalysis | null => (f?.analysis ? parseFile<VideoAnalysis>(f.analysis) : null)
 
 export async function captureSelected(selector: string, trigger: string) {
   const f = frameById(getState().selected[0])

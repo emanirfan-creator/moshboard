@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, toggleSidebar, useStore } from '../store'
 import { AppMark } from './AppMark'
@@ -11,15 +11,24 @@ export function Sidebar() {
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
+  const pill = useRef<HTMLButtonElement>(null)
+  const [pillW, setPillW] = useState(0)
+  const name = canvases.find((c) => c.id === current)?.name ?? ''
 
   useEffect(() => {
     refreshCanvases()
   }, [current])
 
+  // The panel opens out of the bar's box, whose width follows the canvas name.
+  useLayoutEffect(() => {
+    if (pill.current) setPillW(pill.current.offsetWidth)
+  }, [name])
+
   return (
     <>
       {/* Collapsed: one floating bar with the mark, canvas name and toggle (like Figma's). */}
       <button
+        ref={pill}
         className="nav-pill"
         data-hidden={open || undefined}
         tabIndex={open ? -1 : 0}
@@ -27,7 +36,7 @@ export function Sidebar() {
         title="Show sidebar  ["
       >
         <AppMark />
-        <span className="nav-pill-name">{canvases.find((c) => c.id === current)?.name ?? ''}</span>
+        <span className="nav-pill-name">{name}</span>
         <span className="nav-pill-toggle">
           <SidebarIcon />
         </span>
@@ -37,6 +46,7 @@ export function Sidebar() {
         data-open={open || undefined}
         aria-hidden={!open}
         inert={!open}
+        style={pillW ? ({ '--pill-w': `${pillW}px` } as React.CSSProperties) : undefined}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="sidebar-head">

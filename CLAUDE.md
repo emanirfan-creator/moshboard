@@ -7,6 +7,8 @@ A local moodboard where references can be live: videos, websites, and runnable c
 - `pnpm dev`: app at http://localhost:5180 (`#<board>` in the URL picks the board)
 - `pnpm export <board> [--out <dir>]`: write the spec files (default `boards/<board>/export/`)
 - `pnpm typecheck`
+- `MOSHBOARD_BOARDS=<dir>` (dev and export) keeps boards in another folder, usually a `design/` folder in an app repo (`server/boards-dir.ts`; relative paths are taken from where the command was run). The client shows that folder as `__BOARDS__`.
+- `pnpm skill:install`: links `.claude/skills/recreate` into `~/.claude/skills` so `/recreate` works in any repo
 
 ## Layout
 
@@ -19,7 +21,7 @@ A local moodboard where references can be live: videos, websites, and runnable c
 - Motion is found two ways: `shared/detect-motion.ts` reads literals in the source (⌘S writes them back), and the probe in `sandbox.ts` measures CSS transitions/animations and Web Animations in the running frame (`shared/runtime-motion.ts`), which covers theme/library values. Measured values are tuned with a stylesheet inside the frame and saved to the frame's `runtime` in board.json, not to the code.
 - `server/media-link.ts`: links to media pages (Cosmos elements, Dribbble, Are.na, direct .mp4/.jpg) are downloaded into `assets/` and become video/image frames (`origin` keeps the source URL). `server/snapshot.ts` snapshots sites that refuse to be framed.
 - Deleting a block only removes it from board.json, so undo restores it whole. Opening a canvas (when undo history starts fresh) runs `server/sweep.ts`: files in `assets/`/`frames/` no block uses move to `boards/<board>/.trash/<time>/`, files touched in the last 10 minutes are left alone, and trash older than 30 days is emptied.
-- Export (`server/export.ts`) covers the whole canvas, or only selected frame ids plus what they link to.
+- Export (`server/export.ts`) covers the whole canvas, or only selected frame ids plus what they link to. `motion.md` follows the Design Harness motion format (named duration/delay/easing/spring/stagger tokens, patterns that use token names only, Philosophy left to the designer); `design.md` uses the same token-line style plus rules and intent read from notes; `interactions.md` keeps how each animation was measured. Names match `tokens.css` everywhere.
 - `server/registry.ts`: resolves `npx shadcn@latest add …` / registry URLs into a component plus the files it imports.
 - `.claude/skills/recreate/`: the `/recreate <board> <frameId>` workflow.
 

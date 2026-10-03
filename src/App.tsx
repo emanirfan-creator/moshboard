@@ -10,6 +10,7 @@ import {
   duplicateSelected,
   fitBoard,
   loadBoard,
+  refreshCanvases,
   openSample,
   loadFile,
   lockParams,
@@ -138,6 +139,8 @@ function useLiveFiles() {
     if (!hot) return
     const on = ({ board, file }: { board: string; file: string }) => {
       const s = getState()
+      // Any canvas's name can change on disk, so the sidebar list follows board.json edits.
+      if (file === 'board.json') refreshCanvases()
       if (board !== s.boardName) return
       if (file === 'board.json') loadBoard(board)
       else if (file in s.files) loadFile(file)

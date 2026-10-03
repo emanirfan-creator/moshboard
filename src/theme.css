@@ -14,8 +14,8 @@
   --select-glow: rgba(255, 255, 255, 0.07);
   --danger: #eb5757;
   --shell: #151618;
-  /* Dialogs, palette and menus: near-black on the dark grey canvas. */
-  --overlay: #0a0a0b;
+  /* Dialogs, palette and menus: the same fill as the sidebar. */
+  --overlay: var(--shell);
   --inner: #1b1c1f;
   --shell-radius: 18px;
   --radius: 12px;
@@ -730,15 +730,17 @@ kbd {
 
 .sidebar {
   position: fixed;
-  left: 0;
-  top: 0;
-  bottom: 0;
+  /* Floats on the canvas like a block: inset from the edges, rounded. */
+  left: 12px;
+  top: 12px;
+  bottom: 12px;
   width: 240px;
-  background: var(--bg);
-  border-right: 1px solid var(--line);
+  background: var(--shell);
+  border: 1px solid var(--line-2);
+  border-radius: var(--shell-radius);
   display: flex;
   flex-direction: column;
-  padding: 10px 8px;
+  padding: 12px 10px;
   gap: 2px;
   z-index: 5;
 }
@@ -832,6 +834,8 @@ kbd {
 .nav-item[data-active] .nav-row {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-1);
+  /* same weight as the name in the collapsed bar, so the two read as one in the morph */
+  font-weight: 510;
 }
 .nav-item[data-active] .nav-row svg {
   color: var(--accent-2);
@@ -1622,22 +1626,147 @@ kbd {
   border-radius: 8px;
 }
 
-/* Sidebar slides in/out; the reveal button and canvas chrome ease along with it. */
+/* Sidebar grows out of the collapsed bar's box (same top-left corner) and shrinks back
+   into it; the rows follow in a short stagger. */
 .sidebar {
-  transform: translateX(-100%);
-  transition: transform var(--panel-out);
+  clip-path: inset(0 calc(100% - var(--pill-w, 200px)) calc(100% - 44px) 0 round 12px);
+  opacity: 0;
+  /* shrink to the bar, then hand over to it */
+  transition: clip-path 380ms cubic-bezier(0.4, 0, 0.2, 1), opacity 90ms linear 330ms;
 }
 .sidebar[data-open] {
-  transform: none;
-  transition: transform var(--panel-in);
+  clip-path: inset(0 round var(--shell-radius));
+  opacity: 1;
+  transition: clip-path 560ms cubic-bezier(0.32, 0.72, 0, 1), opacity 0ms;
 }
 .sidebar > * {
   opacity: 0;
-  transition: opacity 180ms var(--ease);
+  translate: 0 -6px;
+  transition: opacity 120ms var(--ease), translate 160ms var(--ease);
 }
 .sidebar[data-open] > * {
   opacity: 1;
-  transition: opacity 280ms var(--ease) 120ms;
+  translate: none;
+  transition: opacity 300ms var(--ease) var(--d, 120ms), translate 420ms cubic-bezier(0.22, 1, 0.36, 1) var(--d, 120ms);
+}
+.sidebar[data-open] > :nth-child(2) {
+  --d: 160ms;
+}
+.sidebar[data-open] > :nth-child(3) {
+  --d: 200ms;
+}
+.sidebar[data-open] > :nth-child(4) {
+  --d: 260ms;
+}
+/* Sidebar morph (browsers with view transitions): the bar's box springs open into the
+   panel, its mark glides into the header and the canvas name drops into its row; closing
+   runs it back. Only these three are captured, so the canvas keeps drawing underneath. */
+:root {
+  --nav-spring: linear(0, 0.039, 0.134, 0.26, 0.396, 0.53, 0.652, 0.757, 0.844, 0.913, 0.964, 1.001, 1.025,
+    1.038, 1.045, 1.046, 1.043, 1.038, 1.032, 1.026, 1.02, 1.014, 1.01, 1.006, 1.003, 1.001, 1, 0.999,
+    0.998, 0.998, 0.998, 0.998, 0.998, 0.999, 0.999, 0.999, 1);
+  view-transition-name: none;
+}
+.nav-pill:not([data-hidden]),
+.sidebar[data-open] {
+  view-transition-name: nav;
+}
+.nav-pill:not([data-hidden]) > svg,
+.sidebar[data-open] .brand > svg {
+  view-transition-name: nav-mark;
+}
+.nav-pill:not([data-hidden]) .nav-pill-name,
+.sidebar[data-open] .nav-item[data-active] .nav-name {
+  view-transition-name: nav-name;
+}
+/* The view transition does the motion; the CSS fallback below would only fight it. */
+[data-nav-morph] .sidebar,
+[data-nav-morph] .sidebar > *,
+[data-nav-morph] .nav-pill {
+  transition: none !important;
+}
+/* Its shadow would widen the bar's picture and knock it off the box's corner. */
+[data-nav-morph] .nav-pill {
+  box-shadow: none;
+}
+::view-transition-group(nav),
+::view-transition-group(nav-mark),
+::view-transition-group(nav-name) {
+  animation-duration: 720ms;
+  animation-timing-function: var(--nav-spring);
+}
+[data-nav-morph='close']::view-transition-group(nav),
+[data-nav-morph='close']::view-transition-group(nav-mark),
+[data-nav-morph='close']::view-transition-group(nav-name) {
+  animation-duration: 520ms;
+}
+/* The box is the shell fill; the old and new pictures sit pinned to its top-left corner
+   (clipped, not stretched), so the panel is uncovered as the box grows. */
+/* Corners go from the bar's 12px to the panel's (the UA's own morph keeps running). */
+[data-nav-morph='open']::view-transition-group(nav) {
+  animation-name: -ua-view-transition-group-anim-nav, nav-round-open;
+}
+[data-nav-morph='close']::view-transition-group(nav) {
+  animation-name: -ua-view-transition-group-anim-nav, nav-round-close;
+}
+@keyframes nav-round-open {
+  from {
+    border-radius: 12px;
+  }
+  to {
+    border-radius: var(--shell-radius);
+  }
+}
+@keyframes nav-round-close {
+  from {
+    border-radius: var(--shell-radius);
+  }
+  to {
+    border-radius: 12px;
+  }
+}
+::view-transition-group(nav) {
+  background: var(--shell);
+  border-radius: var(--shell-radius);
+  outline: 1px solid var(--line-2);
+  outline-offset: -1px;
+  overflow: clip;
+}
+::view-transition-old(nav),
+::view-transition-new(nav) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+::view-transition-old(nav) {
+  animation: 140ms var(--ease) both vt-out;
+}
+[data-nav-morph='open']::view-transition-new(nav) {
+  animation: 320ms var(--ease) 160ms both vt-in;
+}
+[data-nav-morph='close']::view-transition-old(nav) {
+  animation-duration: 120ms;
+}
+[data-nav-morph='close']::view-transition-new(nav) {
+  animation: 200ms var(--ease) 260ms both vt-in;
+}
+::view-transition-old(nav-name),
+::view-transition-new(nav-name) {
+  height: 100%;
+  object-fit: none;
+  object-position: left center;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
 }
 .sidebar-reveal {
   transition: opacity 160ms var(--ease) 80ms, color var(--dur) var(--ease), background-color var(--dur) var(--ease);
@@ -1659,6 +1788,7 @@ body:has(.sidebar[data-open]) .hint {
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
   .sidebar > *,
+  .sidebar[data-open] > *,
   .nav-pill,
   .hint {
     transition: none;
@@ -2328,18 +2458,16 @@ body:has(.sidebar[data-open]) .hint {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   color: var(--text-1);
   cursor: pointer;
-  /* Shows once the sidebar has mostly slid away. */
-  transition: opacity 260ms var(--ease) 220ms, translate 420ms cubic-bezier(0.22, 1, 0.36, 1) 200ms,
-    border-color var(--dur) var(--ease);
+  /* Shows as the closing sidebar arrives at its box. */
+  transition: opacity 120ms var(--ease) 300ms, border-color var(--dur) var(--ease), box-shadow 240ms var(--ease);
 }
 .nav-pill:hover {
   border-color: rgba(255, 255, 255, 0.18);
 }
 .nav-pill[data-hidden] {
   opacity: 0;
-  translate: -12px 0;
   pointer-events: none;
-  transition: opacity 140ms var(--ease), translate 300ms var(--ease);
+  transition: opacity 60ms linear, border-color var(--dur) var(--ease);
 }
 .nav-pill > svg {
   flex: none;

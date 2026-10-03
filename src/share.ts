@@ -225,7 +225,7 @@ export async function shareBoard() {
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 10000)
     const mb = html.length / 1e6
-    toast(`Saved boards/${s.boardName}/export/${name} (${mb < 1 ? '<1' : Math.round(mb)} MB) and downloaded it`)
+    toast(`Saved ${__BOARDS__}/${s.boardName}/export/${name} (${mb < 1 ? '<1' : Math.round(mb)} MB) and downloaded it`)
     cue('ready')
   } catch (e) {
     toast(`Couldn’t build the share page: ${(e as Error).message}`, true)
