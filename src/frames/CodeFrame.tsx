@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { SANDBOX_FONT, type UsedFont } from '../../shared/font-probe.ts'
 import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParams, type Param } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
-import { loadFile } from '../actions'
+import { ensureFile } from '../actions'
 import { api } from '../api'
 import { getState, setState, updateFrame, useStore } from '../store'
 import { BLOCK_HEAD, BLOCK_PAD } from '../canvas/blocks'
@@ -58,10 +58,10 @@ export function CodeFrame({
   const iframe = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
-    if (source === undefined) loadFile(file)
+    if (source === undefined) ensureFile(file)
   }, [file, source])
   useEffect(() => {
-    if (frame.modules && modulesRaw === undefined) loadFile(frame.modules)
+    if (frame.modules && modulesRaw === undefined) ensureFile(frame.modules)
   }, [frame.modules, modulesRaw])
   const modules = useMemo(() => {
     try {
@@ -73,7 +73,7 @@ export function CodeFrame({
   // Providers: the frame's own wrapper file, or a preset when it imports a library that needs one.
   const wrapperRaw = useStore((s) => (frame.wrapper ? s.files[frame.wrapper] : ''))
   useEffect(() => {
-    if (frame.wrapper && wrapperRaw === undefined) loadFile(frame.wrapper)
+    if (frame.wrapper && wrapperRaw === undefined) ensureFile(frame.wrapper)
   }, [frame.wrapper, wrapperRaw])
   const wrapper = useMemo(
     () => (frame.wrapper ? wrapperRaw || undefined : source !== undefined ? presetFor([source, ...Object.values(modules)])?.code : undefined),

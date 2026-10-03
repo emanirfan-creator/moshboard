@@ -89,6 +89,14 @@ export async function loadFile(rel: string) {
   }
 }
 
+// Loads a file once: skips it when it's already in the store or on its way.
+const loading = new Set<string>()
+export function ensureFile(rel: string) {
+  if (rel in getState().files || loading.has(rel)) return
+  loading.add(rel)
+  loadFile(rel).finally(() => loading.delete(rel))
+}
+
 export async function refreshCanvases() {
   setState({ canvases: await api.boards() })
 }

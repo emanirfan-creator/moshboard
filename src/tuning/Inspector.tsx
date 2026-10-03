@@ -5,6 +5,7 @@ import {
   analyzeSelected,
   copyRecreate,
   detectMotionValues,
+  ensureFile,
   lockParams,
   makeTunable,
   markSegment,
@@ -215,6 +216,10 @@ function CodeBody({ frame }: { frame: Frame }) {
   const overrides = useStore((s) => s.overrides[frame.id] ?? EMPTY) as Record<string, unknown>
   const params = useMemo(() => (source ? parseParams(source) : []), [source])
   const detection = useDetection(frame)
+  // The frame may never have been on screen (⌘A, a link), so its files might not be loaded yet.
+  useEffect(() => {
+    for (const f of [frame.file, frame.modules, frame.wrapper]) if (f) ensureFile(f)
+  }, [frame.file, frame.modules, frame.wrapper])
   // The first time a component's controls show up, they "scan in": a rising chirp and a staggered reveal.
   useEffect(() => {
     if (!detection.groups.length || scanned.has(frame.id)) return
