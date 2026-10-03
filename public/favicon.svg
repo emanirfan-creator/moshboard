@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <style>g { stroke: #0f1012 } @media (prefers-color-scheme: dark) { g { stroke: #ededef } }</style>
+  <g transform="translate(0 -0.9)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 19.5V12a3.75 3.75 0 0 1 7.5 0v7.5"/>
+    <path d="M12 15.5V8a3.75 3.75 0 0 1 7.5 0V16"/>
+  </g>
+</svg>

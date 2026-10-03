@@ -124,14 +124,6 @@ export const CommandIcon = () => (
   </Icon>
 )
 /** App mark: a dial with a pointer, the detent idea behind Moshboard's tuning controls. */
-export const AppMark = () => (
-  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
-    <circle cx="9" cy="9" r="7.25" stroke="currentColor" strokeWidth="1.5" />
-    <path d="M9 1.75v1.5M16.25 9h-1.5M9 16.25v-1.5M1.75 9h1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    <circle cx="9" cy="9" r="3.5" fill="currentColor" />
-    <path d="M9 9 11.6 6.4" stroke="var(--bg, #0f1012)" strokeWidth="1.5" strokeLinecap="round" />
-  </svg>
-)
 export const HandIcon = () => (
   <Icon>
     <path d="M5.5 8V3.8a1 1 0 0 1 2 0V7.5M7.5 7V3a1 1 0 0 1 2 0v4M9.5 7.2V3.8a1 1 0 0 1 2 0V8.5M11.5 6.5a1 1 0 0 1 2 0V10a4 4 0 0 1-4 4H9a4 4 0 0 1-3.2-1.6L3.2 9a1 1 0 0 1 1.5-1.3L5.5 8.6" />

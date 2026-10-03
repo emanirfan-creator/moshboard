@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, toggleSidebar, useStore } from '../store'
-import { KeyboardIcon, MoreIcon, PlusIcon, AppMark, SidebarIcon } from './icons'
+import { AppMark } from './AppMark'
+import { KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
 
 export function Sidebar() {
   const open = useStore((s) => s.sidebar)
