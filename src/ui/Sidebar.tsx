@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createCanvas, deleteCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
+import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, toggleSidebar, useStore } from '../store'
 import { KeyboardIcon, MoreIcon, PlusIcon, AppMark, SidebarIcon } from './icons'
 
@@ -87,6 +87,10 @@ export function Sidebar() {
                       if (c.id !== current) await switchBoard(c.id)
                       setRenaming(c.id)
                     }}
+                    onDuplicate={() => {
+                      setMenu(null)
+                      duplicateCanvas(c.id)
+                    }}
                     onDelete={() => {
                       setMenu(null)
                       deleteCanvas(c.id)
@@ -157,10 +161,12 @@ function InlineInput({
 function CanvasMenu({
   onClose,
   onRename,
+  onDuplicate,
   onDelete,
 }: {
   onClose: () => void
   onRename: () => void
+  onDuplicate: () => void
   onDelete: () => void
 }) {
   const [confirm, setConfirm] = useState(false)
@@ -188,6 +194,7 @@ function CanvasMenu({
   return (
     <div className="menu" ref={ref}>
       <button onClick={onRename}>Rename</button>
+      <button onClick={onDuplicate}>Duplicate</button>
       <button className="danger" onClick={() => (confirm ? onDelete() : setConfirm(true))}>
         {confirm ? 'Click again to delete' : 'Delete canvas'}
       </button>

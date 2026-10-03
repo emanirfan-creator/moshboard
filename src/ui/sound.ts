@@ -1,5 +1,17 @@
 // Detent clicks for controls: a short filtered noise burst each time a value
 // crosses a step, pitched by position. Synthesized, so there are no audio files.
+// Everything else (tabs, picking up and dropping) is voiced with @usespaceui/sounds,
+// also procedural.
+import {
+  play,
+  press,
+  release,
+  setEnabled,
+  setRespectReducedMotion,
+  tap,
+  tick as spaceTick,
+  type SpaceSoundName,
+} from '@usespaceui/sounds'
 
 const KEY = 'mb:sounds'
 /** Overall loudness of every control sound. */
@@ -23,7 +35,12 @@ export function setSounds(on: boolean) {
   } catch {
     // storage unavailable: stays on for this session
   }
+  setEnabled(on)
 }
+
+setEnabled(soundsOn())
+// Sound isn't motion: keep the cues for people who reduce motion (the ⌘K toggle mutes them).
+setRespectReducedMotion(false)
 
 function audio() {
   if (!ctx) {
@@ -85,6 +102,40 @@ export function detent(id: string, bucket: number, pos: number, edge = false) {
   const prev = buckets.get(id)
   buckets.set(id, bucket)
   if (prev !== undefined && prev !== bucket) tick(pos, edge)
+}
+
+/** -1 (left) … +1 (right), kept narrow so it reads as placement, not a jump between ears. */
+const pan = (pos: number) => ({ spatial: { x: (pos * 2 - 1) * 0.5 } })
+
+/**
+ * A Space UI cue for a moment you might not be looking at:
+ * - `ready` / `deny`: a slow job (analysis, capture, fetch, export) finished or failed; `deny` also plays for every error toast
+ * - `copy` / `paste`: something went to or came from the clipboard
+ * - `turn-back` / `turn-forward`: undo / redo
+ * - `sparkle` / `droplet`: new palette colors from the board / at random
+ * - `remove`: frames or a palette color deleted
+ * - `toggle-on` / `toggle-off`: a lock or Loop switched
+ */
+export function cue(name: SpaceSoundName) {
+  if (soundsOn()) play(name)
+}
+
+/** Switching tabs / segments: a tap from where the new segment sits. */
+export function switchTab(index: number, count: number) {
+  if (soundsOn()) tap(pan(count > 1 ? index / (count - 1) : 0.5))
+}
+
+/** A dragged item passing into a new slot. */
+export function shift(pos: number) {
+  if (soundsOn()) spaceTick(pan(pos))
+}
+
+/** Picking something up and setting it down (reordering), from where it sits. */
+export function grab(pos = 0.5) {
+  if (soundsOn()) press(pan(pos))
+}
+export function drop(pos = 0.5) {
+  if (soundsOn()) release(pan(pos))
 }
 
 /** Rising sweep when a scan finds controls: one blip per animation found, then a lock-in. */

@@ -3,7 +3,9 @@ import { NAMED_EASES, bezierAt } from '../../shared/ease.ts'
 import { roundFor, type Bezier, type Param, type Spring } from '../../shared/params.ts'
 import { clamp, drag } from '../drag'
 import { ColorField } from '../ui/ColorPicker'
-import { detent, tick } from '../ui/sound'
+import { useGlide } from '../ui/glide'
+import { Segmented } from '../ui/Segmented'
+import { detent, switchTab, tick } from '../ui/sound'
 
 const fmt = (p: Param, n: number) => `${roundFor(p, n)}${p.unit}`
 
@@ -23,15 +25,66 @@ const LABELS: Record<string, string> = {
 /** `riseDistance` / `rise_distance` → "Rise distance" */
 const label = (name: string) =>
   LABELS[name] ??
+  // Already words (a component prop's label): keep its casing, e.g. "FBM amplitude".
+  (name.includes(' ') ? name : undefined) ??
   name
     .replace(/[-_]+/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .toLowerCase()
     .replace(/^./, (c) => c.toUpperCase())
 
-// ── number: segmented ruler you drag along ──────────────
+/** A changed control: a dot by its name. Click it to go back to the original value. */
+export function ResetDot({ onReset }: { onReset: () => void }) {
+  return (
+    <button
+      className="reset-dot"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        tick(0.35)
+        onReset()
+      }}
+      title="Changed · click to reset"
+      aria-label="Reset to the original value"
+    />
+  )
+}
 
-const SEGMENTS = 48
+/** A control's name. With `onRename`, double-click to type a better one (empty goes back to the default). */
+export function NameLabel({ text, className, onRename }: { text: string; className: string; onRename?: (label: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  if (!onRename) return <span className={className}>{text}</span>
+  if (editing)
+    return (
+      <input
+        className={`${className} name-input`}
+        autoFocus
+        defaultValue={text}
+        onFocus={(e) => e.target.select()}
+        onBlur={(e) => {
+          const v = e.target.value.trim()
+          if (v !== text) onRename(v)
+          setEditing(false)
+        }}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Escape') e.currentTarget.value = text
+          if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+        }}
+      />
+    )
+  return (
+    <span className={className} onDoubleClick={() => setEditing(true)} title="Double-click to rename">
+      {text}
+    </span>
+  )
+}
+
+// ── number: tick ruler with a gliding thumb ─────────────
+
+const SEGMENTS = 41
+/** Half the thumb, in px: the marks (and the thumb's travel) are inset this much at each end. Matches `.num-ruler`. */
+const RULER_INSET = 12
 
 /** `420ms` → ["420", "ms"], so the unit can sit dimmer than the digits. */
 const split = (p: Param, n: number) => [String(roundFor(p, n)), p.unit]
@@ -41,11 +94,19 @@ export function NumberCtl({
   value,
   modified,
   onChange,
+  onReset,
+  onRename,
+  reference,
 }: {
   p: Param
   value: number
   modified: boolean
   onChange: (n: number) => void
+  /** back to the original; defaults to setting the original value */
+  onReset?: () => void
+  onRename?: (label: string) => void
+  /** the value measured on the linked reference, marked on the ruler */
+  reference?: number
 }) {
   const [editing, setEditing] = useState(false)
   const [active, setActive] = useState(false)
@@ -57,7 +118,7 @@ export function NumberCtl({
   const seg = (n: number) => Math.round(clamp((n - min) / span, 0, 1) * (SEGMENTS - 1))
   const lastSeg = useRef(seg(value))
   const set = (n: number) => {
-    const next = roundFor(p, p.min !== undefined ? clamp(n, min, max) : n)
+    const next = roundFor(p, p.min !== undefined && !p.soft ? clamp(n, min, max) : n)
     const s = seg(next)
     if (s !== lastSeg.current) tick(s / (SEGMENTS - 1), s === 0 || s === SEGMENTS - 1)
     lastSeg.current = s
@@ -79,7 +140,9 @@ export function NumberCtl({
     if (e.button !== 0) return
     e.currentTarget.focus()
     const rect = e.currentTarget.getBoundingClientRect()
-    const at = (x: number) => set(min + clamp((x - rect.left) / rect.width, 0, 1) * span)
+    // The marks run between the thumb's resting centers, inset from both ends.
+    const inset = (RULER_INSET * rect.width) / e.currentTarget.offsetWidth
+    const at = (x: number) => set(min + clamp((x - rect.left - inset) / (rect.width - inset * 2), 0, 1) * span)
     at(e.clientX)
     setActive(true)
     drag(e, (_dx, _dy, ev) => at(ev.clientX), () => setActive(false), 0, 'tune')
@@ -95,18 +158,25 @@ export function NumberCtl({
     e.stopPropagation()
   }
 
-  const t = clamp((value - min) / span, 0, 1)
+  const at = (n: number) => clamp((n - min) / span, 0, 1)
+  const t = at(value)
   // Ranges that cross zero light from zero outward.
   const zero = min < 0 && max > 0 ? -min / span : 0
-  const [lo, hi] = t < zero ? [t, zero] : [zero, t]
-  const head = Math.round(t * (SEGMENTS - 1))
+  // The thumb and the lit marks trail the value on a spring (see .num-ruler in theme.css).
+  const ruler = useGlide<HTMLDivElement>({ '--t': t })
   const [digits, unit] = split(p, value)
   const name = label(p.label ?? p.name)
+  const marks = Array.from({ length: SEGMENTS }, (_, i) => (
+    <i key={i} data-major={i % 5 === 0 || undefined} />
+  ))
 
   return (
     <div className="num" data-mod={modified || undefined} data-active={active || undefined} style={{ width: '100%' }}>
       <div className="num-head">
-        <span className="num-name">{name}</span>
+        <span className="num-label">
+          <NameLabel className="num-name" text={name} onRename={onRename} />
+          {modified && <ResetDot onReset={onReset ?? (() => set(base))} />}
+        </span>
         {editing ? (
           <input
             className="num-input"
@@ -130,7 +200,9 @@ export function NumberCtl({
         )}
       </div>
       <div
+        ref={ruler}
         className="num-ruler"
+        style={{ '--z': zero } as React.CSSProperties}
         role="slider"
         tabIndex={0}
         aria-label={name}
@@ -141,20 +213,24 @@ export function NumberCtl({
         onPointerDown={track}
         onDoubleClick={() => set(base)}
         onKeyDown={key}
-        title={`${fmt(p, min)} – ${fmt(p, max)} · drag along to set · double-click to reset`}
+        title={`${fmt(p, min)} – ${fmt(p, max)} · double-click to reset`}
       >
-        {Array.from({ length: SEGMENTS }, (_, i) => {
-          const k = i / (SEGMENTS - 1)
-          const lit = hi - lo > 1e-6 && k >= lo - 1e-6 && k <= hi + 1e-6
-          return (
-            <i
-              key={i}
-              data-lit={lit || undefined}
-              data-tick={i % 10 === 0 || i === SEGMENTS - 1 ? 'major' : i % 5 === 0 ? 'minor' : undefined}
-              data-head={i === head || undefined}
-            />
-          )
-        })}
+        {modified && (
+          <span className="num-mark" style={{ '--m': at(base) } as React.CSSProperties} title={`Original ${fmt(p, base)}`} />
+        )}
+        {reference !== undefined && (
+          <span
+            className="num-mark"
+            data-ref
+            style={{ '--m': at(reference) } as React.CSSProperties}
+            title={`Reference ${fmt(p, reference)}`}
+          />
+        )}
+        <div className="num-marks">{marks}</div>
+        <div className="num-marks num-lit" aria-hidden>
+          {marks}
+        </div>
+        <span className="num-thumb" />
       </div>
     </div>
   )
@@ -163,9 +239,9 @@ export function NumberCtl({
 // ── timeline: delay / duration / stagger by dragging ────
 
 const TIMELINE_TIPS: Record<string, string> = {
-  delay: 'Wait before the animation starts',
-  duration: 'How long the animation runs',
-  stagger: 'Gap before each next item starts',
+  delay: 'Wait before it starts',
+  duration: 'How long it runs',
+  stagger: 'Gap between items',
 }
 
 export function Timeline({
@@ -176,6 +252,8 @@ export function Timeline({
   values,
   modified,
   onChange,
+  onReset,
+  reference,
 }: {
   width?: number
   duration: Param
@@ -184,6 +262,9 @@ export function Timeline({
   values: Record<string, number>
   modified: (name: string) => boolean
   onChange: (name: string, n: number) => void
+  onReset?: (name: string) => void
+  /** timing measured on the linked reference, drawn as an outline under the bar */
+  reference?: { duration: number; delay?: number }
 }) {
   const id = useId()
   const W = width
@@ -192,7 +273,8 @@ export function Timeline({
   const stg = stagger ? values[stagger.name] : 0
   // Fit the span to the current timing, rounded to a nice number, and hold it
   // steady while a drag is in progress so the handles don't swim.
-  const fitted = Math.max(400, Math.ceil(((del + dur + 3 * stg) * 1.5) / 200) * 200)
+  const refEnd = reference ? (reference.delay ?? 0) + reference.duration : 0
+  const fitted = Math.max(400, Math.ceil((Math.max(del + dur + 3 * stg, refEnd) * 1.5) / 200) * 200)
   const frozen = useRef<number | null>(null)
   const span = frozen.current ?? fitted
   const px = (ms: number) => (ms / span) * W
@@ -253,8 +335,11 @@ export function Timeline({
       <span className="ctl-val" data-mod={modified(p.name) || undefined}>
         {fmt(p, values[p.name])}
       </span>
+      {modified(p.name) && <ResetDot onReset={() => (onReset ? onReset(p.name) : onChange(p.name, p.value as number))} />}
     </span>
   )
+  const original = { del: delay ? (delay.value as number) : 0, dur: duration.value as number }
+  const moved = modified(duration.name) || (!!delay && modified(delay.name))
 
   return (
     <div className="ctl" style={{ width: W }}>
@@ -262,11 +347,30 @@ export function Timeline({
         {delay && <Val p={delay} />}
         <Val p={duration} />
         {stagger && <Val p={stagger} />}
+        {reference && (
+          <span className="tl-ref-key" title="Measured on the linked reference">
+            ref {Math.round(reference.duration)}ms
+          </span>
+        )}
       </div>
       <div
         className="timeline"
-        title={`Drag the ends to change ${delay ? 'when it starts and ' : ''}how long it runs${stagger ? '; drag a tick to space out the next items' : ''}`}
+        title={`Drag the ends to set ${delay ? 'start and ' : ''}length${stagger ? '; drag a tick to space items' : ''}`}
       >
+        {reference && (
+          <div
+            className="tl-ref"
+            style={{ left: px(reference.delay ?? 0), width: px(reference.duration) }}
+            title={`Reference: ${Math.round(reference.duration)}ms`}
+          />
+        )}
+        {moved && (
+          <div
+            className="tl-orig"
+            style={{ left: px(original.del), width: px(original.dur) }}
+            title={`Original: ${Math.round(original.dur)}ms`}
+          />
+        )}
         {stagger &&
           [1, 2, 3].map((i) => (
             <div
@@ -320,12 +424,17 @@ export function BezierCtl({
   width,
   modified,
   onChange,
+  onReset,
+  reference,
 }: {
   p: Param
   value: Bezier
   width: number
   modified: boolean
   onChange: (b: Bezier) => void
+  onReset?: () => void
+  /** the curve measured on the linked reference, drawn dashed behind this one */
+  reference?: Bezier
 }) {
   const [hover, setHover] = useState<Bezier | null>(null)
   const [copied, setCopied] = useState(false)
@@ -387,8 +496,12 @@ export function BezierCtl({
   return (
     <div className="ctl ease-ctl">
       <div className="ctl-head">
-        <span className="ctl-val" data-mod={modified || undefined} style={{ cursor: 'default' }}>
-          {current?.[0] ?? 'Custom'}
+        <span className="num-label">
+          <span className="ctl-val" data-mod={modified || undefined} style={{ cursor: 'default' }}>
+            {current?.[0] ?? 'Custom'}
+          </span>
+          {modified && <ResetDot onReset={onReset ?? (() => onChange([...(p.value as Bezier)] as Bezier))} />}
+          {reference && <span className="ease-ref-key" title={`Reference: cubic-bezier(${reference.map(r2).join(', ')})`}>ref</span>}
         </span>
         <button className="ease-copy mono" onClick={copy} title={`Copy ${css}`} aria-label={`${p.name}: copy ${css}`}>
           {copied ? 'Copied' : value.map(r2).join(', ')}
@@ -399,6 +512,8 @@ export function BezierCtl({
           <title>Drag the handles · arrow keys nudge a focused handle</title>
           <rect className="grid" x={EM.x + 0.5} y={EM.y + 0.5} width={PW - 1} height={EH - 1} fill="none" />
           <line className="grid" x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} />
+          {reference && <path className="ref" d={bezierPath(reference, sx, sy)} />}
+          {modified && <path className="orig" d={bezierPath(p.value as Bezier, sx, sy)} />}
           {hover && <path className="ghost" d={bezierPath(hover, sx, sy)} />}
           <line className="arm" x1={sx(0)} y1={sy(0)} x2={sx(x1)} y2={sy(y1)} />
           <line className="arm" x1={sx(1)} y1={sy(1)} x2={sx(x2)} y2={sy(y2)} />
@@ -541,11 +656,13 @@ export function SpringCtl({
   value,
   modified,
   onChange,
+  onReset,
 }: {
   p: Param
   value: Spring
   modified: boolean
   onChange: (s: Spring) => void
+  onReset?: () => void
 }) {
   const original = p.value as Spring
   const [advanced, setAdvanced] = useState(false)
@@ -625,7 +742,10 @@ export function SpringCtl({
         </div>
       </div>
       <div className="spring-facts">
-        <span>{words}</span>
+        <span className="num-label">
+          {words}
+          {modified && <ResetDot onReset={onReset ?? (() => onChange({ ...original }))} />}
+        </span>
         <span>
           settles ~{sim.settleMs >= 3000 ? '3s+' : `${Math.round(sim.settleMs / 10) * 10}ms`}
           {sim.overshoot > 0.005 ? ` · ${Math.round(sim.overshoot * 100)}% over` : ''}
@@ -674,7 +794,19 @@ export function SpringCtl({
   )
 }
 
-export function ColorCtl({ p, value, onChange }: { p: Param; value: string; onChange: (c: string) => void }) {
+export function ColorCtl({
+  p,
+  value,
+  onChange,
+  modified,
+  onReset,
+}: {
+  p: Param
+  value: string
+  onChange: (c: string) => void
+  modified?: boolean
+  onReset?: () => void
+}) {
   const id = useId()
   const change = (c: string) => {
     // Coarse buckets of the colour, so a drag across the picker clicks rather than hums.
@@ -684,5 +816,135 @@ export function ColorCtl({ p, value, onChange }: { p: Param; value: string; onCh
     detent(id, bucket, ((n >> 16) & 0xff) / 255)
     onChange(c)
   }
-  return <ColorField label={label(p.label ?? p.name)} value={value} onChange={change} />
+  return (
+    <ColorField
+      label={label(p.label ?? p.name)}
+      value={value}
+      onChange={change}
+      after={modified ? <ResetDot onReset={onReset ?? (() => onChange(p.value as string))} /> : undefined}
+    />
+  )
+}
+
+// ── toggle: on / off ────────────────────────────────────
+
+export function ToggleCtl({
+  name,
+  value,
+  modified,
+  onChange,
+}: {
+  name: string
+  value: boolean
+  modified: boolean
+  onChange: (on: boolean) => void
+}) {
+  const flip = () => {
+    tick(value ? 0.2 : 0.8, true)
+    onChange(!value)
+  }
+  return (
+    <button className="tgl" role="switch" aria-checked={value} data-mod={modified || undefined} onClick={flip}>
+      <span className="num-name">{name}</span>
+      <span className="tgl-state">{value ? 'On' : 'Off'}</span>
+      <span className="tgl-track" data-on={value || undefined}>
+        <span className="tgl-knob" />
+      </span>
+    </button>
+  )
+}
+
+// ── choice: one of a few named options ──────────────────
+
+const optionLabel = (o: string) => (o ? o.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'None')
+
+export function ChoiceCtl({
+  name,
+  options,
+  value,
+  modified,
+  onChange,
+}: {
+  name: string
+  options: string[]
+  value: string | undefined
+  modified: boolean
+  onChange: (o: string) => void
+}) {
+  // A few short options read best side by side; a longer list folds into a menu.
+  const inline = options.length <= 4 && options.every((o) => o.length <= 10)
+  return (
+    <div className="num" data-mod={modified || undefined}>
+      <div className="num-head">
+        <span className="num-name">{name}</span>
+        {!inline && value === undefined && <span className="num-val">Auto</span>}
+      </div>
+      {inline ? (
+        <Segmented options={options.map((o) => ({ id: o, label: optionLabel(o) }))} value={value} onChange={onChange} />
+      ) : (
+        <select
+          className="ctl-select"
+          value={value ?? ''}
+          onChange={(e) => {
+            switchTab(e.target.selectedIndex, options.length)
+            onChange(e.target.value)
+          }}
+        >
+          {value === undefined && <option value="">Auto</option>}
+          {options.map((o) => (
+            <option key={o} value={o}>
+              {optionLabel(o)}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
+// ── text: a word, a URL, a username ─────────────────────
+
+export function TextCtl({
+  name,
+  value,
+  modified,
+  onChange,
+}: {
+  name: string
+  value: string
+  modified: boolean
+  onChange: (s: string) => void
+}) {
+  // Typing is kept local and sent on a pause, so a URL isn't fetched for every keystroke.
+  const [draft, setDraft] = useState(value)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => setDraft(value), [value])
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const commit = (s: string) => {
+    clearTimeout(timer.current)
+    if (s !== value) onChange(s)
+  }
+  return (
+    <label className="num" data-mod={modified || undefined}>
+      <span className="num-name">{name}</span>
+      <input
+        className="ctl-text"
+        value={draft}
+        spellCheck={false}
+        placeholder="Empty"
+        onChange={(e) => {
+          const s = e.target.value
+          setDraft(s)
+          clearTimeout(timer.current)
+          timer.current = setTimeout(() => commit(s), 500)
+        }}
+        onBlur={() => commit(draft)}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') commit(draft)
+          if (e.key === 'Escape') (e.target as HTMLInputElement).blur()
+        }}
+      />
+    </label>
+  )
 }

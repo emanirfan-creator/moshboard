@@ -1,6 +1,7 @@
 import type { UsedFont } from '../shared/font-probe.ts'
 import type { FontFamily } from '../shared/fonts.ts'
 import type { Board, MotionCapture, Segment, VideoAnalysis } from '../shared/types.ts'
+import type { PickResult } from '../server/pick-element.ts'
 
 type MediaPiece = { path: string; type: 'video' | 'image'; width?: number; height?: number }
 
@@ -25,7 +26,8 @@ const relPath = (rel: string) => rel.split('/').map(enc).join('/')
 async function ok(r: Response) {
   if (!r.ok) {
     const body = await r.json().catch(() => ({}))
-    throw new Error(body.error ?? `${r.status} ${r.statusText}`)
+    // Extra fields (e.g. `moved` for a renamed canvas) ride along on the error.
+    throw Object.assign(new Error(body.error ?? `${r.status} ${r.statusText}`), body)
   }
   return r
 }
@@ -35,6 +37,15 @@ export const api = {
   boards: () => fetch('/api/boards').then((r) => json<CanvasInfo[]>(r)),
   createBoard: (name: string) =>
     fetch('/api/boards', { method: 'POST', body: JSON.stringify({ name }) }).then((r) => json<{ id: string; name: string }>(r)),
+  addSample: () => fetch('/api/boards/sample', { method: 'POST' }).then((r) => json<{ id: string; name: string }>(r)),
+  renameBoard: (b: string, name: string) =>
+    fetch(`/api/board/${enc(b)}/rename`, { method: 'POST', body: JSON.stringify({ name }) }).then((r) =>
+      json<{ id: string; name: string }>(r),
+    ),
+  duplicateBoard: (b: string) =>
+    fetch(`/api/board/${enc(b)}/duplicate`, { method: 'POST' }).then((r) => json<{ id: string; name: string }>(r)),
+  /** Move files no block uses to the canvas's trash (see server/sweep.ts). */
+  sweep: (b: string) => fetch(`/api/board/${enc(b)}/sweep`, { method: 'POST' }).then((r) => json<{ trashed: string[]; emptied: string[] }>(r)),
   deleteBoard: (b: string) => fetch(`/api/board/${enc(b)}`, { method: 'DELETE' }).then(ok),
   board: (b: string) => fetch(`/api/board/${enc(b)}`).then((r) => json<Board>(r)),
   saveBoard: (b: string, board: Board) =>
@@ -62,6 +73,8 @@ export const api = {
     fetch(`/api/analyze/${enc(b)}/${enc(id)}`, { method: 'POST', body: JSON.stringify({ src, segment }) }).then((r) =>
       json<VideoAnalysis>(r),
     ),
+  pick: (b: string, id: string, url: string) =>
+    fetch(`/api/pick/${enc(b)}/${enc(id)}`, { method: 'POST', body: JSON.stringify({ url }) }).then((r) => json<PickResult>(r)),
   capture: (b: string, id: string, body: { url: string; selector?: string; trigger: string }) =>
     fetch(`/api/capture/${enc(b)}/${enc(id)}`, { method: 'POST', body: JSON.stringify(body) }).then((r) =>
       json<{ capture: MotionCapture; path: string; scaffold: string }>(r),

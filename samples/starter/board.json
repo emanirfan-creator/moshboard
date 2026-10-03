@@ -1,0 +1,69 @@
+{
+  "name": "Start here",
+  "frames": [
+    {
+      "id": "title",
+      "type": "text",
+      "text": "Start here",
+      "size": 40,
+      "x": 0,
+      "y": -150,
+      "w": 320,
+      "h": 56
+    },
+    {
+      "id": "intro",
+      "type": "text",
+      "text": "A reference clip, measured, recreated as code and tuned to match. Select either one and press R to replay them together.",
+      "size": 14,
+      "x": 0,
+      "y": -84,
+      "w": 620,
+      "h": 44
+    },
+    {
+      "id": "ref",
+      "type": "video",
+      "label": "Card slide (reference)",
+      "src": "assets/card-slide.mp4",
+      "segment": { "in": 0.2, "out": 1.6 },
+      "analysis": "assets/ref.analysis.json",
+      "x": 0,
+      "y": 0,
+      "w": 656,
+      "h": 412
+    },
+    {
+      "id": "ref-copy",
+      "type": "code",
+      "file": "frames/ref-copy.tsx",
+      "label": "Card slide (copy)",
+      "link": "ref",
+      "tuned": true,
+      "viewport": 640,
+      "x": 704,
+      "y": 0,
+      "w": 656,
+      "h": 412
+    },
+    {
+      "id": "ref-note",
+      "type": "note",
+      "text": "Only the card's slide matters: quick start, long soft landing. Ignore the background.",
+      "link": "ref",
+      "x": 0,
+      "y": 444,
+      "w": 320,
+      "h": 120
+    },
+    {
+      "id": "how",
+      "type": "note",
+      "text": "**How this got here**\n\n1. The clip was added, its motion marked with I and O, then **Analyze motion** measured it.\n2. **Copy /recreate**, pasted in Claude Code, wrote the coded copy next to it.\n3. Its timing and curve were tuned in the right-hand panel against the reference (shown as *ref*), then saved with ⌘S.\n4. **Export spec** turns it into motion.md and tokens.\n\nTry it: select the copy, drag the duration, press R.",
+      "x": 1408,
+      "y": 0,
+      "w": 340,
+      "h": 360
+    }
+  ]
+}

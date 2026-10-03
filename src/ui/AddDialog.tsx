@@ -8,7 +8,8 @@ import { loadFont, useFontList } from '../fonts'
 import { suggestFonts, type FontSuggestion } from '../fontSuggest'
 import { ColorPicker } from './ColorPicker'
 import { FontPicker } from './FontPicker'
-import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SwatchIcon, TextIcon, TypeIcon } from './icons'
+import { Segmented } from './Segmented'
+import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SwatchIcon, TextIcon, FontIcon } from './icons'
 
 const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[] = [
   { kind: 'media', title: 'Image or video', hint: 'Screenshots, clips, recordings', icon: <MediaIcon /> },
@@ -17,7 +18,7 @@ const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[]
   { kind: 'text', title: 'Text', hint: 'Type on the canvas (T)', icon: <TextIcon /> },
   { kind: 'note', title: 'Note', hint: 'Intent, constraints, what to keep', icon: <NoteIcon /> },
   { kind: 'color', title: 'Color', hint: 'Palette or single swatch', icon: <SwatchIcon /> },
-  { kind: 'font', title: 'Font', hint: 'Typeface sample', icon: <TypeIcon /> },
+  { kind: 'font', title: 'Font', hint: 'Typeface sample', icon: <FontIcon /> },
 ]
 
 const close = () => setState({ add: null })
@@ -105,7 +106,7 @@ function MediaForm() {
     <>
       <h2>Image or video</h2>
       <p>
-        Videos loop on the canvas. Mark a segment on one to measure its motion.
+        Videos loop. Mark a segment to measure its motion.
       </p>
       <div
         className="dropzone"
@@ -137,7 +138,7 @@ function MediaForm() {
       <Footer
         tip={
           <>
-            You can also drop files or press <kbd>⌘V</kbd> straight onto the canvas.
+            Or drop or <kbd>⌘V</kbd> onto the canvas.
           </>
         }
       >
@@ -163,8 +164,8 @@ function CodeForm() {
     <div className="dialog-form" onKeyDown={submitKeys(submit)}>
       <h2>Component</h2>
       <p>
-        Paste an <b>install command</b> (<span className="mono">npx shadcn@latest add …</span>) to fetch the component
-        with all its files, or paste a single React or HTML file.
+        Paste an <b>install command</b> (<span className="mono">npx shadcn@latest add …</span>) to get every file, or a
+        single React or HTML file.
       </p>
       <label>
         Name
@@ -176,10 +177,10 @@ function CodeForm() {
           {code.trim() && (
             <small>
               {install
-                ? 'Install command, fetches all its files'
+                ? 'Install command'
                 : looksLikeCode(code)
                   ? `Looks like ${kind}`
-                  : 'This doesn’t look like code'}
+                  : 'Not code'}
             </small>
           )}
         </span>
@@ -217,8 +218,8 @@ function UrlForm() {
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Add a link</h2>
       <p>
-        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b> and Are.na links, or direct .mp4/.jpg files, download as videos or
-        images. Other sites stay live: double-click one to use it.
+        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and .mp4/.jpg links download as media. Other sites stay
+        live: double-click to use one.
       </p>
       <label>
         URL
@@ -243,7 +244,7 @@ function NoteForm() {
     <div className="dialog-form" onKeyDown={submitKeys(submit)}>
       <h2>Note</h2>
       <p>
-        Notes export to design.md. To attach one to a reference, select both and use ⌘K → Link.
+        Exports to design.md. To attach one, select it with a reference and use ⌘K → Link.
       </p>
       <label className="grow">
         Text
@@ -270,14 +271,16 @@ function ColorForm() {
 
 function ModeSwitch({ mode, onMode }: { mode: 'palette' | 'single'; onMode: (m: 'palette' | 'single') => void }) {
   return (
-    <div className="segmented" style={{ maxWidth: 260 }}>
-      <button data-active={mode === 'palette' || undefined} onClick={() => onMode('palette')}>
-        Palette
-      </button>
-      <button data-active={mode === 'single' || undefined} onClick={() => onMode('single')}>
-        Single color
-      </button>
-    </div>
+    <Segmented
+      options={[
+        { id: 'palette', label: 'Palette' },
+        { id: 'single', label: 'Single color' },
+      ]}
+      value={mode}
+      onChange={onMode}
+      remember="add-color-mode"
+      style={{ maxWidth: 260 }}
+    />
   )
 }
 
@@ -298,11 +301,11 @@ function PaletteForm({ onMode }: { onMode: (m: 'palette' | 'single') => void }) 
       <ModeSwitch mode="palette" onMode={onMode} />
       <p>
         {from === 'selection'
-          ? 'The colors are picked from the references you’ve selected, so the palette matches them.'
+          ? 'Colors from your selected references.'
           : from === 'board'
-            ? 'The colors are picked from the images, videos and sites on this board, so the palette matches them.'
-            : 'Your board has no images, videos or sites yet, so this starts from a fresh color scheme. Once it has some, new palettes match their colors.'}{' '}
-        Lock the colors you like and <b>Generate</b> the rest. Exports as named tokens.
+            ? 'Colors from this board’s images, videos and sites.'
+            : 'A fresh scheme for now. Once the board has images, videos or sites, palettes match them.'}{' '}
+        Lock the ones you like and <b>Generate</b> the rest.
       </p>
       <Footer>
         <button autoFocus className="btn btn-primary" onClick={submit}>
@@ -333,7 +336,7 @@ function SingleColorForm({ onMode }: { onMode: (m: 'palette' | 'single') => void
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Color</h2>
       <ModeSwitch mode="single" onMode={onMode} />
-      <p>To make a palette later, select several swatches and use ⌘K → Combine.</p>
+      <p>For a palette later, select swatches and use ⌘K → Combine.</p>
       <div className="color-form">
         <ColorPicker value={color} onChange={setColor} />
         <label>
@@ -392,7 +395,7 @@ function FontForm() {
   return (
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Font</h2>
-      <p>Any font installed on this Mac, or anything from Google Fonts.</p>
+      <p>Installed on this Mac or from Google Fonts.</p>
       <div className="font-pick-row">
         <FontPicker autoFocus value={font} onPick={pick} suggested={suggestedFonts} suggestedLabel="Matches your references" />
         <div className="font-preview" style={{ fontFamily: fontStack(font.family, font.category) }}>

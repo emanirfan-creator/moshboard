@@ -3,6 +3,7 @@ import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
+import { cue } from './ui/sound'
 
 export interface Camera {
   x: number
@@ -47,6 +48,21 @@ export interface State {
   hand: boolean
   /** auto-replay entrance animations */
   loop: boolean
+  /** site frame whose "Capture motion" picker is open */
+  picking: string | null
+  /** long jobs running on a frame (analyze, capture, fetch), by frame id: what it's doing */
+  jobs: Record<string, string>
+  /** blocks for frames still on their way (a link downloading, a component fetching) */
+  pending: Pending[]
+}
+
+export interface Pending {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  label: string
 }
 
 export type AddKind = 'media' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text'
@@ -84,6 +100,9 @@ let state: State = {
   paletteDraft: null,
   paletteFocus: null,
   loop: storedFlag('mb:loop'),
+  picking: null,
+  jobs: {},
+  pending: [],
 }
 
 const subs = new Set<() => void>()
@@ -140,9 +159,20 @@ function persist() {
   if (board) api.saveBoard(boardName, board).catch((e) => toast(`Save failed: ${e.message}`, true))
 }
 
+/** Writes a pending save now, for when something is about to read the board from disk. */
+export async function flushSave() {
+  if (saveTimer === undefined) return
+  clearTimeout(saveTimer)
+  saveTimer = undefined
+  commit()
+  const { board, boardName } = state
+  if (board) await api.saveBoard(boardName, board)
+}
+
 export function saveSoon() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
+    saveTimer = undefined
     commit()
     persist()
   }, 250)
@@ -161,8 +191,9 @@ function travel(from: Frame[][], to: Frame[][]) {
   return true
 }
 
-export const undo = () => travel(undoStack, redoStack)
-export const redo = () => travel(redoStack, undoStack)
+const step = (ok: boolean, sound: 'turn-back' | 'turn-forward') => (ok && cue(sound), ok)
+export const undo = () => step(travel(undoStack, redoStack), 'turn-back')
+export const redo = () => step(travel(redoStack, undoStack), 'turn-forward')
 
 export function mutateFrames(fn: (frames: Frame[]) => Frame[], save = true) {
   if (!state.board) return
@@ -256,12 +287,33 @@ export const viewLeft = () => (state.sidebar ? SIDEBAR_W : 0)
 
 export const viewportCenter = () => screenToWorld((viewLeft() + window.innerWidth) / 2, window.innerHeight / 2)
 
+// ── jobs ────────────────────────────────────────────────
+
+/** Shows the loader over a frame while a long job runs on it; call the result when it's done. */
+export function startJob(id: string, label: string) {
+  setState((s) => ({ jobs: { ...s.jobs, [id]: label } }))
+  return () =>
+    setState((s) => {
+      const jobs = { ...s.jobs }
+      delete jobs[id]
+      return { jobs }
+    })
+}
+
+/** A placeholder block where a frame will land; call the result to remove it. */
+export function startPending(p: Omit<Pending, 'id'>) {
+  const id = `pending-${Math.random().toString(36).slice(2, 8)}`
+  setState((s) => ({ pending: [...s.pending, { ...p, id }] }))
+  return () => setState((s) => ({ pending: s.pending.filter((x) => x.id !== id) }))
+}
+
 // ── toast ───────────────────────────────────────────────
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 export function toast(text: string, error = false) {
   clearTimeout(toastTimer)
   setState({ toast: { text, error } })
+  if (error) cue('deny')
   toastTimer = setTimeout(() => setState({ toast: null }), error ? 5000 : 2400)
 }
 
@@ -275,6 +327,7 @@ export function toggleSidebar(open = !state.sidebar) {
 }
 
 export function toggleLoop(on = !state.loop) {
+  if (on !== state.loop) cue(on ? 'toggle-on' : 'toggle-off')
   setState({ loop: on })
   try {
     localStorage.setItem('mb:loop', on ? '1' : '0')

@@ -10,6 +10,7 @@ import {
   duplicateSelected,
   fitBoard,
   loadBoard,
+  openSample,
   loadFile,
   lockParams,
   markSegment,
@@ -24,6 +25,7 @@ import { Inspector } from './tuning/Inspector'
 import { AddDialog } from './ui/AddDialog'
 import { Chrome, Shortcuts } from './ui/Chrome'
 import { ExportDialog } from './ui/ExportDialog'
+import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
 
 const isTyping = (t: EventTarget | null) =>
@@ -44,7 +46,7 @@ function useHotkeys() {
         setState({ palette: !s.palette })
         return
       }
-      if (s.palette || s.add || s.shortcuts || s.exported || isTyping(e.target)) return
+      if (s.palette || s.add || s.shortcuts || s.exported || s.picking || isTyping(e.target)) return
       // ⌘Z / ⌘⇧Z (and ⌘Y) for the canvas; text fields keep their own undo.
       if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'y')) {
         e.preventDefault()
@@ -114,7 +116,7 @@ function usePaste() {
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const st = getState()
-      if (st.palette || st.add || isTyping(e.target) || !e.clipboardData) return
+      if (st.palette || st.add || st.picking || isTyping(e.target) || !e.clipboardData) return
       const files = [...e.clipboardData.files]
       const text = e.clipboardData.getData('text/plain')
       e.preventDefault()
@@ -176,8 +178,11 @@ export function App() {
               Add to canvas <kbd>A</kbd>
             </button>
             <p className="empty-tip">
-              Or paste (<kbd>⌘V</kbd>) an image, link or code, or drop files anywhere.
+              Or paste (<kbd>⌘V</kbd>) or drop anything here.
             </p>
+            <button className="btn btn-ghost empty-sample" onClick={openSample}>
+              See an example board
+            </button>
           </div>
         </div>
       )}
@@ -188,6 +193,7 @@ export function App() {
       <AddDialog />
       <Shortcuts />
       <ExportDialog />
+      <CapturePicker />
       {toast && (
         <div className="toast" data-error={toast.error || undefined}>
           {toast.text}

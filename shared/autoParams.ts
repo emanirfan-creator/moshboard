@@ -41,6 +41,8 @@ interface Candidate {
   at: number
   /** JSX attribute the value sits in (`animate`, `initial`…), to tell same-named values apart */
   context?: string
+  /** JSX element it's set on (`Pause` for `<Pause size={16} />`), the better tiebreak when there is one */
+  element?: string
 }
 
 const unquote = (s: string) => s.slice(1, -1)
@@ -72,7 +74,9 @@ export function autoParams(source: string): { source: string; names: string[] } 
   const text = (t: Token) => source.slice(t.start, t.end)
 
   // Which brackets are function bodies (or arrow-expression bodies).
-  const stack: { fn: boolean; open: number; attr?: string }[] = []
+  const stack: { fn: boolean; open: number; attr?: string; element?: string }[] = []
+  // The JSX element whose attributes are being read.
+  let element: string | undefined
   const inFn = () => stack.some((s) => s.fn)
   // For each object literal (by its opening token index): its key → candidate, to group springs.
   const found: Candidate[] = []
@@ -81,6 +85,12 @@ export function autoParams(source: string): { source: string; names: string[] } 
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i]
     const prev = tokens[i - 1]
+    if (t.type === tt.jsxTagStart && tokens[i + 1]?.type === tt.jsxName) {
+      // `<motion.div`: the last part names it.
+      let k = i + 1
+      while (tokens[k + 1]?.type === tt.dot && tokens[k + 2]?.type === tt.jsxName) k += 2
+      element = text(tokens[k])
+    }
     if (t.type === tt.braceL || t.type === tt.parenL || t.type === tt.bracketL || t.type === tt.dollarBraceL) {
       // A function body, or a JSX expression (JSX only runs during render).
       const fn =
@@ -92,7 +102,7 @@ export function autoParams(source: string): { source: string; names: string[] } 
               prev.type === tt.jsxText ||
               (prev.type === tt.eq && tokens[i - 2]?.type === tt.jsxName))))
       const attr = prev?.type === tt.eq && tokens[i - 2]?.type === tt.jsxName ? text(tokens[i - 2]) : undefined
-      stack.push({ fn, open: i, attr })
+      stack.push({ fn, open: i, attr, element: attr ? element : undefined })
       continue
     }
     if (t.type === tt.braceR || t.type === tt.parenR || t.type === tt.bracketR) {
@@ -101,7 +111,8 @@ export function autoParams(source: string): { source: string; names: string[] } 
     }
     if (!inFn() && t.type !== tt.jsxName) continue
     const context = [...stack].reverse().find((e) => e.attr && e.attr !== 'style')?.attr
-    const push = (c: Candidate) => found.push({ ...c, context })
+    const owner = t.type === tt.jsxName ? element : [...stack].reverse().find((e) => e.element)?.element
+    const push = (c: Candidate) => found.push({ ...c, context, element: owner })
 
     // `key: literal` in an object, or `name="…"` / `name={literal}` on a JSX element.
     const isKey =
@@ -232,8 +243,14 @@ export function autoParams(source: string): { source: string; names: string[] } 
     .sort((a, b) => a.at - b.at)
   // Same name in different props (`initial={{ scale }}` / `animate={{ scale }}`): prefix the prop.
   const cap = (n: string) => n[0].toUpperCase() + n.slice(1)
-  const dupes = picked.filter((c) => c.context && picked.some((o) => o !== c && o.name === c.name))
-  for (const c of dupes) c.name = `${c.context}${cap(c.name)}`
+  // Same name on different elements (`<Play size>` / `<Pause size>`): prefix the element.
+  const low = (n: string) => n[0].toLowerCase() + n.slice(1)
+  const clashes = new Map(picked.map((c) => [c, picked.filter((o) => o !== c && o.name === c.name)]))
+  for (const [c, others] of clashes) {
+    if (!others.length) continue
+    if (c.element && others.every((o) => o.element !== c.element)) c.name = `${low(c.element)}${cap(c.name)}`
+    else if (c.context) c.name = `${c.context}${cap(c.name)}`
+  }
   const used = new Set<string>()
   for (const c of picked) {
     let n = c.name

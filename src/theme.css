@@ -1821,28 +1821,50 @@ body:has(.sidebar[data-open]) .hint {
   margin: 0;
   color: var(--text-1);
 }
+/* Segmented tabs (ui/Segmented.tsx): one pill slides under the chosen segment. */
 .segmented {
+  position: relative;
+  z-index: 0;
   display: flex;
-  border: 1px solid var(--line-2);
-  border-radius: 7px;
+  gap: 2px;
+  border-radius: 8px;
   padding: 2px;
+  background: rgba(255, 255, 255, 0.04);
 }
 .segmented button {
   flex: 1;
   height: 24px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-3);
   font-size: 12px;
   cursor: pointer;
+  transition: color 200ms var(--ease);
 }
 .segmented button:hover {
-  color: var(--text-1);
+  color: var(--text-2);
 }
 .segmented button[data-active] {
-  background: rgba(255, 255, 255, 0.08);
   color: var(--text-1);
+}
+.segmented-pill {
+  position: absolute;
+  z-index: -1;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+.segmented-pill[data-slide] {
+  transition: transform 280ms var(--glide), width 280ms var(--glide);
+}
+@media (prefers-reduced-motion: reduce) {
+  .segmented-pill[data-slide] {
+    transition: none;
+  }
 }
 /* Font weights, each shown in its own weight; the chosen one is lit (monochrome). */
 .weight-grid {
@@ -2203,27 +2225,6 @@ body:has(.sidebar[data-open]) .hint {
 .tool {
   z-index: 1;
 }
-.tool-hover {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 0;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.08);
-  opacity: 0;
-  scale: 0.8;
-  pointer-events: none;
-  transition: opacity 160ms var(--ease), scale 320ms var(--spring);
-}
-.tool-hover[data-visible] {
-  opacity: 1;
-  scale: 1;
-}
-/* Gliding between tools overshoots a touch, like it has momentum. */
-.tool-hover[data-slide] {
-  transition: opacity 160ms var(--ease), scale 320ms var(--spring), transform 340ms var(--glide),
-    width 340ms var(--glide), height 340ms var(--glide);
-}
 .tool:hover {
   background: transparent;
 }
@@ -2250,16 +2251,60 @@ body:has(.sidebar[data-open]) .hint {
 .tool[data-tip]:hover::after {
   scale: 1;
 }
+
+/* ── dock: icons magnify under the pointer (useDock in Chrome.tsx sets --s) ──
+   The button widens so neighbours make room; the icon grows up out of the bar
+   from its bottom edge, like the macOS Dock. */
+.toolbar .dock-item {
+  --s: 1;
+  --base: 36px;
+  display: block;
+  width: calc(var(--base) * var(--s));
+  height: var(--base);
+}
+.toolbar-group .dock-item {
+  --base: 32px;
+}
+.toolbar .dock-item,
+.toolbar .dock-item[data-active],
+.toolbar .dock-item[data-active]:hover {
+  background: transparent;
+}
+.dock-icon {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: var(--base);
+  height: var(--base);
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  transform: translateX(-50%) scale(var(--s));
+  transform-origin: 50% 100%;
+  transition: background-color var(--dur) var(--ease);
+}
+.dock-item[data-active] .dock-icon {
+  background: rgba(255, 255, 255, 0.12);
+}
+.toolbar .dock-item:hover svg {
+  transform: none;
+}
+.toolbar .dock-item:active svg {
+  transform: scale(0.84);
+}
+.toolbar .dock-item[data-tip]::after {
+  bottom: calc(100% + 10px + (var(--s) - 1) * var(--base));
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tool-hover[data-slide],
   .tool svg {
     transition: opacity 140ms var(--ease);
   }
   .tool:hover svg,
-  .tool:active svg {
+  .tool:active svg,
+  .toolbar .dock-item:active svg {
     transform: none;
   }
-  .tool-hover,
   .tool[data-tip]::after {
     scale: 1;
   }
@@ -2414,12 +2459,19 @@ body:has(.sidebar[data-open]) .hint {
 .pal-block[data-active] .palette-col:hover {
   flex-grow: 1.2;
 }
-.palette-col[data-lifted] {
+/* Reordering (PaletteFrame startReorder): columns hold equal widths so slots stay put,
+   and the moving one rides on top, lifted while held and settling as it lands. */
+.pal-block[data-reordering] .palette-col {
+  flex-grow: 1 !important;
+  transition: scale 320ms var(--spring), box-shadow 240ms var(--ease), border-radius 240ms var(--ease);
+}
+.palette-col[data-moving] {
   z-index: 2;
-  scale: 1.04 1.02;
+}
+.palette-col[data-lifted] {
+  scale: 1.05 1.02;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.9);
-  border-radius: 6px;
-  transition: scale 160ms cubic-bezier(0.32, 0.72, 0, 1), box-shadow 160ms var(--ease);
+  border-radius: 8px;
 }
 .palette-col[data-lifted] .palette-tools {
   opacity: 1;
@@ -2707,15 +2759,17 @@ body[data-grabbing] * {
   background: rgba(255, 255, 255, 0.5);
   border-radius: 1px;
 }
+/* `--t` (0..1) is glided by useGlide, so the thumb trails the value smoothly. */
 .adj-knob {
   position: absolute;
   top: 50%;
-  width: 16px;
-  height: 16px;
-  margin: -8px 0 0 -8px;
-  border-radius: 50%;
+  left: calc(var(--t) * 100%);
+  width: 22px;
+  height: 14px;
+  translate: -50% -50%;
+  border-radius: 999px;
   background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.45);
   pointer-events: none;
 }
 .palette-preview {
@@ -2995,58 +3049,73 @@ textarea,
   font: 12px var(--mono);
   text-align: right;
 }
+/* A row of tick marks with a white pill thumb (after Space UI's tick slider).
+   `--t` (0..1, glided by useGlide) places the thumb and lights the marks between
+   `--z` (zero, for ranges that cross it) and the thumb. */
 .num-ruler {
+  --inset: 12px;
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 18px;
-  padding-bottom: 5px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
   cursor: ew-resize;
   touch-action: none;
   outline: none;
+  transition: background-color var(--dur) var(--ease);
 }
-.num-ruler i {
-  position: relative;
-  flex: 1;
-  height: 10px;
-  border-radius: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  transition: background 90ms var(--ease);
+.num-ruler:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
-/* Ruler marks sit under the bar, every 5th and 10th segment. */
-.num-ruler i[data-tick]::after {
-  content: '';
+.num-marks {
   position: absolute;
-  left: 50%;
-  bottom: -5px;
-  width: 1px;
-  height: 2px;
+  inset: 0 calc(var(--inset) - 1px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.num-marks i {
+  width: 2px;
+  height: 6px;
+  border-radius: 1px;
   background: rgba(255, 255, 255, 0.16);
 }
-.num-ruler i[data-tick='major']::after {
-  height: 3px;
-  bottom: -6px;
-  background: rgba(255, 255, 255, 0.3);
+.num-marks i[data-major] {
+  height: 11px;
 }
-.num-ruler i[data-lit] {
-  background: rgba(255, 255, 255, 0.5);
+/* The lit copy of the marks, clipped to the span between zero and the thumb. */
+.num-lit {
+  clip-path: inset(
+    0 calc(var(--inset) - 1px + (1 - max(var(--t), var(--z))) * (100% - var(--inset) * 2)) 0
+      calc(var(--inset) - 1px + min(var(--t), var(--z)) * (100% - var(--inset) * 2))
+  );
+  inset: 0;
+  padding: 0 calc(var(--inset) - 1px);
 }
-.num[data-mod] .num-ruler i[data-lit] {
-  background: rgba(255, 255, 255, 0.85);
+.num-lit i {
+  background: rgba(255, 255, 255, 0.55);
 }
-.num-ruler i[data-head] {
-  height: 16px;
+.num[data-mod] .num-lit i {
   background: var(--text-1);
 }
-.num-ruler:hover i:not([data-lit]):not([data-head]) {
-  background: rgba(255, 255, 255, 0.12);
+.num-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--inset) + var(--t) * (100% - var(--inset) * 2));
+  width: 22px;
+  height: 14px;
+  translate: -50% -50%;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  transition: scale 260ms var(--spring), box-shadow var(--dur) var(--ease);
 }
-.num[data-active] .num-ruler i {
-  transition: none;
+.num[data-active] .num-thumb {
+  scale: 1.1;
 }
-.num-ruler:focus-visible i[data-head] {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
+.num-ruler:focus-visible .num-thumb {
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(255, 255, 255, 0.25);
 }
 
 /* Spring: playable response graph, then bounce/duration rulers. */
@@ -3255,4 +3324,523 @@ textarea,
   .insp-section[data-scan]::after {
     animation: none;
   }
+}
+
+/* ── component settings (a component's own props) ─────── */
+
+.props-filter {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.props-filter input {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: transparent;
+  outline: 0;
+  color: var(--text-1);
+  font-size: 12px;
+  transition: border-color var(--dur) var(--ease);
+}
+.props-filter input:focus {
+  border-color: var(--accent);
+}
+.props-filter input::placeholder {
+  color: var(--text-4);
+}
+.prop-section {
+  gap: 14px;
+}
+.prop-section:not([data-open]) {
+  padding-bottom: 12px;
+  padding-top: 12px;
+}
+.prop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.prop-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.prop-toggle svg {
+  width: 12px;
+  height: 12px;
+  margin-left: -2px;
+  color: var(--text-4);
+  transition: transform 200ms var(--ease), color var(--dur) var(--ease);
+}
+.prop-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.prop-toggle:hover svg,
+.prop-toggle:hover h3 {
+  color: var(--text-1);
+}
+.prop-count {
+  margin-left: auto;
+  color: var(--text-4);
+  font: 10.5px var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.prop-reset {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+}
+.prop-reset:hover {
+  color: var(--text-1);
+}
+.prop {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.prop-help {
+  margin: 0;
+}
+
+/* Toggle: the label left, a small switch right. Monochrome; on = white knob, lit track. */
+.tgl {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.tgl .num-name {
+  flex: 1;
+}
+.tgl[data-mod] .num-name,
+.tgl:hover .num-name {
+  color: var(--text-2);
+}
+.tgl-state {
+  color: var(--text-4);
+  font: 12px var(--mono);
+}
+.tgl[aria-checked='true'] .tgl-state {
+  color: var(--text-2);
+}
+.tgl-track {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  transition: background-color 200ms var(--ease);
+}
+.tgl-track[data-on] {
+  background: rgba(255, 255, 255, 0.22);
+}
+.tgl-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: transform 280ms var(--glide), background-color 200ms var(--ease);
+}
+.tgl-track[data-on] .tgl-knob {
+  transform: translateX(12px);
+  background: #fff;
+}
+.tgl:focus-visible {
+  outline: 0;
+}
+.tgl:focus-visible .tgl-track {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tgl-knob {
+    transition: none;
+  }
+}
+
+/* Choice (long list) and text fields share the ruler's quiet well. */
+.ctl-select,
+.ctl-text {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  outline: 0;
+  color: var(--text-1);
+  font-size: 12px;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.ctl-text {
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+}
+.ctl-select:focus-visible,
+.ctl-text:focus {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ctl-text::placeholder {
+  color: var(--text-4);
+}
+.ctl-select {
+  appearance: none;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 12px, calc(100% - 10px) 12px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* ── Changed values: a dot that resets, markers for the original and the reference ── */
+.num-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.reset-dot {
+  position: relative;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+.reset-dot::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--text-1);
+  transition: scale 200ms var(--spring), opacity var(--dur) var(--ease);
+}
+/* Hovered, the dot turns into a small reset arrow. */
+.reset-dot::after {
+  content: '↺';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-1);
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  scale: 0.6;
+  transition: scale 200ms var(--spring), opacity var(--dur) var(--ease);
+}
+.reset-dot:hover::before,
+.reset-dot:focus-visible::before {
+  opacity: 0;
+  scale: 0.4;
+}
+.reset-dot:hover::after,
+.reset-dot:focus-visible::after {
+  opacity: 1;
+  scale: 1;
+}
+.name-input {
+  width: 100%;
+  min-width: 80px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--accent);
+  outline: 0;
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  color: var(--text-1);
+}
+.num-name[title] {
+  cursor: text;
+}
+/* Original (where the value started) and reference (measured on the linked reference) on the ruler. */
+.num-mark {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--inset) + var(--m) * (100% - var(--inset) * 2));
+  width: 0;
+  border-left: 1px dashed rgba(255, 255, 255, 0.4);
+  translate: -0.5px 0;
+  pointer-events: none;
+}
+.num-mark[data-ref] {
+  border-left: 1.5px solid rgba(255, 255, 255, 0.7);
+}
+.num-mark[data-ref]::after {
+  content: 'ref';
+  position: absolute;
+  top: -11px;
+  left: 3px;
+  color: var(--text-3);
+  font: 8.5px var(--mono);
+}
+.timeline .tl-ref,
+.timeline .tl-orig {
+  position: absolute;
+  top: 5px;
+  height: 13px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.timeline .tl-ref {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+.timeline .tl-orig {
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+}
+.tl-ref-key,
+.ease-ref-key {
+  margin-left: auto;
+  color: var(--text-3);
+  font: 10px var(--mono);
+}
+.pad .orig {
+  fill: none;
+  stroke: var(--text-4);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.pad .ref {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.45);
+  stroke-width: 1.5;
+}
+.cf-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cf-line .cf-row {
+  flex: 1;
+}
+
+/* ── Capture motion picker: click the element on a screenshot of the site ── */
+.dialog.picker {
+  width: min(980px, calc(100vw - 32px));
+  height: auto;
+  max-height: calc(100vh - 32px);
+}
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 20px;
+  min-height: 0;
+}
+.picker-head h2 {
+  margin: 0 0 4px;
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 560;
+}
+.picker-head p {
+  margin: 0;
+  color: var(--text-3);
+}
+.picker-stage {
+  position: relative;
+  min-height: 280px;
+  border-radius: 8px;
+  background: var(--inner);
+  overflow: auto;
+}
+.picker-shot {
+  position: relative;
+  width: 100%;
+}
+.picker-shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+.picker-box {
+  position: absolute;
+  padding: 0;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.picker-box[data-moves] {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.picker-box:hover {
+  border: 1px solid #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.picker-box[data-picked] {
+  border: 1.5px solid #fff;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  z-index: 1;
+}
+.picker-error {
+  padding: 24px;
+  color: var(--text-3);
+}
+.picker-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.picker-what {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+.picker-label {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.picker-hint {
+  color: var(--text-3);
+}
+.picker-toggle {
+  margin-left: auto;
+}
+.picker-actions {
+  display: flex;
+  gap: 8px;
+}
+.picker-typed {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  outline: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+}
+.picker-typed:focus {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.picker-stage .frame-loading {
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Workflow: stage badge (measured → recreated → tuned) and the next-step button ── */
+.block-stage {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px 0 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.stage-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.stage-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+}
+.stage-dots i[data-on] {
+  background: var(--text-1);
+}
+.head-step {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text-1);
+  animation: step-in 240ms var(--glide) both;
+}
+.head-step kbd {
+  color: var(--text-3);
+  font: 10px var(--mono);
+}
+.head-step + .block-kind {
+  margin-left: 0;
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.97);
+  }
+}
+
+.empty-sample {
+  margin-top: 4px;
+}
+
+/* A long job running on a frame: dim its content under the loader. */
+.job-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(15, 16, 18, 0.62);
+  pointer-events: none;
+  animation: job-in 200ms var(--ease) both;
+}
+@keyframes job-in {
+  from {
+    opacity: 0;
+  }
+}
+.frame-body > .frame-loading {
+  z-index: 2;
+}
+/* A frame on its way: same block, quieter. */
+.frame.pending {
+  pointer-events: none;
+  animation: job-in 200ms var(--ease) both;
+}
+.frame.pending .block-title {
+  color: var(--text-3);
 }

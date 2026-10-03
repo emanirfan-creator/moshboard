@@ -139,17 +139,17 @@ export function SelectionBody() {
             <h3>Combine</h3>
             <div className="insp-buttons">
               {colorish >= 2 && (
-                <button className="btn" onClick={combineSwatches} title="Colors in left-to-right order, duplicates dropped">
+                <button className="btn" onClick={combineSwatches} title="Left to right, no duplicates">
                   {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
                 </button>
               )}
               {linkable && (
-                <button className="btn" onClick={linkSelected} title="Link a reference with its copies and notes">
+                <button className="btn" onClick={linkSelected} title="Link a reference to its copies and notes">
                   {anyLinked ? 'Add to link' : 'Link'}
                 </button>
               )}
               {anyLinked && (
-                <button className="btn" onClick={unlinkSelected} title="A copy or note leaves the group; a reference releases everything linked to it">
+                <button className="btn" onClick={unlinkSelected} title="Detach from the group, or free everything linked to a reference">
                   Unlink
                 </button>
               )}

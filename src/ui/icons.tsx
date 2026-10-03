@@ -58,9 +58,12 @@ export const SwatchIcon = () => (
     <path d="M8 2.5v11" />
   </Icon>
 )
-export const TypeIcon = () => (
+/** "Aa": a typeface, kept apart from the Text tool's T. */
+export const FontIcon = () => (
   <Icon>
-    <path d="M3.5 4.5v-1h9v1M8 3.5v9M6 12.5h4" />
+    <path d="M2 12.5 5.25 3.5l3.25 9M3.2 9.5h4.1" />
+    <circle cx="11.5" cy="10.25" r="2.25" />
+    <path d="M13.75 7.5v5" />
   </Icon>
 )
 export const SidebarIcon = () => (
@@ -98,6 +101,11 @@ export const TextIcon = () => (
   <Icon>
     <path d="M3 4V3h10v1M8 3v10M6.5 13h3" />
     <path d="M11.5 9.5h3M13 9.5v3.5" opacity=".6" />
+  </Icon>
+)
+export const ChevronIcon = () => (
+  <Icon>
+    <path d="m6 4.5 3.5 3.5L6 11.5" />
   </Icon>
 )
 export const CloseIcon = () => (

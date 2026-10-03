@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { exportBoard } from '../actions'
+import { shareBoard } from '../share'
 import { getState, setState, toast, useStore } from '../store'
 import { CloseIcon } from './icons'
 
@@ -53,7 +54,7 @@ export function ExportDialog() {
           <h2>{partial ? `Exported ${result.scope.frames} of ${result.scope.total} frames` : 'Spec exported'}</h2>
           <p>
             {partial && 'Your selection plus linked frames. '}
-            Saved to <span className="mono path">{result.dir}</span>. Exporting again overwrites it.
+            Saved to <span className="mono path">{result.dir}</span>. Re-exporting overwrites it.
           </p>
 
           <ul className="export-files">
@@ -75,7 +76,7 @@ export function ExportDialog() {
               <li>
                 <span className="mono">refs/</span>
                 <span>
-                  {refs.length} reference image{refs.length > 1 ? 's' : ''} and keyframe sheets
+                  {refs.length} reference image{refs.length > 1 ? 's' : ''} and keyframes
                 </span>
               </li>
             )}
@@ -97,6 +98,16 @@ export function ExportDialog() {
               </button>
             </div>
             <p>{prompt}</p>
+          </div>
+
+          <div className="export-prompt">
+            <div className="label-row">
+              <span>Share with someone without Moshboard</span>
+              <button className="link" onClick={() => (close(), shareBoard())}>
+                Share as a page
+              </button>
+            </div>
+            <p>One HTML file with the whole canvas: clips play, components run, live sites stay live. Opens in any browser.</p>
           </div>
 
           <div className="dialog-foot">

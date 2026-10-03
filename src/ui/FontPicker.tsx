@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fontStack, type FontFamily } from '../../shared/fonts.ts'
 import { loadPreview, useFontList } from '../fonts'
+import { Segmented } from './Segmented'
 
 const ROW = 34
 const NONE: FontFamily[] = []
@@ -118,20 +119,25 @@ export function FontPicker({
           }
         }}
       />
-      <div className="segmented">
-        {(
+      <Segmented
+        options={(
           [
             ['all', 'All'],
             ['mac', 'Mac'],
             ['google', 'Google'],
           ] as const
-        ).map(([s, label]) => (
-          <button key={s} data-active={source === s || undefined} onClick={() => setSource(s)}>
-            {label}
-            {counts && s !== 'all' && <small>{counts[s]}</small>}
-          </button>
-        ))}
-      </div>
+        ).map(([s, label]) => ({
+          id: s,
+          label: (
+            <>
+              {label}
+              {counts && s !== 'all' && <small>{counts[s]}</small>}
+            </>
+          ),
+        }))}
+        value={source}
+        onChange={setSource}
+      />
       <div className="font-list" ref={listRef} role="listbox" aria-label="Fonts" onScroll={(e) => setScroll(e.currentTarget.scrollTop)}>
         {!fonts ? (
           <div className="font-list-empty">Loading fonts…</div>

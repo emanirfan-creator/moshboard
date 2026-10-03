@@ -172,17 +172,54 @@ function clusterColors(samples: ColorSample[], k: number) {
   return centers.map((lab, c) => ({ lab, lch: labToLch(lab), share: weights[c] / total })).filter((c) => c.share > 0.004)
 }
 
+type Cluster = ReturnType<typeof clusterColors>[number]
+
 /**
  * A palette suggested from colors on the board: a dark anchor, a light anchor
- * and the board's most characteristic accents, kept distinct from each other,
- * then balanced (a usable light→dark range, no neon) and ordered dark → light.
+ * and the board's characteristic accents, kept distinct from each other, then
+ * balanced (a usable light→dark range, no neon) and ordered dark → light.
  * Locked colors stay where they are and count toward the balance.
+ *
+ * Each run builds many candidate combinations from the board's colors and picks
+ * a well-fitting one that is clearly different from `avoid` (the palette as it
+ * is, and recent results), so generating again always finds another combo.
  */
-export function paletteFromSamples(samples: ColorSample[], current: PaletteColor[] = [], count = current.length || 5): PaletteColor[] {
+export function paletteFromSamples(
+  samples: ColorSample[],
+  current: PaletteColor[] = [],
+  count = current.length || 5,
+  avoid: string[][] = [],
+): PaletteColor[] {
+  const locked = current.slice(0, count).filter((c) => c.locked)
+  if (!samples.length || count - locked.length <= 0) return current.slice(0, count)
+  const clusters = clusterColors(samples, Math.min(18, samples.length))
+  const seen = [current.slice(0, count).map((c) => c.hex), ...avoid].filter((p) => p.length === count)
+
+  // The first candidate is the board's best fit; the rest explore other anchors and accents.
+  const candidates = Array.from({ length: 36 }, (_, n) => buildCandidate(clusters, current, count, n === 0 ? 0 : Math.min(1, 0.35 + n / 30)))
+  const novelty = (c: PaletteColor[]) => (seen.length ? Math.min(...seen.map((p) => paletteDistance(c.map((x) => x.hex), p))) : 1)
+  const scored = candidates.map((c) => ({ ...c, novelty: novelty(c.colors) }))
+  // Fresh enough to read as a different palette, best fit first; a little luck among the top few.
+  const fresh = scored.filter((c) => c.novelty >= 0.045).sort((a, b) => b.quality - a.quality)
+  if (fresh.length) return pick(fresh.slice(0, 3)).colors
+  return scored.reduce((a, b) => (b.novelty > a.novelty ? b : a)).colors
+}
+
+/** Average distance between two palettes, color by color (both are ordered dark → light). */
+function paletteDistance(a: string[], b: string[]) {
+  const n = Math.min(a.length, b.length)
+  let sum = 0
+  for (let i = 0; i < n; i++) sum += dist(hexToLab(a[i]), hexToLab(b[i]))
+  return n ? sum / n : 1
+}
+
+/**
+ * One palette from the board's color clusters. `jitter` 0 takes the board's most
+ * characteristic colors; up to 1 it reaches for other anchors and accents.
+ */
+function buildCandidate(clusters: Cluster[], current: PaletteColor[], count: number, jitter: number) {
   const locked = current.slice(0, count).filter((c) => c.locked)
   const free = count - locked.length
-  if (!samples.length || free <= 0) return current.slice(0, count)
-  const clusters = clusterColors(samples, Math.min(14, samples.length))
   const chosen: LCH[] = locked.map((c) => hexToLch(c.hex))
   const taken = new Set<number>()
   const tooClose = (lch: LCH, min: number) => chosen.some((c) => dist(lchToLab(c), lchToLab(lch)) < min)
@@ -190,42 +227,46 @@ export function paletteFromSamples(samples: ColorSample[], current: PaletteColor
     taken.add(i)
     chosen.push([...clusters[i].lch])
   }
+  const vary = () => (jitter ? rand(1 - 0.6 * jitter, 1 + 0.9 * jitter) : 1)
   const significant = clusters.map((c, i) => [c, i] as const).filter(([c]) => c.share >= 0.02)
   const pool = significant.length >= 2 ? significant : clusters.map((c, i) => [c, i] as const)
+  let quality = 0
 
-  // Anchors: the board's darkest and lightest real colors, unless a locked color already covers that end.
+  // Anchors: one of the board's darkest and lightest real colors, unless a locked color already covers that end.
   const roles: { lch: LCH; role: 'dark' | 'light' | 'accent' }[] = []
-  const wantDark = !chosen.some((c) => c[0] < 0.35)
-  const wantLight = !chosen.some((c) => c[0] > 0.82)
-  if (wantDark && roles.length < free) {
-    const [, i] = pool.reduce((a, b) => (b[0].lch[0] < a[0].lch[0] ? b : a))
+  const anchor = (role: 'dark' | 'light', dir: 1 | -1) => {
+    const rest = pool.filter(([, i]) => !taken.has(i)).sort((a, b) => dir * (a[0].lch[0] - b[0].lch[0]))
+    if (!rest.length) return
+    // Near the extreme (within 0.12 lightness), the more of the board it covers the likelier.
+    const near = rest.filter(([c]) => Math.abs(c.lch[0] - rest[0][0].lch[0]) < 0.12).slice(0, 4)
+    const [c, i] = jitter ? near.reduce((a, b) => (Math.sqrt(b[0].share) * vary() > Math.sqrt(a[0].share) * vary() ? b : a)) : near[0]
     take(i)
-    roles.push({ lch: [...clusters[i].lch], role: 'dark' })
+    quality += Math.sqrt(c.share) * 0.5
+    roles.push({ lch: [...c.lch], role })
   }
-  if (wantLight && roles.length < free) {
-    const rest = pool.filter(([, i]) => !taken.has(i))
-    if (rest.length) {
-      const [, i] = rest.reduce((a, b) => (b[0].lch[0] > a[0].lch[0] ? b : a))
-      take(i)
-      roles.push({ lch: [...clusters[i].lch], role: 'light' })
-    }
-  }
+  if (!chosen.some((c) => c[0] < 0.35) && roles.length < free) anchor('dark', 1)
+  if (!chosen.some((c) => c[0] > 0.82) && roles.length < free) anchor('light', -1)
 
   // Accents: colors that cover a lot of the board and carry color, spaced apart.
-  const score = (c: (typeof clusters)[number]) => Math.sqrt(c.share) * (0.03 + c.lch[1]) * rand(0.7, 1.5)
+  const fit = (c: Cluster) => Math.sqrt(c.share) * (0.03 + c.lch[1])
   for (const min of [0.1, 0.07, 0.045, 0]) {
-    const ranked = clusters.map((c, i) => [score(c), i] as const).filter(([, i]) => !taken.has(i)).sort((a, b) => b[0] - a[0])
+    const ranked = clusters
+      .map((c, i) => [fit(c) * vary(), i] as const)
+      .filter(([, i]) => !taken.has(i))
+      .sort((a, b) => b[0] - a[0])
     for (const [, i] of ranked) {
       if (roles.length >= free) break
       if (tooClose(clusters[i].lch, min)) continue
       take(i)
+      quality += fit(clusters[i]) * 4
       roles.push({ lch: [...clusters[i].lch], role: 'accent' })
     }
     if (roles.length >= free) break
   }
   // Too few distinct colors on the board: fill with tints/shades of the strongest accent.
   const seed = roles.find((r) => r.role === 'accent')?.lch ?? roles[0]?.lch ?? chosen[0] ?? [0.6, 0.08, rand(0, 360)]
-  for (let n = 0; roles.length < free; n++) roles.push({ lch: [0.3 + ((n * 0.37 + 0.2) % 0.6), seed[1] * 0.8, seed[2]], role: 'accent' })
+  const offset = rand(0, 0.6)
+  for (let n = 0; roles.length < free; n++) roles.push({ lch: [0.3 + ((n * 0.37 + 0.2 + offset) % 0.6), seed[1] * 0.8, seed[2]], role: 'accent' })
 
   // Balance: a real dark and a real light end, quiet neutrals, no neon accents.
   for (const r of roles) {
@@ -243,9 +284,9 @@ export function paletteFromSamples(samples: ColorSample[], current: PaletteColor
     if (accents[i].lch[0] - accents[i - 1].lch[0] < 0.07) accents[i - 1].lch[0] = Math.max(0.32, accents[i].lch[0] - 0.07)
 
   const fresh = roles.map((r) => r.lch).sort((a, b) => a[0] - b[0])
-  const out: PaletteColor[] = []
-  for (let i = 0, f = 0; i < count; i++) out.push(current[i]?.locked ? current[i] : { hex: lchToHex(fresh[f++]) })
-  return out
+  const colors: PaletteColor[] = []
+  for (let i = 0, f = 0; i < count; i++) colors.push(current[i]?.locked ? current[i] : { hex: lchToHex(fresh[f++]) })
+  return { colors, quality }
 }
 
 /** A color halfway between two (inserting between columns). */
