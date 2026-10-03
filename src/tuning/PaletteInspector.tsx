@@ -140,7 +140,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
         ) : (
           <>
             <button className="btn" onClick={() => splitPalette(frame.id)} title="One swatch per color">
-              Split into swatches
+              Split
             </button>
             <span className="grow" />
             <button className="btn" onClick={() => randomizePalette(frame.id)} title="A random harmony, not from the board">
