@@ -9,11 +9,11 @@
 import skill from '../../.claude/skills/recreate/SKILL.md?raw'
 import { getState, setState } from '../store'
 
-/** Hosted build: there's no local server, so a folder is required. */
+/** Website build (and `pnpm dev:web`): boards live in a folder the user picks. The local app never uses one. */
 export const FOLDER_ONLY = import.meta.env.VITE_FOLDER_ONLY === '1'
 export const folderSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
-export type OnboardingStep = 'welcome' | 'reconnect' | 'ready' | 'claude'
+export type OnboardingStep = 'welcome' | 'reconnect' | 'gone' | 'ready' | 'claude'
 
 export interface FolderInfo {
   name: string
@@ -102,10 +102,20 @@ async function isSingle(dir: Dir) {
  * lets us use, or (in the local app) no folder at all. Otherwise shows the right onboarding step.
  */
 export async function startFolder(): Promise<boolean> {
+  // The local app always uses the boards next to its server. Drop a worker left from a website test.
+  if (!FOLDER_ONLY) {
+    navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()))
+    return true
+  }
   window.addEventListener('mb:reconnect', () => setState({ onboarding: 'reconnect' }))
+  window.addEventListener('mb:folder-gone', () => folderGone())
   const saved = await idbGet<Dir>('root')
   if (saved) {
     if ((await saved.queryPermission({ mode: 'readwrite' })) === 'granted') {
+      if (await isGone(saved)) {
+        await folderGone(saved.name)
+        return false
+      }
       await activate(saved)
       return true
     }
@@ -165,12 +175,30 @@ export async function reconnectFolder() {
   }
 }
 
-/** Local app only: go back to the boards next to the server. */
-export async function disconnectFolder() {
+async function isGone(dir: Dir) {
+  try {
+    for await (const _ of dir.entries()) break
+    return false
+  } catch (err) {
+    return (err as DOMException).name === 'NotFoundError'
+  }
+}
+
+/** The folder was deleted or moved: forget it and go back to picking one. */
+async function folderGone(name = getState().folder?.name ?? '') {
+  if (getState().onboarding === 'gone') return
+  stopWatching()
+  root = null
   await idbDel('root')
   navigator.serviceWorker.controller?.postMessage({ type: 'folder' })
-  location.hash = ''
-  location.reload()
+  history.replaceState(null, '', location.pathname)
+  setState({
+    folder: { name, single: false, assistant: false },
+    board: null,
+    canvases: [],
+    selected: [],
+    onboarding: 'gone',
+  })
 }
 
 // ── watching ────────────────────────────────────────────
@@ -214,6 +242,8 @@ function report(dir: Dir, change: Change) {
     key,
     setTimeout(async () => {
       pending.delete(key)
+      // The folder was forgotten in the meantime (it was deleted): nothing to reload.
+      if (root !== dir) return
       const parts = getState().folder?.single ? change.file.split('/') : key.split('/')
       let text: string | null = null
       try {
@@ -222,6 +252,7 @@ function report(dir: Dir, change: Change) {
         // deleted
       }
       if (text !== null && own.get(key) === text) return
+      if (text === null && (await isGone(dir))) return void folderGone()
       own.delete(key)
       listeners.forEach((f) => f(change))
     }, 60),
@@ -234,6 +265,8 @@ function watch(dir: Dir) {
   if (Observer) {
     const observer = new Observer((records) => {
       for (const r of records) {
+        // The folder itself went away (deleted, or moved out from under us).
+        if (r.type === 'disappeared' && !r.relativePathComponents.length) return void folderGone()
         const change = locate(r.relativePathComponents)
         if (change) report(dir, change)
         // The observer lost track (too many changes at once): reread the open board.
@@ -256,7 +289,8 @@ function watch(dir: Dir) {
         if (seen.has(key) && seen.get(key) !== t) report(dir, { board: s.boardName, file })
         seen.set(key, t)
       } catch {
-        // not there (yet)
+        // not there (yet), or the whole folder is gone
+        if (await isGone(dir)) return void folderGone()
       }
     }
   }, 1200)

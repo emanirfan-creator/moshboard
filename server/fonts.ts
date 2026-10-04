@@ -68,8 +68,12 @@ async function googleFonts(): Promise<FontFamily[]> {
         const range = wght && { min: wght.min, max: wght.max }
         return { family: m.family, source: 'google', category: m.category, href: googleHref(m.family, range ?? weights), weights: range ?? weights }
       })
-    fs.mkdirSync(path.dirname(CACHE), { recursive: true })
-    fs.writeFileSync(CACHE, JSON.stringify(fonts))
+    try {
+      fs.mkdirSync(path.dirname(CACHE), { recursive: true })
+      fs.writeFileSync(CACHE, JSON.stringify(fonts))
+    } catch {
+      // read-only disk (the website's function): the list is cached in memory and by the CDN instead
+    }
     return fonts
   } catch {
     // Offline: use an older cached list if there is one.

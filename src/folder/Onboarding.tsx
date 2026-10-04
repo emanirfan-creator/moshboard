@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { setState, useStore } from '../store'
 import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
-import { chooseFolder, disconnectFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
+import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
 const close = () => setState({ onboarding: null })
 
@@ -10,7 +10,7 @@ export function Onboarding() {
   const step = useStore((s) => s.onboarding)
   const folder = useStore((s) => s.folder)
   // Picking and reconnecting block the app (there's nothing to show without a folder); the rest can be closed.
-  const blocking = step === 'reconnect' || (step === 'welcome' && FOLDER_ONLY)
+  const blocking = step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY)
 
   useEffect(() => {
     if (!step || blocking) return
@@ -49,6 +49,16 @@ export function Onboarding() {
             </>
           )}
 
+          {step === 'gone' && (
+            <>
+              <h2>Your folder is gone</h2>
+              <p>“{name}” was moved or deleted. Choose it again in its new place, or pick a new folder.</p>
+              <button className="btn btn-primary onboarding-cta" onClick={chooseFolder}>
+                <FolderIcon /> Choose folder
+              </button>
+            </>
+          )}
+
           {step === 'reconnect' && (
             <>
               <h2>Reconnect your folder</h2>
@@ -60,14 +70,6 @@ export function Onboarding() {
                 <button className="link" onClick={chooseFolder}>
                   Choose another folder
                 </button>
-                {!FOLDER_ONLY && (
-                  <>
-                    {' · '}
-                    <button className="link" onClick={disconnectFolder}>
-                      Use the boards next to Moshboard
-                    </button>
-                  </>
-                )}
               </p>
             </>
           )}

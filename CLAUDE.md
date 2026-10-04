@@ -8,7 +8,8 @@ A local moodboard where references can be live: videos, websites, and runnable c
 - `pnpm export <board> [--out <dir>]`: write the spec files (default `boards/<board>/export/`)
 - `pnpm typecheck`
 - `MOSHBOARD_BOARDS=<dir>` (dev and export) keeps boards in another folder, usually a `design/` folder in an app repo (`server/boards-dir.ts`; relative paths are taken from where the command was run). The client shows that folder as `__BOARDS__`.
-- `pnpm build:web`: the hosted version (static files in `dist/`, no server): boards live in a folder the user picks in Chrome
+- `pnpm build:web`: the website (Vercel Build Output in `.vercel/output`: static app plus the functions in `server/web/`); boards live in a folder the user picks in Chrome
+- `pnpm dev:web`: the local app behaving as the website (folder mode), for testing it
 - `pnpm skill:install`: links `.claude/skills/recreate` into `~/.claude/skills` so `/recreate` works in any repo
 
 ## Layout
@@ -25,7 +26,7 @@ A local moodboard where references can be live: videos, websites, and runnable c
 - Export (`server/export.ts`) covers the whole canvas, or only selected frame ids plus what they link to. `motion.md` follows the Design Harness motion format (named duration/delay/easing/spring/stagger tokens, patterns that use token names only, Philosophy left to the designer); `design.md` uses the same token-line style plus rules and intent read from notes; `interactions.md` keeps how each animation was measured. Names match `tokens.css` everywhere.
 - `server/registry.ts`: resolves `npx shadcn@latest add …` / registry URLs into a component plus the files it imports.
 - `.claude/skills/recreate/`: the `/recreate <board> <frameId>` workflow.
-- Folder mode (`src/folder/`, `public/folder-sw.js`): the boards folder is picked in the browser (File System Access, Chrome/Edge/Arc) and its handle kept in IndexedDB. A service worker answers `/api/…` and `/media/…` from that folder, so the rest of the client is the same as with the local server; outside edits are watched with `FileSystemObserver`. Connecting writes the recreate skill and an `AGENTS.md` into the folder (never over the user's own). Required in the hosted build (`VITE_FOLDER_ONLY`), optional locally via ⌘K "Open a folder…". Analysis, capture, snapshots, media links, export and sweep still need the local server.
+- Folder mode (`src/folder/`, `public/folder-sw.js`): the boards folder is picked in the browser (File System Access, Chrome/Edge/Arc) and its handle kept in IndexedDB. A service worker answers `/api/…` and `/media/…` from that folder, so the rest of the client is the same as with the local server; outside edits are watched with `FileSystemObserver`. Connecting writes the recreate skill and an `AGENTS.md` into the folder (never over the user's own). Website only (`VITE_FOLDER_ONLY`); the local app never uses a folder. A deleted or moved folder sends the site back to picking one. Links (Pinterest, Cosmos…), component installs, the Google Fonts list and the embed check run as Vercel functions (`server/web/`, also served by the local server for `dev:web`); the media is saved into the folder by the worker. Analysis, capture, snapshots, site fonts, export, GIF→video and sweep still need the local server.
 
 ## Website and local versions
 

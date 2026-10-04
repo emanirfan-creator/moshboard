@@ -435,6 +435,12 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     json(res, await resolveMediaLink(boardPath(board), String(link)))
     return true
   }
+  if ((kind === 'media-find' || kind === 'media-proxy') && method === 'GET') {
+    // The website's functions (server/web), answered here too so folder mode works the same locally.
+    const { default: run } = kind === 'media-find' ? await import('./web/media-find.ts') : await import('./web/media-proxy.ts')
+    await run(req, res)
+    return true
+  }
   if (kind === 'embeddable' && method === 'GET') {
     const { checkEmbeddable } = await import('./snapshot.ts')
     json(res, await checkEmbeddable(String(url.searchParams.get('url'))))

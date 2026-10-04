@@ -14,7 +14,7 @@ import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } fro
 import { boardSamples, hasColors } from './boardColors'
 import { DEFAULT_FONT, SWATCH_SIZE, swatchBox, swatchFont } from '../shared/fonts.ts'
 import { api, mediaUrl } from './api'
-import { boardLabel, boardsLabel } from './folder/folder'
+import { boardLabel, boardsLabel, FOLDER_ONLY } from './folder/folder'
 import { ensureDefaultExport } from './frames/sandbox'
 import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
@@ -123,7 +123,8 @@ export function ensureFile(rel: string) {
 }
 
 export async function refreshCanvases() {
-  // Before a folder is connected (hosted app) there are no canvases to list yet.
+  // Before a folder is connected (website) there are no canvases to list yet.
+  if (FOLDER_ONLY && !getState().folder) return
   const canvases = await api.boards().catch(() => null)
   if (canvases) setState({ canvases })
 }

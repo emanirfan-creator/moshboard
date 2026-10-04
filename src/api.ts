@@ -28,6 +28,7 @@ async function ok(r: Response) {
     const body = await r.json().catch(() => ({}))
     // Folder mode: Chrome took back access to the folder (see src/folder/folder.ts).
     if (body.reconnect) window.dispatchEvent(new Event('mb:reconnect'))
+    if (body.folderGone) window.dispatchEvent(new Event('mb:folder-gone'))
     // Extra fields (e.g. `moved` for a renamed canvas) ride along on the error.
     throw Object.assign(new Error(body.error ?? `${r.status} ${r.statusText}`), body)
   }

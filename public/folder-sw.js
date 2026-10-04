@@ -45,14 +45,13 @@ async function folder() {
 }
 
 // Requests the local server answers without touching boards: they still go to the network.
-const STATELESS = new Set(['tailwind', 'registry', 'embeddable', 'site-fonts', 'fonts'])
+const STATELESS = new Set(['tailwind', 'registry', 'embeddable', 'site-fonts', 'fonts', 'media-find', 'media-proxy'])
 // Features that still need the local app (ffmpeg, a browser it drives, the disk).
 const LOCAL_ONLY = {
   analyze: 'Motion analysis',
   pick: 'Capture motion',
   capture: 'Capture motion',
   snapshot: 'Site snapshots',
-  'media-link': 'Adding from links',
   'gif-to-video': 'GIF to video',
   export: 'Export',
   reveal: 'Show in Finder',
@@ -67,13 +66,24 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     folder().then((dir) => {
       if (!dir) return fetch(e.request)
-      return route(dir, e.request, url).catch((err) => {
+      return route(dir, e.request, url).catch(async (err) => {
+        // The folder itself was deleted or moved: the page goes back to "Pick a home for your boards".
+        if (err?.name === 'NotFoundError' && (await gone(dir))) return json({ error: 'Your folder is gone', folderGone: true }, 410)
         const status = err instanceof HttpError ? err.status : 500
         return json({ error: err instanceof Error ? err.message : String(err), ...(err.extra ?? {}) }, status)
       })
     }),
   )
 })
+
+async function gone(dir) {
+  try {
+    for await (const _ of dir.keys()) break
+    return false
+  } catch (err) {
+    return err?.name === 'NotFoundError'
+  }
+}
 
 class HttpError extends Error {
   constructor(status, message, extra) {
@@ -248,6 +258,50 @@ function uniqueAsset(original) {
   return `assets/${base}-${Math.random().toString(36).slice(2, 6)}${ext}`
 }
 
+const MEDIA_EXT = {
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+  'video/quicktime': '.mov',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/avif': '.avif',
+}
+
+/** Downloads a found piece (straight from its host when it allows that, else through api/media-proxy) into assets/. */
+async function saveMedia(dir, item, title) {
+  let blob
+  try {
+    const r = await fetch(item.url, { mode: 'cors' })
+    if (r.ok) blob = await r.blob()
+  } catch {
+    // the host doesn't allow browsers to download it
+  }
+  if (!blob) {
+    const r = await fetch(`/api/media-proxy?url=${encodeURIComponent(item.url)}`)
+    if (!r.ok) throw new HttpError(r.status, (await r.json().catch(() => ({}))).error ?? `Download failed (${r.status})`)
+    blob = await r.blob()
+  }
+  const type = blob.type.split(';')[0]
+  const ext = MEDIA_EXT[type] ?? /\.(mp4|webm|mov|m4v|jpe?g|png|gif|webp|avif)(?=$|\?)/i.exec(item.url)?.[0].toLowerCase()
+  if (!ext) throw new HttpError(415, `That link isn’t an image or video (${type || 'unknown type'})`)
+  const rel = uniqueAsset(`${item.title ?? title ?? 'media'}${ext}`)
+  await write(dir, rel, blob)
+  const kind = type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/.test(ext) ? 'video' : 'image'
+  let { width, height } = item
+  if (kind === 'image' && !width) {
+    try {
+      const bmp = await createImageBitmap(blob)
+      ;({ width, height } = bmp)
+      bmp.close()
+    } catch {
+      // size unknown: the block uses a default
+    }
+  }
+  return { path: rel, type: kind, width, height }
+}
+
 async function serveFile(request, dir, rel) {
   const file = await (await fileHandle(dir, rel)).getFile()
   const ext = rel.split('.').pop().toLowerCase()
@@ -399,6 +453,26 @@ async function route(root, request, url) {
     const rel = uniqueAsset(url.searchParams.get('name') ?? 'upload')
     await write(dir, rel, await request.blob())
     return json({ path: rel })
+  }
+  if (kind === 'media-link' && method === 'POST') {
+    // A pin, Cosmos element, Dribbble shot…: the server finds the media (api/media-find) and the
+    // files are saved here, into the folder. Same answer as the local server's route.
+    const dir = await boardDir(root, board)
+    const link = String((await body()).url ?? '')
+    const r = await fetch(`/api/media-find?url=${encodeURIComponent(link)}`)
+    const found = await r.json().catch(() => ({}))
+    if (!r.ok) throw new HttpError(r.status, found.error ?? `Couldn’t read that link (${r.status})`)
+    const items = []
+    for (const it of found.items) {
+      try {
+        items.push(await saveMedia(dir, it, found.title))
+      } catch (err) {
+        // A multi-piece project keeps the pieces that came through.
+        if (found.items.length === 1) throw err
+      }
+    }
+    if (!items.length) throw new HttpError(502, 'Couldn’t download any pieces from that project')
+    return json({ ...items[0], title: found.title, source: found.source, ...(items.length > 1 ? { items } : {}) })
   }
   if (kind === 'copy-asset' && method === 'POST') {
     // Pasting frames from another canvas: bring their media along.
