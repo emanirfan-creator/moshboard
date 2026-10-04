@@ -302,6 +302,48 @@ async function saveMedia(dir, item, title) {
   return { path: rel, type: kind, width, height }
 }
 
+const THUMB_SIZES = [320, 640, 1280, 2048]
+const thumbJobs = new Map()
+
+/** A resized copy in assets/.thumbs (JPEG, or PNG for PNGs to keep transparency), as the local server makes them. Falls back to the original. */
+function thumbnail(dir, rel, want) {
+  const w = THUMB_SIZES.find((s) => s >= want) ?? THUMB_SIZES[THUMB_SIZES.length - 1]
+  const png = /\.png$/i.test(rel)
+  const folder = rel.split('/').slice(0, -1).join('/')
+  const name = rel.split('/').pop().replace(/\.\w+$/, '')
+  const out = `${folder ? folder + '/' : ''}.thumbs/${name}-w${w}.${png ? 'png' : 'jpg'}`
+  const key = `${dir.name}/${out}`
+  let job = thumbJobs.get(key)
+  if (!job) {
+    job = makeThumb(dir, rel, out, w, png)
+      .catch(() => rel)
+      .finally(() => thumbJobs.delete(key))
+    thumbJobs.set(key, job)
+  }
+  return job
+}
+
+async function makeThumb(dir, rel, out, w, png) {
+  const src = await (await fileHandle(dir, rel)).getFile()
+  try {
+    const have = await (await fileHandle(dir, out)).getFile()
+    if (have.lastModified >= src.lastModified) return out
+  } catch {
+    // not made yet
+  }
+  const bmp = await createImageBitmap(src)
+  if (bmp.width <= w) {
+    bmp.close()
+    return rel
+  }
+  const h = Math.max(2, Math.round((bmp.height * w) / bmp.width / 2) * 2)
+  const canvas = new OffscreenCanvas(w, h)
+  canvas.getContext('2d').drawImage(bmp, 0, 0, w, h)
+  bmp.close()
+  await write(dir, out, await canvas.convertToBlob(png ? { type: 'image/png' } : { type: 'image/jpeg', quality: 0.85 }))
+  return out
+}
+
 async function serveFile(request, dir, rel) {
   const file = await (await fileHandle(dir, rel)).getFile()
   const ext = rel.split('.').pop().toLowerCase()
@@ -343,7 +385,11 @@ async function route(root, request, url) {
 
   if (parts[0] === 'media') {
     const [, board, ...rel] = parts
-    return serveFile(request, await boardDir(root, board), rel.join('/'))
+    const dir = await boardDir(root, board)
+    const w = Number(url.searchParams.get('w'))
+    // ?w=N: a resized copy of a large image, so the canvas doesn't decode a 4000px screenshot to show it 400px wide.
+    if (w && /\.(png|jpe?g|webp|avif)$/i.test(rel.join('/'))) return serveFile(request, dir, await thumbnail(dir, rel.join('/'), w))
+    return serveFile(request, dir, rel.join('/'))
   }
   const [, kind, board, ...rest] = parts
   const body = async () => {

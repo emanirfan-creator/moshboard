@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fontStack, type FontFamily } from '../../shared/fonts.ts'
-import { loadPreview, useFontList } from '../fonts'
+import { allowLocalFonts, canListLocalFonts, loadPreview, useFontList } from '../fonts'
+import { FOLDER_ONLY } from '../folder/folder'
 import { Segmented } from './Segmented'
 
 const ROW = 34
@@ -54,7 +55,7 @@ export function FontPicker({
       const full = suggested.map((s) => [...fonts.mac, ...fonts.google].find((f) => same(f, s)) ?? s)
       add(suggestedLabel, full)
     }
-    if (source !== 'google') add('On this Mac', fonts.mac)
+    if (source !== 'google') add(FOLDER_ONLY ? 'On this computer' : 'On this Mac', fonts.mac)
     if (source !== 'mac') add('Google Fonts', fonts.google)
     return out
   }, [fonts, q, source, suggested, suggestedLabel])
@@ -123,7 +124,7 @@ export function FontPicker({
         options={(
           [
             ['all', 'All'],
-            ['mac', 'Mac'],
+            ['mac', FOLDER_ONLY ? 'Computer' : 'Mac'],
             ['google', 'Google'],
           ] as const
         ).map(([s, label]) => ({
@@ -141,6 +142,12 @@ export function FontPicker({
       <div className="font-list" ref={listRef} role="listbox" aria-label="Fonts" onScroll={(e) => setScroll(e.currentTarget.scrollTop)}>
         {!fonts ? (
           <div className="font-list-empty">Loading fonts…</div>
+        ) : source === 'mac' && !fonts.mac.length && canListLocalFonts() ? (
+          <div className="font-list-empty">
+            <button className="btn" onClick={() => allowLocalFonts().catch(() => {})}>
+              Show fonts on this computer
+            </button>
+          </div>
         ) : !rows.length ? (
           <div className="font-list-empty">{q.trim() ? `No fonts match “${q.trim()}”` : 'No fonts found'}</div>
         ) : (

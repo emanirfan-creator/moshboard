@@ -7,6 +7,8 @@
 // gets the /recreate skill and an AGENTS.md, so an assistant opened there knows the workflow.
 
 import skill from '../../.claude/skills/recreate/SKILL.md?raw'
+import { api } from '../api'
+import type { Segment } from '../../shared/types.ts'
 import { getState, setState } from '../store'
 
 /** Website build (and `pnpm dev:web`): boards live in a folder the user picks. The local app never uses one. */
@@ -78,6 +80,8 @@ async function ensureWorker() {
 // ── connecting ──────────────────────────────────────────
 
 let root: Dir | null = null
+/** The connected folder (website), for the features that read and write it from the page (src/folder/files.ts). */
+export const folderRoot = () => root
 
 /** The folder as people read it in toasts and copied prompts, and where a board sits in it. */
 export function boardsLabel() {
@@ -129,8 +133,23 @@ export async function startFolder(): Promise<boolean> {
   return true
 }
 
+// The features the local server does with the disk and ffmpeg run in the page instead (features.ts).
+let installed = false
+function useFolderFeatures() {
+  if (installed) return
+  installed = true
+  const load = () => import('./features')
+  Object.assign(api, {
+    exportBoard: (b: string, ids?: string[]) => load().then((m) => m.exportInFolder(b, ids)),
+    analyze: (b: string, id: string, src: string, segment?: Segment) => load().then((m) => m.analyzeInFolder(b, id, src, segment)),
+    gifToVideo: (b: string, src: string) => load().then(async (m) => ({ path: await m.gifToVideoInFolder(b, src) })),
+    sweep: (b: string) => load().then((m) => m.sweepInFolder(b)),
+  } satisfies Partial<typeof api>)
+}
+
 async function activate(dir: Dir) {
   root = dir
+  useFolderFeatures()
   await ensureWorker()
   const assistant = await installAssistant(dir)
   setState({ folder: { name: dir.name, single: await isSingle(dir), assistant } })

@@ -93,7 +93,7 @@ async function readBoard(name: string): Promise<void> {
 }
 
 /** Animated GIF image frames become video frames (once; still GIFs stay images). */
-async function convertGifs(board: string) {
+export async function convertGifs(board: string) {
   const gifs = (getState().board?.frames ?? []).filter((f) => f.type === 'image' && f.src && /\.gif$/i.test(f.src))
   for (const f of gifs) {
     try {
@@ -514,6 +514,7 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     const f = addFrame({ type: m.type, src: m.path, origin: m.source, label: m.title, ...place(box.w, box.h, at) })
     toast(`Added ${m.type} from ${host}`)
     cue('ready')
+    convertGifs(getState().boardName)
     return f
   } catch (e) {
     toast(`${(e as Error).message}. Added as a website.`, true)
@@ -763,6 +764,8 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
     offset += 32
   }
   if (offset) cue('paste')
+  // The local server converts animated GIFs on upload; the website does it here.
+  convertGifs(getState().boardName)
 }
 
 export function deleteSelected() {

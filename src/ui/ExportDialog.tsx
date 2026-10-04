@@ -4,6 +4,7 @@ import { exportBoard } from '../actions'
 import { shareBoard } from '../share'
 import { getState, setState, toast, useStore } from '../store'
 import { CloseIcon } from './icons'
+import { FOLDER_ONLY } from '../folder/folder'
 
 const DESCRIBE: Record<string, string> = {
   'design.md': 'Colors, type, notes and references',
@@ -113,13 +114,18 @@ export function ExportDialog() {
 
           <div className="dialog-foot">
             <span className="dialog-tip">
-              <button
-                className="link"
-                onClick={() => api.reveal(getState().boardName).catch((e) => toast(e.message, true))}
-              >
-                Show in Finder
-              </button>
-              {'  ·  '}
+              {/* A website can't open Finder. */}
+              {!FOLDER_ONLY && (
+                <>
+                  <button
+                    className="link"
+                    onClick={() => api.reveal(getState().boardName).catch((e) => toast(e.message, true))}
+                  >
+                    Show in Finder
+                  </button>
+                  {'  ·  '}
+                </>
+              )}
               <button className="link" onClick={() => copy('path', result.absDir)}>
                 {copied === 'path' ? 'Copied' : 'Copy path'}
               </button>
