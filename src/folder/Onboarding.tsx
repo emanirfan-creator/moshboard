@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { PixelCanvas } from '../components/ui/pixel-canvas'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
 import { GlowEdge } from '../ui/GlowEdge'
@@ -6,6 +7,8 @@ import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
 import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
 const close = () => setState({ onboarding: null })
+/** The same greys as a block's loading shimmer (src/frames/BlockLoader.tsx). */
+const PIXELS = ['#3a3b41', '#55575e', '#8a8f98']
 
 // The first visit gets an entrance (the card rises in and the logo hops as it lands); later ones don't.
 let firstVisit = false
@@ -22,6 +25,13 @@ export function Onboarding() {
   const folder = useStore((s) => s.folder)
   // Picking and reconnecting block the app (there's nothing to show without a folder); the rest can be closed.
   const blocking = step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY)
+  const centered = step === 'welcome' || step === 'reconnect' || step === 'gone'
+  // While a folder is being chosen and opened, the card shimmers like a loading block.
+  const [connecting, setConnecting] = useState(false)
+  const connect = (run: () => Promise<unknown>) => () => {
+    setConnecting(true)
+    run().finally(() => setConnecting(false))
+  }
 
   useEffect(() => {
     if (!step || blocking) return
@@ -38,7 +48,7 @@ export function Onboarding() {
       <div className="palette-scrim onboarding-scrim" onPointerDown={blocking ? undefined : close} />
       <div
         className="dialog dialog-small onboarding"
-        data-center={step === 'welcome' || step === 'reconnect' || step === 'gone' || undefined}
+        data-center={centered || undefined}
         data-intro={(firstVisit && step === 'welcome') || undefined}
         role="dialog"
         aria-label="Set up Moshboard"
@@ -48,11 +58,13 @@ export function Onboarding() {
             <CloseIcon />
           </button>
         )}
-        {(step === 'welcome' || step === 'reconnect' || step === 'gone') && <GlowEdge />}
+        {centered && <GlowEdge />}
+        {/* Ripples in on hover, and plays while a folder opens. */}
+        {centered && <PixelCanvas className="onboarding-pixels" active={connecting} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />}
         <div className="dialog-body">
-          {(step === 'welcome' || step === 'reconnect' || step === 'gone') && (
+          {centered && (
             <span className="onboarding-mark">
-              <AppMark size={32} idle />
+              <AppMark size={48} idle />
             </span>
           )}
           {step === 'welcome' && (
@@ -61,7 +73,7 @@ export function Onboarding() {
               <p>Boards are saved in a folder on your computer. Nothing is uploaded.</p>
               {folderSupported() ? (
                 <>
-                  <button className="btn btn-primary onboarding-cta" onClick={chooseFolder}>
+                  <button className="btn btn-primary onboarding-cta" onClick={connect(chooseFolder)}>
                     <FolderIcon /> Choose folder
                   </button>
                   <p className="onboarding-tip">Chrome then asks to let Moshboard edit the folder. Allow it.</p>
@@ -76,7 +88,7 @@ export function Onboarding() {
             <>
               <h2>Your folder is gone</h2>
               <p>“{name}” was moved or deleted. Choose it again in its new place, or pick a new folder.</p>
-              <button className="btn btn-primary onboarding-cta" onClick={chooseFolder}>
+              <button className="btn btn-primary onboarding-cta" onClick={connect(chooseFolder)}>
                 <FolderIcon /> Choose folder
               </button>
             </>
@@ -86,11 +98,11 @@ export function Onboarding() {
             <>
               <h2>Reconnect your folder</h2>
               <p>Chrome asks again after a while. Your boards are still in “{name}”.</p>
-              <button className="btn btn-primary onboarding-cta" onClick={reconnectFolder}>
+              <button className="btn btn-primary onboarding-cta" onClick={connect(reconnectFolder)}>
                 Reconnect
               </button>
               <p className="onboarding-tip">
-                <button className="link" onClick={chooseFolder}>
+                <button className="link" onClick={connect(chooseFolder)}>
                   Choose another folder
                 </button>
               </p>

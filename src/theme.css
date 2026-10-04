@@ -4010,8 +4010,19 @@ textarea,
     transform: translate(-50%, -44%) scale(0.97);
   }
 }
+.onboarding-pixels {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.onboarding[data-center] .dialog-body {
+  position: relative;
+  z-index: 1;
+}
 .onboarding-mark {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
   color: var(--text-1);
 }
 .onboarding-cta {
