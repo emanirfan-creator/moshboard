@@ -160,7 +160,8 @@ function useLiveFiles() {
 }
 
 export function App() {
-  const empty = useStore((s) => s.board !== null && s.board.frames.length === 0)
+  // A block still on its way (a link downloading, a clip copying in) counts: the canvas isn't empty anymore.
+  const empty = useStore((s) => s.board !== null && s.board.frames.length === 0 && s.pending.length === 0)
   const toast = useStore((s) => s.toast)
   // Center in the visible canvas, not the window (the sidebar covers the left).
   const emptyLeft = useStore((s) => (sidebarShown(s) ? SIDEBAR_W : 0))
