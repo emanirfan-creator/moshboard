@@ -249,8 +249,9 @@ export const undo = () => step(travel(undoStack, redoStack), 'turn-back')
 export const redo = () => step(travel(redoStack, undoStack), 'turn-forward')
 
 // Layout sections and their blocks are brought in line after every change (src/layout.ts),
-// except mid-gesture (a drag moves blocks freely until it ends) and while a paste is adding
-// a section's blocks one by one.
+// except while blocks are dragged on the canvas (they move freely until the drag ends) and while
+// a paste is adding a section's blocks one by one. Dragging a control (the gap, a column count)
+// does lay out live.
 let layoutsHeld = 0
 // The frames as layouts last saw them: what moved since then (a drag, a paste) may join one.
 let settled: Frame[] | null = null
@@ -266,7 +267,7 @@ export function holdLayouts<T>(p: Promise<T>): Promise<T> {
 export function mutateFrames(fn: (frames: Frame[]) => Frame[], save = true) {
   if (!state.board) return
   let frames = fn(state.board.frames)
-  if (!state.gesture && !layoutsHeld) settled = frames = settleLayouts(frames, movedSince(settled))
+  if (state.gesture !== 'canvas' && !layoutsHeld) settled = frames = settleLayouts(frames, movedSince(settled))
   setState({ board: { ...state.board, frames } })
   if (save) saveSoon()
 }
