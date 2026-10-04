@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { addNote, addText, exportBoard, fitBoard } from '../actions'
-import { getState, INSPECTOR_W, useCamera, inspectorOpen, setCamera, setState, toggleLoop, useStore, viewLeft } from '../store'
+import { getState, INSPECTOR_W, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, useStore, viewLeft } from '../store'
 import {
   CloseIcon,
   CodeIcon,
@@ -18,7 +18,7 @@ import {
 
 /** Figma-style floating toolbar (bottom center), zoom + loop (bottom-right). */
 export function Chrome() {
-  const sidebar = useStore((s) => s.sidebar)
+  const sidebar = useStore(sidebarShown)
   const left = sidebar ? viewLeft() : 0
   const right = useStore(inspectorOpen) ? INSPECTOR_W : 0
   return (

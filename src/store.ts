@@ -292,7 +292,13 @@ export const inspectorOpen = (s: State) =>
   (s.selected.length === 1 && inspected(frameById(s.selected[0])))
 const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || (f.type === 'swatch' && !!f.font))
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
-export const viewLeft = () => (state.sidebar ? SIDEBAR_W : 0)
+/**
+ * Whether the sidebar is on screen: the user's setting, except that the website keeps it closed
+ * until a folder is open (and behind the folder screens). Layout around it follows this.
+ */
+export const sidebarShown = (s: State) =>
+  s.sidebar && !(import.meta.env.VITE_FOLDER_ONLY === '1' && (!s.folder || s.onboarding === 'reconnect' || s.onboarding === 'gone'))
+export const viewLeft = () => (sidebarShown(state) ? SIDEBAR_W : 0)
 
 export const viewportCenter = () => screenToWorld((viewLeft() + window.innerWidth) / 2, window.innerHeight / 2)
 

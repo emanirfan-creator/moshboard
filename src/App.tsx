@@ -21,7 +21,7 @@ import {
 } from './actions'
 import { Canvas } from './canvas/Canvas'
 import { CommandPalette } from './palette/CommandPalette'
-import { getState, redo, setState, SIDEBAR_W, toast, toggleSidebar, undo, useStore } from './store'
+import { getState, redo, setState, SIDEBAR_W, sidebarShown, toast, toggleSidebar, undo, useStore } from './store'
 import { Inspector } from './tuning/Inspector'
 import { AddDialog } from './ui/AddDialog'
 import { Chrome, Shortcuts } from './ui/Chrome'
@@ -162,7 +162,7 @@ export function App() {
   const empty = useStore((s) => s.board !== null && s.board.frames.length === 0)
   const toast = useStore((s) => s.toast)
   // Center in the visible canvas, not the window (the sidebar covers the left).
-  const emptyLeft = useStore((s) => (s.sidebar ? SIDEBAR_W : 0))
+  const emptyLeft = useStore((s) => (sidebarShown(s) ? SIDEBAR_W : 0))
   const inFolder = useStore((s) => !!s.folder)
   // Opening the first board (or finding the folder) takes a moment: the loader covers it if it's a real wait.
   const waiting = useStore((s) => s.board === null && s.onboarding === null)
