@@ -11,7 +11,7 @@ import { api, mediaUrl } from './api'
 import { boardLabel } from './folder/folder'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './canvas/blocks'
 import { bySize, isSection } from '../shared/sections.ts'
-import { buildSrcdoc } from './frames/sandbox'
+import { buildSrcdoc, loadCompiler } from './frames/sandbox'
 import { getState, toast } from './store'
 import { parseModules } from './tuning/detection'
 import { cue } from './ui/sound'
@@ -62,6 +62,7 @@ async function codeDoc(f: Frame, board: string) {
   const values = defaults(params)
   const tw = await api.tailwind([source, ...Object.values(modules), wrapper ?? '']).catch(() => undefined)
   const kind = f.file!.endsWith('.html') ? 'html' : 'tsx'
+  await loadCompiler()
   return buildSrcdoc(kind, source, cssVars(params, values), runtimeValues(params, values), modules, tw, wrapper, f.props ?? {})
 }
 

@@ -19,9 +19,11 @@ import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
 import {
   frameById,
   getState,
+  isZooming,
   MAX_ZOOM,
   MIN_ZOOM,
   onCamera,
+  onZoomGesture,
   screenToWorld,
   setCamera,
   setZooming,
@@ -62,14 +64,21 @@ export function Canvas() {
       const el = world.current
       if (!el) return
       el.style.transform = `translate(${c.x}px, ${c.y}px) scale(${c.z})`
-      // --inv restyles every block (outlines, labels, handles), so only touch it when the zoom changes.
-      if (c.z !== zoom) {
+      // --inv restyles and repaints every block (outlines, labels, handles, section shadows), so
+      // only touch it when the zoom changes, and not during a pinch: it's set once the zoom stops,
+      // and meanwhile the board scales as one picture.
+      if (c.z !== zoom && !isZooming()) {
         zoom = c.z
         el.style.setProperty('--inv', String(1 / c.z))
       }
     }
     apply(getState().camera)
-    return onCamera(apply)
+    const offCamera = onCamera(apply)
+    const offZoom = onZoomGesture((on) => !on && apply(getState().camera))
+    return () => {
+      offCamera()
+      offZoom()
+    }
   }, [])
 
   // Trackpad: two-finger scroll pans, pinch (ctrl+wheel) zooms around the cursor.

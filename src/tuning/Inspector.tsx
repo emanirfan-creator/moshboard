@@ -85,7 +85,16 @@ export function Inspector() {
   const multi = useStore((s) => s.selected.length > 1)
   const last = useRef<{ frame?: Frame; multi: boolean }>({ multi: false })
   if (open) last.current = { frame, multi }
-  const shown = open ? { frame, multi } : last.current
+  // The closed panel keeps its contents only while it slides out (240ms), so a closed panel
+  // isn't still rendering (a video's playhead, a layout's sizes) on every change.
+  const [closing, setClosing] = useState(false)
+  useEffect(() => {
+    if (open) return setClosing(false)
+    setClosing(true)
+    const t = setTimeout(() => setClosing(false), 260)
+    return () => clearTimeout(t)
+  }, [open])
+  const shown = open ? { frame, multi } : closing ? last.current : { multi: false }
 
   // If the panel would cover the selected frame, glide the canvas left so it stays in view.
   useEffect(() => {

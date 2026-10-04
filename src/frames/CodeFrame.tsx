@@ -14,16 +14,42 @@ import { presetFor } from '../../shared/providers.ts'
 import { componentProps } from '../../shared/props.ts'
 import { runtimeTune, type RuntimeItem } from '../../shared/runtime-motion.ts'
 import { useDetection } from '../tuning/detection'
-import { buildSrcdoc } from './sandbox'
+import { buildSrcdoc, compilerLoaded, loadCompiler } from './sandbox'
+import { TW_THEME } from '../../shared/twTheme.ts'
 
 const EMPTY = {}
+
+// Compiled Tailwind is also kept in the browser between visits, so a board's code frames don't
+// wait on the server again each time it opens. Keyed by the theme and sources it was made from.
+const STORED = 'mb-tailwind-1'
+async function storedCss(sources: string[]): Promise<string> {
+  let store: Cache | undefined
+  let url = ''
+  try {
+    const bytes = new TextEncoder().encode([TW_THEME, ...sources].join('\0'))
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('')
+    url = `/__tailwind/${hash}.css`
+    store = await caches.open(STORED)
+    const hit = await store.match(url)
+    if (hit) return await hit.text()
+  } catch {
+    // no Cache Storage here (private window, blocked site data): just ask the server
+  }
+  const css = await api.tailwind(sources)
+  if (store) {
+    store.put(url, new Response(css, { headers: { 'Content-Type': 'text/css' } })).catch(() => {})
+    // Keep it bounded: the oldest go first.
+    store.keys().then((keys) => keys.slice(0, Math.max(0, keys.length - 300)).forEach((k) => store.delete(k))).catch(() => {})
+  }
+  return css
+}
 
 const cssCache = new Map<string, Promise<string | undefined>>()
 function frameCss(sources: string[]) {
   const key = sources.join('\0')
   let p = cssCache.get(key)
   if (!p) {
-    p = api.tailwind(sources).catch(() => undefined)
+    p = storedCss(sources).catch(() => undefined)
     cssCache.set(key, p)
     if (cssCache.size > 100) cssCache.delete(cssCache.keys().next().value!)
   }
@@ -95,7 +121,9 @@ export function CodeFrame({
         }
         // Back to live one frame at a time: all of them redrawing at once is a visible hitch.
         setTimeout(() => !isZooming() && setStill(null), liveAgainDelay())
-        pictureSoon(1500)
+        // Zooming doesn't change what the frame draws: only a frame without a picture yet takes one
+        // (taking them all at once after every zoom is a burst of work that lands mid-gesture).
+        if (!picture.current) pictureSoon(1500)
       }),
     [],
   )
@@ -139,6 +167,9 @@ export function CodeFrame({
     [detection, source, modules],
   )
 
+  // A hard reload only happens on source change, a retry, or replaying a broken frame.
+  const [reload, setReload] = useState(0)
+
   // Tailwind compiled once on the server (cached by content). `null` = still compiling;
   // `undefined` = server compile failed, so the frame falls back to in-browser Tailwind.
   const [twCss, setTwCss] = useState<string | null | undefined>(null)
@@ -151,6 +182,16 @@ export function CodeFrame({
       live = false
     }
   }, [source, preview, waitingForModules, wrapper])
+
+  // The TSX compiler downloads with the first code frame; a retry (R) tries again if it failed.
+  const [compiler, setCompiler] = useState(compilerLoaded)
+  useEffect(() => {
+    if (compiler) return
+    loadCompiler().then(() => {
+      if (compilerLoaded()) setCompiler(true)
+      else setError(frame.id, 'Didn’t finish loading. Check your connection, then press R.')
+    })
+  }, [reload])
 
   const params = useMemo(() => (source ? parseParams(source) : []), [source])
   const values = useMemo(() => ({ ...defaults(params), ...overrides }), [params, overrides])
@@ -166,11 +207,9 @@ export function CodeFrame({
   latestProps.current = props
 
   const kind = file.endsWith('.html') ? 'html' : 'tsx'
-  // A hard reload only happens on source change, a retry, or replaying a broken frame.
-  const [reload, setReload] = useState(0)
   const srcdoc = useMemo(
     () =>
-      source && preview.main && !waitingForModules && twCss !== null
+      source && preview.main && !waitingForModules && twCss !== null && (compiler || kind === 'html')
         ? buildSrcdoc(
             kind,
             preview.main,
@@ -182,7 +221,7 @@ export function CodeFrame({
             latestProps.current,
           )
         : '',
-    [source, kind, params, reload, preview, waitingForModules, twCss, wrapper],
+    [source, kind, params, reload, preview, waitingForModules, twCss, wrapper, compiler],
   )
 
   // Loading state, with one automatic retry if esm.sh/Tailwind are slow to answer.

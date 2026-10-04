@@ -1,4 +1,3 @@
-import { transform } from 'sucrase'
 import { FONT_PROBE, SANDBOX_FONT } from '../../shared/font-probe.ts'
 import { TW_THEME } from '../../shared/twTheme.ts'
 import { buildSnippet, parseSnippet } from '../../shared/snippet.ts'
@@ -13,6 +12,17 @@ const REACT_DOM = 'https://esm.sh/react-dom@19.3.0'
 const TAILWIND = 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4'
 
 const WRAPPER = 'moodboard/wrapper'
+
+// The TSX compiler is a big download, and only boards with code frames need it: it loads with the
+// first one. buildSrcdoc needs it loaded first (await loadCompiler()).
+let sucrase: typeof import('sucrase') | undefined
+let compiler: Promise<unknown> | undefined
+export const loadCompiler = () =>
+  (compiler ??= import('sucrase').then(
+    (m) => (sucrase = m),
+    () => (compiler = undefined), // offline: the next try (R) loads it again
+  ))
+export const compilerLoaded = () => !!sucrase
 
 const dataModule = (code: string) => `data:text/javascript;charset=utf-8,${encodeURIComponent(code)}`
 
@@ -416,7 +426,8 @@ export function compileTsx(
   filePath = 'frame.tsx',
   importer?: string,
 ): string {
-  const { code } = transform(source.replace(/^\s*['"]use client['"];?/m, ''), {
+  if (!sucrase) throw new Error('Didn’t finish loading. Check your connection, then press R.')
+  const { code } = sucrase.transform(source.replace(/^\s*['"]use client['"];?/m, ''), {
     transforms: ['typescript', 'jsx'],
     jsxRuntime: 'automatic',
     production: true,

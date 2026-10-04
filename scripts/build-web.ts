@@ -31,7 +31,10 @@ await build({
         codeSplitting: {
           groups: [
             { name: 'react', test: /node_modules[\\/](\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?(react|react-dom|scheduler)[\\/]/ },
-            { name: 'compiler', test: /node_modules[\\/].*(sucrase|ts-interface-checker|@jridgewell|lines-and-columns)[\\/]/ },
+            // Sucrase's parser reads motion values in code at startup; the rest of it (compiling
+            // TSX) only loads with the first code frame (loadCompiler in src/frames/sandbox.ts).
+            { name: 'parser', test: /node_modules[\\/].*sucrase[\\/]dist[\\/]esm[\\/]parser[\\/]/, priority: 2 },
+            { name: 'compiler', test: /node_modules[\\/].*(sucrase|ts-interface-checker|@jridgewell|lines-and-columns)[\\/]/, priority: 1 },
             { name: 'vendor', test: /node_modules[\\/]/ },
           ],
         },

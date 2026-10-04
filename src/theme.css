@@ -408,6 +408,10 @@ button {
 .links [data-dim] {
   opacity: 0.15;
 }
+/* stroke-dashoffset repaints every frame: hold it still while the canvas pans or zooms. */
+.canvas[data-moving] .link-flow {
+  animation-play-state: paused;
+}
 @keyframes link-flow {
   to {
     stroke-dashoffset: calc(-36px * var(--inv));
