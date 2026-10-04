@@ -3,7 +3,7 @@ import { PixelCanvas } from '../components/ui/pixel-canvas'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
 import { CheckIcon, FolderIcon } from '../ui/icons'
-import { chooseFolder, FOLDER_ONLY, folderSupported, pendingRepoName, reconnectFolder, answerRepo, switchFolder } from './folder'
+import { chooseFolder, FOLDER_ONLY, folderSupported, pendingRepoName, reconnectFolder, answerRepo, recentFolder, switchFolder } from './folder'
 
 const close = () => setState({ onboarding: null })
 /** The same greys as a block's loading shimmer (src/frames/BlockLoader.tsx). */
@@ -23,8 +23,9 @@ export function Onboarding() {
   const step = useStore((s) => s.onboarding)
   const folder = useStore((s) => s.folder)
   const folderOpen = useStore((s) => !!s.folderId && !!s.board)
-  const folders = useStore((s) => s.folders)
-  const others = folders.filter((f) => !f.missing)
+  // Re-read when the list changes.
+  useStore((s) => s.folders)
+  const recent = recentFolder()
   // Picking and reconnecting block the app (there's nothing to show without a folder); the rest can be closed.
   const blocking =
     step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY) || (step === 'repo' && !folderOpen)
@@ -104,13 +105,13 @@ export function Onboarding() {
               <button className="btn btn-primary onboarding-cta" onClick={connect(chooseFolder)}>
                 <FolderIcon /> Choose folder
               </button>
-              {others.map((f) => (
-                <p key={f.id} className="onboarding-tip">
-                  <button className="link" onClick={connect(() => switchFolder(f.id))}>
-                    Open “{f.name}”
+              {recent && (
+                <p className="onboarding-tip">
+                  <button className="link" onClick={connect(() => switchFolder(recent.id))}>
+                    Open “{recent.name}”
                   </button>
                 </p>
-              ))}
+              )}
             </>
           )}
 

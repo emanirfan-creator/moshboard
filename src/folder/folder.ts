@@ -74,34 +74,67 @@ const idbDel = (key: string) => idb((s) => s.delete(key), 'readwrite')
 
 // ── the folder list ─────────────────────────────────────
 // Every folder connected on this site, so a designer can keep one per project (a repo's design
-// folder) and switch between them. 'root' is the open one: the service worker reads it.
+// folder) and switch between them. Kept in IndexedDB and shared by every tab: a change re-reads
+// the list first and tells the other tabs. Each tab has its own open folder, which it tells the
+// service worker (by id); 'root' remembers the last one opened, for the next visit.
 
 // `missing`: found moved or deleted (kept with the list: after a reload it can't be checked without a click).
-type Saved = { id: string; name: string; path?: string; handle: Dir; missing?: boolean }
+// `used`: when it was last opened, to offer the most recent one when the open folder goes away.
+type Saved = { id: string; name: string; path?: string; handle: Dir; missing?: boolean; used?: number }
 let saved: Saved[] = []
 
-function publish(current = saved.find((f) => f.handle === root)?.id ?? null) {
-  setState({ folders: saved.map(({ id, name, missing }) => ({ id, name, missing })), folderId: current })
+let root: Dir | null = null
+let rootId: string | null = null
+/** The connected folder (website), for the features that read and write it from the page (src/folder/files.ts). */
+export const folderRoot = () => root
+
+function publish() {
+  setState({ folders: saved.map(({ id, name, missing }) => ({ id, name, missing })), folderId: rootId })
 }
-const keep = () => idbSet('folders', saved)
+
+const listChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('moshboard-folders')
+listChannel?.addEventListener('message', async () => {
+  saved = (await idbGet<Saved[]>('folders')) ?? []
+  const open = saved.find((f) => f.id === rootId)
+  if (open) setState((s) => ({ folder: s.folder && { ...s.folder, name: open.name } }))
+  publish()
+})
+
+/** Changes the list: re-read (another tab may have changed it), change, save, tell the other tabs. */
+async function change(edit: (list: Saved[]) => Saved[]) {
+  saved = edit((await idbGet<Saved[]>('folders')) ?? saved)
+  await idbSet('folders', saved)
+  listChannel?.postMessage('changed')
+  publish()
+}
+const byId = (id: string | null) => saved.find((f) => f.id === id)
+const patch = (id: string, p: Partial<Saved>) => change((list) => list.map((f) => (f.id === id ? { ...f, ...p } : f)))
 
 /** The list, from before there was one: the single folder this site knew becomes its first entry. */
 async function loadSaved() {
   saved = (await idbGet<Saved[]>('folders')) ?? []
   if (!saved.length) {
     const one = await idbGet<Dir>('root')
-    if (one) {
-      saved = [{ id: newFolderId(), name: one.name, handle: one }]
-      await keep()
-    }
+    if (one) await change(() => [{ id: newFolderId(), name: one.name, handle: one }])
   }
 }
 const newFolderId = () => Math.random().toString(36).slice(2, 8)
-const entryFor = (dir: Dir) => saved.find((f) => f.handle === dir)
+/** The other folders that can still be opened, most recently used first. */
+const others = () => saved.filter((f) => f.id !== rootId && !f.missing).sort((a, b) => (b.used ?? 0) - (a.used ?? 0))
+/** The folder to offer when the open one is gone. */
+export const recentFolder = () => {
+  const f = others()[0]
+  return f && { id: f.id, name: f.name }
+}
+
+async function findSame(dir: Dir) {
+  for (const f of saved) if (await f.handle.isSameEntry(dir).catch(() => false)) return f
+}
 
 // ── service worker ──────────────────────────────────────
 
-async function ensureWorker() {
+/** Tells the worker which folder this tab has open (null: none), and waits until it knows. */
+async function tellWorker(id: string | null) {
   const sw = navigator.serviceWorker
   await sw.register('/folder-sw.js', { scope: '/' })
   const reg = await sw.ready
@@ -111,14 +144,16 @@ async function ensureWorker() {
     reg.active?.postMessage({ type: 'claim' })
     await claimed
   }
-  sw.controller?.postMessage({ type: 'folder' })
+  const { port1, port2 } = new MessageChannel()
+  const known = new Promise((r) => {
+    port1.onmessage = r
+    setTimeout(r, 1000)
+  })
+  sw.controller?.postMessage({ type: 'folder', id }, [port2])
+  await known
 }
 
 // ── connecting ──────────────────────────────────────────
-
-let root: Dir | null = null
-/** The connected folder (website), for the features that read and write it from the page (src/folder/files.ts). */
-export const folderRoot = () => root
 
 /** The folder as people read it in toasts and copied prompts, and where a board sits in it. */
 export function boardsLabel() {
@@ -153,30 +188,25 @@ export async function startFolder(): Promise<boolean> {
   window.addEventListener('mb:folder-gone', () => folderGone())
   await loadSaved()
   const last = await idbGet<Dir>('root')
-  // The list holds its own copies of the handles: find the open one among them.
-  // (None open, e.g. the last one was deleted: the first in the list.)
+  // The last one opened (none, e.g. it was deleted: the first in the list).
   const open = (last ? await findSame(last) : undefined) ?? saved[0]
   if (open) {
-    publish(open.id)
+    rootId = open.id
+    publish()
     if ((await open.handle.queryPermission({ mode: 'readwrite' })) === 'granted') {
       if (await isGone(open.handle)) {
-        root = open.handle // so it's taken off the list
         await folderGone(open.name)
         return false
       }
-      await activate(open.handle)
+      await activate(open)
       return true
     }
-    root = null
     setState({ folder: { name: open.name, single: false, assistant: false }, onboarding: 'reconnect' })
     return false
   }
-  publish(null)
-  if (FOLDER_ONLY) {
-    setState({ onboarding: 'welcome' })
-    return false
-  }
-  return true
+  publish()
+  setState({ onboarding: 'welcome' })
+  return false
 }
 
 // The features the local server does with the disk and ffmpeg run in the page instead (features.ts).
@@ -193,48 +223,43 @@ function useFolderFeatures() {
   } satisfies Partial<typeof api>)
 }
 
-async function activate(dir: Dir) {
-  root = dir
+async function activate(entry: Saved) {
+  root = entry.handle
+  rootId = entry.id
   useFolderFeatures()
-  await idbSet('root', dir)
-  await ensureWorker()
-  const assistant = await installAssistant(dir)
-  const entry = entryFor(dir)
-  setState({ folder: { name: entry?.name ?? dir.name, path: entry?.path, single: await isSingle(dir), assistant } })
+  await idbSet('root', entry.handle)
+  await tellWorker(entry.id)
+  const assistant = await installAssistant(entry.handle)
+  setState({ folder: { name: entry.name, path: entry.path, single: await isSingle(entry.handle), assistant } })
   publish()
-  watch(dir)
-}
-
-async function findSame(dir: Dir) {
-  for (const f of saved) if (await f.handle.isSameEntry(dir).catch(() => false)) return f
+  watch(entry.handle)
 }
 
 /** Adds a folder to the list (once: picking one already there just opens it) and opens it. */
 async function addAndOpen(dir: Dir, name: string, path?: string) {
-  let entry = await findSame(dir)
-  const known = !!entry
-  if (!entry) {
-    entry = { id: newFolderId(), name, path, handle: dir }
-    saved = [...saved, entry]
-    await keep()
-  }
-  if (entry.missing) {
-    entry.missing = undefined
-    await keep()
-  }
-  // Only a new folder gets the "ready" screen; one already in the list just opens.
-  if (entry.handle === root) return setState({ onboarding: null })
-  await openFolder(entry, !known)
+  saved = (await idbGet<Saved[]>('folders')) ?? saved
+  const known = await findSame(dir)
+  const id = known?.id ?? newFolderId()
+  if (known) await patch(id, { missing: undefined })
+  else await change((list) => [...list, { id, name, path, handle: dir }])
+  if (id === rootId) return setState({ onboarding: null })
+  // The setup screens are for the first folder only; more folders just open.
+  const firstEver = !known && saved.length === 1
+  await openFolder(id, firstEver)
+  if (!known && !firstEver) toast(`Added “${name}”`)
 }
 
 /** Closes the open canvas (saving it first, into its own folder) and opens a folder's boards. */
-async function openFolder(entry: Saved, first: boolean) {
+async function openFolder(id: string, first: boolean) {
+  await patch(id, { used: Date.now() })
+  const entry = byId(id)
+  if (!entry) return
   const { flushSave } = await import('../store')
   await flushSave().catch(() => {})
   stopWatching()
   setState({ board: null, boardName: '', canvases: [], files: {}, overrides: {}, selected: [], interact: null })
   history.replaceState(null, '', location.pathname)
-  await activate(entry.handle)
+  await activate(entry)
   await openBoards()
   setState({ onboarding: first ? 'ready' : null })
 }
@@ -285,8 +310,8 @@ async function hasEntry(dir: Dir, name: string) {
 
 /** Opens another folder from the list. Chrome may ask for access again: this needs a click. */
 export async function switchFolder(id: string) {
-  const entry = saved.find((f) => f.id === id)
-  if (!entry || entry.handle === root) return
+  const entry = byId(id)
+  if (!entry || id === rootId) return
   const perm = await entry.handle.requestPermission({ mode: 'readwrite' }).catch(() => 'denied' as Perm)
   // (Chrome may refuse a folder that no longer exists: that still counts as gone, not as "no".)
   if (await isGone(entry.handle)) {
@@ -295,57 +320,58 @@ export async function switchFolder(id: string) {
       await removeFolder(id)
       return toast(`“${entry.name}” is gone. Removed from the list`)
     }
-    entry.missing = true
-    await keep()
-    publish()
+    await patch(id, { missing: true })
     return toast('That folder was moved or deleted', true)
   }
   if (perm !== 'granted') return
   // Back where it was.
-  if (entry.missing) {
-    entry.missing = undefined
-    await keep()
-  }
-  await openFolder(entry, false)
+  if (entry.missing) await patch(id, { missing: undefined })
+  await openFolder(id, false)
 }
 
 /** Takes a folder off the list (nothing in it is touched). Removing the open one opens another, or the picker. */
 export async function removeFolder(id: string) {
-  const entry = saved.find((f) => f.id === id)
-  if (!entry) return
-  saved = saved.filter((f) => f !== entry)
-  await keep()
-  if (entry.handle !== root) return publish()
-  const next = saved.find((f) => !f.missing)
+  await change((list) => list.filter((f) => f.id !== id))
+  if (id !== rootId) return
+  const next = others()[0]
   if (next && (await next.handle.requestPermission({ mode: 'readwrite' }).catch(() => 'denied')) === 'granted' && !(await isGone(next.handle)))
-    return openFolder(next, false)
+    return openFolder(next.id, false)
+  await closeFolder()
+  setState({ folder: null, onboarding: 'welcome' })
+}
+
+/** No folder open in this tab. */
+async function closeFolder() {
   stopWatching()
   root = null
+  rootId = null
   await idbDel('root')
-  navigator.serviceWorker.controller?.postMessage({ type: 'folder' })
+  await tellWorker(null).catch(() => {})
   history.replaceState(null, '', location.pathname)
-  setState({ folder: null, board: null, canvases: [], selected: [], onboarding: 'welcome' })
-  publish(null)
+  setState({ board: null, canvases: [], selected: [] })
+  publish()
 }
 
 /** The name shown for a folder in the list (two folders can share one). */
 export async function renameFolder(id: string, name: string) {
-  const entry = saved.find((f) => f.id === id)
-  if (!entry || !name.trim()) return
-  entry.name = name.trim()
-  await keep()
-  if (entry.handle === root) setState((s) => ({ folder: s.folder && { ...s.folder, name: entry.name } }))
-  publish()
+  if (!name.trim()) return
+  await patch(id, { name: name.trim() })
+  if (id === rootId) setState((s) => ({ folder: s.folder && { ...s.folder, name: name.trim() } }))
 }
 
 /** "Reconnect": Chrome asks again for the folder it already knows. Needs a click. */
 export async function reconnectFolder() {
-  const last = root ?? (await idbGet<Dir>('root'))
-  const handle = last ? ((await findSame(last))?.handle ?? last) : null
-  if (!handle) return setState({ onboarding: 'welcome' })
-  if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return
+  const last = await idbGet<Dir>('root')
+  let entry = byId(rootId) ?? (last ? await findSame(last) : undefined)
+  if (!entry && last) {
+    const id = newFolderId()
+    await change((list) => [...list, { id, name: last.name, handle: last }])
+    entry = byId(id)
+  }
+  if (!entry) return setState({ onboarding: 'welcome' })
+  if ((await entry.handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return
   const first = !root
-  await activate(handle)
+  await activate(entry)
   setState({ onboarding: null })
   if (first) await openBoards()
   else {
@@ -363,27 +389,31 @@ async function isGone(dir: Dir) {
   }
 }
 
-/** The folder was deleted or moved: forget it and go back to picking one. */
-async function folderGone(name = getState().folder?.name ?? '') {
+/**
+ * The open folder was deleted or moved: forget it, and open another one or go back to picking.
+ * The watcher and a failed request can both report it, at once or late: one run at a time, and
+ * only while the open folder really is gone.
+ */
+let goneRun: Promise<void> | null = null
+function folderGone(name?: string) {
+  return (goneRun ??= handleGone(name).finally(() => (goneRun = null)))
+}
+async function handleGone(name = getState().folder?.name ?? '') {
   if (getState().onboarding === 'gone') return
+  if (root && !(await isGone(root))) return
   stopWatching()
-  const gone = root && entryFor(root)
-  if (gone) {
-    saved = saved.filter((f) => f !== gone)
-    await keep()
-  }
+  const gone = rootId
+  if (gone) await change((list) => list.filter((f) => f.id !== gone))
+  rootId = null
   root = null
-  await idbDel('root')
-  navigator.serviceWorker.controller?.postMessage({ type: 'folder' })
-  history.replaceState(null, '', location.pathname)
-  publish(null)
-  setState({
-    folder: { name, single: false, assistant: false },
-    board: null,
-    canvases: [],
-    selected: [],
-    onboarding: 'gone',
-  })
+  // Another folder Chrome still lets us use (no click needed): just open it.
+  for (const f of others()) {
+    if ((await f.handle.queryPermission({ mode: 'readwrite' }).catch(() => 'denied')) !== 'granted' || (await isGone(f.handle))) continue
+    await openFolder(f.id, false)
+    return toast(`“${name}” was moved or deleted. Opened “${f.name}”`, true)
+  }
+  await closeFolder()
+  setState({ folder: { name, single: false, assistant: false }, onboarding: 'gone' })
 }
 
 // ── watching ────────────────────────────────────────────

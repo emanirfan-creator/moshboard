@@ -13,13 +13,38 @@ const STORE = 'kv'
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()))
 
-let root = null
-let rootLoaded = false
+// Each tab has its own folder open (src/folder/folder.ts tells us which, by its id in the
+// 'folders' list). Kept in IndexedDB too: the worker can be stopped and restarted at any time.
+const tabFolder = new Map()
 self.addEventListener('message', (e) => {
-  if (e.data?.type === 'folder') rootLoaded = false
+  if (e.data?.type === 'folder') e.waitUntil(setTabFolder(e.source?.id, e.data.id ?? null).then(() => e.ports[0]?.postMessage('ok')))
   // A hard reload loads the page without a worker; the page asks to be taken over.
   if (e.data?.type === 'claim') self.clients.claim()
 })
+
+async function setTabFolder(clientId, id) {
+  handles.clear()
+  if (!clientId) return
+  tabFolder.set(clientId, id)
+  const open = new Set((await self.clients.matchAll()).map((c) => c.id))
+  const saved = (await idbGet('tabFolders')) ?? {}
+  const next = { [clientId]: id }
+  for (const [c, f] of Object.entries(saved)) if (open.has(c) && c !== clientId) next[c] = f
+  await idbSet('tabFolders', next)
+}
+
+function idbSet(key, value) {
+  return new Promise((resolve) => {
+    const open = indexedDB.open(DB, 1)
+    open.onupgradeneeded = () => open.result.createObjectStore(STORE)
+    open.onerror = () => resolve()
+    open.onsuccess = () => {
+      const tx = open.result.transaction(STORE, 'readwrite')
+      tx.objectStore(STORE).put(value, key)
+      tx.oncomplete = tx.onerror = () => resolve()
+    }
+  })
+}
 
 function idbGet(key) {
   return new Promise((resolve) => {
@@ -34,13 +59,20 @@ function idbGet(key) {
   })
 }
 
-async function folder() {
-  // With no folder yet, look again each time: one may have just been connected.
-  if (!rootLoaded || !root) {
-    root = (await idbGet('root')) ?? null
-    rootLoaded = true
+// Folder id → its handle, until a tab opens another folder.
+const handles = new Map()
+
+/** The folder of the tab that asked (a request with no tab, or from a tab that never said: the last one opened). */
+async function folder(clientId) {
+  let id = tabFolder.get(clientId)
+  if (id === undefined && clientId) {
+    id = ((await idbGet('tabFolders')) ?? {})[clientId]
+    if (id !== undefined) tabFolder.set(clientId, id)
   }
-  return root
+  if (id === null) return null
+  if (id === undefined) return (await idbGet('root')) ?? null
+  if (!handles.has(id)) handles.set(id, ((await idbGet('folders')) ?? []).find((f) => f.id === id)?.handle ?? null)
+  return handles.get(id)
 }
 
 // Requests the local server answers without touching boards: they still go to the network.
@@ -63,7 +95,7 @@ self.addEventListener('fetch', (e) => {
   if (top !== 'media' && top !== 'api') return
   if (top === 'api' && STATELESS.has(kind)) return
   e.respondWith(
-    folder().then((dir) => {
+    folder(e.clientId).then((dir) => {
       if (!dir) return fetch(e.request)
       return route(dir, e.request, url, e.clientId).catch(async (err) => {
         // The folder itself was deleted or moved: the page goes back to "Pick a home for your boards".
