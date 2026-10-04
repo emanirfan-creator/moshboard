@@ -1,7 +1,8 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { addNote, addText, exportBoard, fitBoard } from '../actions'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { addNote, addSection, addText, exportBoard, fitBoard } from '../actions'
 import { getState, INSPECTOR_W, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, useStore, viewLeft } from '../store'
 import {
+  CaretIcon,
   CloseIcon,
   CodeIcon,
   CommandIcon,
@@ -12,6 +13,7 @@ import {
   MediaIcon,
   NoteIcon,
   PointerIcon,
+  SectionIcon,
   SwatchIcon,
   TextIcon,
 } from './icons'
@@ -35,6 +37,8 @@ interface Tool {
   key?: string
   icon: ReactNode
   run: () => void
+  /** A split tool: runs the last one picked from its menu (like Figma's caret tools). */
+  group?: Tool[]
 }
 
 function Toolbar({ left, right }: { left: number; right: number }) {
@@ -45,7 +49,16 @@ function Toolbar({ left, right }: { left: number; right: number }) {
     { id: 'select', label: 'Select', key: 'V', icon: <PointerIcon />, run: () => setState({ interact: null, hand: false }) },
     { id: 'hand', label: 'Hand (pan)', key: 'H', icon: <HandIcon />, run: () => setState({ hand: true, interact: null }) },
     { id: 'text', label: 'Text', key: 'T', icon: <TextIcon />, run: () => addText() },
-    { id: 'note', label: 'Note', key: 'N', icon: <NoteIcon />, run: () => addNote() },
+    {
+      id: 'organize',
+      label: 'Note or section',
+      icon: null,
+      run: () => {},
+      group: [
+        { id: 'note', label: 'Note', key: 'N', icon: <NoteIcon />, run: () => addNote() },
+        { id: 'section', label: 'Section', key: 'S', icon: <SectionIcon />, run: () => addSection() },
+      ],
+    },
     { id: 'media', label: 'Image or video', key: 'A', icon: <MediaIcon />, run: () => setState({ add: 'media' }) },
     { id: 'code', label: 'Component', icon: <CodeIcon />, run: () => setState({ add: 'code' }) },
     { id: 'url', label: 'Link', icon: <LinkIcon />, run: () => setState({ add: 'url' }) },
@@ -53,43 +66,43 @@ function Toolbar({ left, right }: { left: number; right: number }) {
     { id: 'font', label: 'Font', icon: <FontIcon />, run: () => setState({ add: 'font' }) },
   ]
 
-  const bar = useRef<HTMLDivElement>(null)
-  useDock(bar)
-
   return (
     <div className="toolbar-wrap" style={{ left, right }}>
       <div
-        ref={bar}
         className="toolbar"
         role="toolbar"
         aria-label="Tools"
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {tools.map((t) => (
-          <button
-            key={t.id}
-            className="tool dock-item"
-            data-active={(t.id === 'select' && idle && !hand) || (t.id === 'hand' && hand) || undefined}
-            onClick={t.run}
-            aria-label={t.label}
-            data-tip={t.key ? `${t.label}  ${t.key}` : t.label}
-          >
-            <span className="dock-icon">{t.icon}</span>
-          </button>
-        ))}
+        {tools.map((t) =>
+          t.group ? (
+            <ToolGroup key={t.id} id={t.id} label={t.label} items={t.group} />
+          ) : (
+            <button
+              key={t.id}
+              className="tool"
+              data-active={(t.id === 'select' && idle && !hand) || (t.id === 'hand' && hand) || undefined}
+              onClick={t.run}
+              aria-label={t.label}
+              data-tip={t.key ? `${t.label}  ${t.key}` : t.label}
+            >
+              {t.icon}
+            </button>
+          ),
+        )}
         <span className="toolbar-sep" />
         <div className="toolbar-group">
-          <button className="tool dock-item" onClick={() => exportBoard()} aria-label="Export spec"
+          <button className="tool" onClick={() => exportBoard()} aria-label="Export spec"
             data-tip={selectedCount ? `Export selection (${selectedCount})` : 'Export canvas'}>
-            <span className="dock-icon"><ExportIcon /></span>
+            <ExportIcon />
           </button>
           <button
-            className="tool dock-item"
+            className="tool"
             onClick={() => setState({ palette: true })}
             aria-label="Command menu"
             data-tip="Commands  ⌘K"
           >
-            <span className="dock-icon"><CommandIcon /></span>
+            <CommandIcon />
           </button>
         </div>
       </div>
@@ -97,70 +110,71 @@ function Toolbar({ left, right }: { left: number; right: number }) {
   )
 }
 
-const DOCK_MAX = 1.6
-/** How far either side of the pointer (px) an icon still swells. */
-const DOCK_RANGE = 150
-
 /**
- * macOS Dock magnification: icons near the pointer grow and push their neighbours
- * apart, each on its own spring so the wave trails the pointer slightly. Writes the
- * scale to `--s` on each `.dock-item`; the CSS does the rest.
+ * A tool with a caret: the tool runs the one last picked from the group (remembered); the
+ * caret opens the group's menu above the bar.
  */
-function useDock(bar: React.RefObject<HTMLDivElement | null>) {
-  useEffect(() => {
-    const el = bar.current
-    if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    const items = [...el.querySelectorAll<HTMLElement>('.dock-item')]
-    const springs = items.map(() => ({ s: 1, v: 0 }))
-    let x: number | null = null
-    let raf = 0
-    let last = 0
+function ToolGroup({ id, label, items }: { id: string; label: string; items: Tool[] }) {
+  const key = `mb:tool:${id}`
+  const [current, setCurrent] = useState(() => {
+    try {
+      return localStorage.getItem(key) ?? items[0].id
+    } catch {
+      return items[0].id
+    }
+  })
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const t = items.find((i) => i.id === current) ?? items[0]
 
-    const frame = (t: number) => {
-      const dt = Math.min((t - last) / 1000, 1 / 30)
-      last = t
-      // Read every rect before writing any scale, so the frame lays out once.
-      const centers = items.map((item) => {
-        const r = item.getBoundingClientRect()
-        return r.left + r.width / 2
-      })
-      let moving = false
-      items.forEach((item, i) => {
-        const sp = springs[i]
-        const d = x === null ? Infinity : Math.abs(x - centers[i])
-        const target = d < DOCK_RANGE ? 1 + ((DOCK_MAX - 1) * (1 + Math.cos((Math.PI * d) / DOCK_RANGE))) / 2 : 1
-        sp.v += ((target - sp.s) * 420 - sp.v * 30) * dt
-        sp.s += sp.v * dt
-        if (Math.abs(target - sp.s) < 0.001 && Math.abs(sp.v) < 0.01) {
-          sp.s = target
-          sp.v = 0
-        } else moving = true
-        item.style.setProperty('--s', sp.s.toFixed(4))
-      })
-      raf = moving ? requestAnimationFrame(frame) : 0
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => !root.current?.contains(e.target as Node) && setOpen(false)
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
     }
-    const start = () => {
-      if (raf) return
-      last = performance.now()
-      raf = requestAnimationFrame(frame)
-    }
-    const move = (e: PointerEvent) => {
-      if (e.pointerType === 'touch') return
-      x = e.clientX
-      start()
-    }
-    const leave = () => {
-      x = null
-      start()
-    }
-    el.addEventListener('pointermove', move)
-    el.addEventListener('pointerleave', leave)
+    window.addEventListener('pointerdown', away, true)
+    window.addEventListener('keydown', esc, true)
     return () => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerleave', leave)
-      cancelAnimationFrame(raf)
+      window.removeEventListener('pointerdown', away, true)
+      window.removeEventListener('keydown', esc, true)
     }
-  }, [bar])
+  }, [open])
+
+  const pick = (i: Tool) => {
+    setCurrent(i.id)
+    setOpen(false)
+    try {
+      localStorage.setItem(key, i.id)
+    } catch {
+      // storage unavailable
+    }
+    i.run()
+  }
+
+  return (
+    <div className="tool-split" ref={root} data-open={open || undefined}>
+      <button className="tool" onClick={t.run} aria-label={t.label} data-tip={open ? undefined : t.key ? `${t.label}  ${t.key}` : t.label}>
+        {t.icon}
+      </button>
+      <button className="tool-caret" onClick={() => setOpen(!open)} aria-label={label} aria-haspopup="menu" aria-expanded={open}>
+        <CaretIcon />
+      </button>
+      {open && (
+        <div className="tool-menu" role="menu" aria-label={label}>
+          {items.map((i) => (
+            <button key={i.id} role="menuitem" data-current={i.id === t.id || undefined} onClick={() => pick(i)} autoFocus={i.id === t.id}>
+              {i.icon}
+              <span>{i.label}</span>
+              {i.key && <kbd>{i.key}</kbd>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ViewControls({ right }: { right: number }) {
@@ -199,6 +213,8 @@ const SHORTCUTS: [string, string][] = [
   ['⌘V', 'Paste image, link or component'],
   ['T  /  double-click', 'Write text on the canvas'],
   ['N', 'Add a note'],
+  ['S', 'Section (around the selection)'],
+  ['C', 'Compare sections side by side'],
   ['⌘K', 'Command menu'],
   ['[', 'Show / hide sidebar'],
   ['Drag on empty canvas', 'Select an area'],

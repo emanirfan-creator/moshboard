@@ -41,6 +41,8 @@ export interface State {
   shortcuts: boolean
   /** last export result, shown in the Export dialog */
   exported: ExportResult | null
+  /** what the last export covered: the selection, the picked direction, or the whole canvas */
+  exportScope: ExportScope
   /** Adjust-palette preview: the palette shows before/after rows until Apply/Cancel */
   paletteDraft: { id: string; colors: { hex: string; locked?: boolean }[] } | null
   /** palette column focused in the inspector (double-click a column) */
@@ -63,6 +65,23 @@ export interface State {
   onboarding: OnboardingStep | null
   /** website: the "Ask Claude" sheet for a site frame (capture, snapshot, fonts), if open */
   claudeTask: { kind: ClaudeTaskKind; frameId: string } | null
+  /** frame under the pointer (its link lines light up) */
+  hover: string | null
+  /** section a dragged block will land in, highlighted while dragging */
+  dropSection: string | null
+  /** section whose title is being edited (a new one starts here) */
+  renaming: string | null
+  /** Compare: sections shown side by side (see src/canvas/compare.ts) */
+  compare: Compare | null
+}
+
+export interface Compare {
+  /** the sections, left to right */
+  ids: string[]
+  /** where each shown frame is drawn, relative to where it is on the board; frames not in it are hidden */
+  offsets: Record<string, { dx: number; dy: number }>
+  /** the view to go back to */
+  camera: Camera
 }
 
 export interface Pending {
@@ -74,7 +93,9 @@ export interface Pending {
   label: string
 }
 
-export type AddKind = 'media' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text'
+export type ExportScope = 'selection' | 'chosen' | 'all'
+
+export type AddKind = 'media' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text' | 'section'
 
 function storedFlag(key: string) {
   try {
@@ -104,6 +125,7 @@ let state: State = {
   add: null,
   shortcuts: false,
   exported: null,
+  exportScope: 'all',
   hand: false,
   selectAllIn: null,
   paletteDraft: null,
@@ -115,6 +137,10 @@ let state: State = {
   folder: null,
   onboarding: null,
   claudeTask: null,
+  hover: null,
+  dropSection: null,
+  renaming: null,
+  compare: null,
 }
 
 const subs = new Set<() => void>()

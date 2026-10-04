@@ -1,6 +1,11 @@
 import { memo, useEffect, useRef, useState, type PointerEvent as RPE } from 'react'
 import type { Frame } from '../../shared/types.ts'
 import { addText, pasteText, regeneratePalette, uploadFiles } from '../actions'
+import { bySize, isSection, sectionAt } from '../../shared/sections.ts'
+import { Links } from './Links'
+import { DIRS, HANDLE_POS, HIDDEN, NONE, pressFrame, resizeFrame, type Dir } from './gestures'
+import { SectionView } from './SectionView'
+import { CompareSummaries } from './CompareSummaries'
 import { clamp, drag } from '../drag'
 import { FrameContent } from '../frames/Contents'
 import { BlockLoader } from '../frames/BlockLoader'
@@ -10,9 +15,7 @@ import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
 import {
   frameById,
   getState,
-  mutateFrames,
   onCamera,
-  saveSoon,
   screenToWorld,
   setCamera,
   setState,
@@ -20,20 +23,6 @@ import {
   useStore,
   type Camera,
 } from '../store'
-
-const MIN = 24
-const DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
-type Dir = (typeof DIRS)[number]
-const HANDLE_POS: Record<Dir, [number, number]> = {
-  nw: [0, 0],
-  n: [50, 0],
-  ne: [100, 0],
-  e: [100, 50],
-  se: [100, 100],
-  s: [50, 100],
-  sw: [0, 100],
-  w: [0, 50],
-}
 
 export function Canvas() {
   const ref = useRef<HTMLDivElement>(null)
@@ -45,6 +34,19 @@ export function Canvas() {
   const world = useRef<HTMLDivElement>(null)
   const marquee = useRef<HTMLDivElement>(null)
   const hand = useStore((s) => s.hand)
+  const comparing = useStore((s) => !!s.compare)
+  // Leaving Compare, frames glide back before the canvas goes back to instant moves.
+  const [settling, setSettling] = useState(false)
+  const wasComparing = useRef(false)
+  useEffect(() => {
+    if (wasComparing.current && !comparing) {
+      setSettling(true)
+      const t = setTimeout(() => setSettling(false), 560)
+      wasComparing.current = comparing
+      return () => clearTimeout(t)
+    }
+    wasComparing.current = comparing
+  }, [comparing])
 
   // Apply the camera straight to the DOM: no React render per pan/zoom event.
   useEffect(() => {
@@ -110,6 +112,9 @@ export function Canvas() {
       return
     }
 
+    // Comparing: the canvas is for looking; a click only clears the selection.
+    if (s.compare) return setState({ selected: [], interact: null })
+
     // Select: drag a box over empty canvas; everything it touches is selected.
     // Shift adds to the current selection. A plain click clears it.
     const base = e.shiftKey ? s.selected : []
@@ -127,7 +132,12 @@ export function Canvas() {
         const a = screenToWorld(left, top)
         const b = screenToWorld(left + w, top + h)
         const hit = (getState().board?.frames ?? [])
-          .filter((f) => f.x < b.x && f.x + f.w > a.x && f.y < b.y && f.y + f.h > a.y)
+          // A section only when the box takes it in whole, so a box drawn inside one selects its blocks.
+          .filter((f) =>
+            isSection(f)
+              ? f.x >= a.x && f.y >= a.y && f.x + f.w <= b.x && f.y + f.h <= b.y
+              : f.x < b.x && f.x + f.w > a.x && f.y < b.y && f.y + f.h > a.y,
+          )
           .map((f) => f.id)
         const next = [...new Set([...base, ...hit])]
         const cur = getState().selected
@@ -135,7 +145,11 @@ export function Canvas() {
       },
       (moved) => {
         box.style.display = 'none'
-        if (!moved && !e.shiftKey) setState({ selected: [], interact: null })
+        if (moved || e.shiftKey) return
+        // A click on a section's empty space selects the section; elsewhere it clears.
+        const at = screenToWorld(x0, y0)
+        const sec = sectionAt(at.x, at.y, getState().board?.frames ?? [])
+        setState({ selected: sec ? [sec.id] : [], interact: null })
       },
       3,
     )
@@ -158,9 +172,11 @@ export function Canvas() {
       data-space={space || hand || undefined}
       data-panning={(gesture && panning.current) || undefined}
       data-gesture={gesture || undefined}
+      data-comparing={comparing || settling || undefined}
       onPointerDown={onBackgroundDown}
       onDoubleClick={(e) => {
         // Double-click empty canvas to write there.
+        if (getState().compare) return
         if (e.target === ref.current || (e.target as HTMLElement).classList.contains('world'))
           addText(screenToWorld(e.clientX, e.clientY), false)
       }}
@@ -168,9 +184,14 @@ export function Canvas() {
       onDrop={onDrop}
     >
       <div className="world" ref={world}>
-        {frames?.map((f) => (
-          <FrameView key={f.id} frame={f} />
-        ))}
+        {/* Sections paint first (biggest at the back), then link lines, then blocks. */}
+        {frames
+          ?.filter(isSection)
+          .sort(bySize)
+          .map((f) => <SectionView key={f.id} frame={f} />)}
+        <Links />
+        <CompareSummaries />
+        {frames?.map((f) => !isSection(f) && <FrameView key={f.id} frame={f} />)}
         {pending.map((p) => (
           <div key={p.id} className="frame pending" data-block style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
             <div className="block-head">
@@ -210,89 +231,20 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
   const stepLabel = useStore((s) => (s.selected.length === 1 && s.selected[0] === frame.id && !s.interact ? (nextStep(frame)?.label ?? null) : null))
   const step = stepLabel ? nextStep(frame) : null
   const [renaming, setRenaming] = useState(false)
+  // Compare: drawn beside the other direction, or hidden when it's in neither.
+  const off = useStore((s) => (s.compare ? (s.compare.offsets[frame.id] ?? HIDDEN) : NONE))
   const el = useRef<HTMLDivElement>(null)
   const view = useInView(el)
 
-  const onDown = (e: RPE) => {
-    const s = getState()
-    if (e.button !== 0 || s.space || s.hand) return
-    e.stopPropagation()
-    let sel = s.selected
-    if (e.shiftKey) sel = sel.includes(frame.id) ? sel.filter((x) => x !== frame.id) : [...sel, frame.id]
-    else if (!sel.includes(frame.id)) sel = [frame.id]
-    setState({ selected: sel, interact: s.interact === frame.id ? frame.id : null })
-    const starts = new Map(sel.map((id) => [id, frameById(id)!]).filter(([, f]) => f) as [string, Frame][])
-    const z = s.camera.z
-    drag(
-      e,
-      (dx, dy) =>
-        mutateFrames(
-          (fs) =>
-            fs.map((f) => {
-              const st = starts.get(f.id)
-              return st ? { ...f, x: Math.round(st.x + dx / z), y: Math.round(st.y + dy / z) } : f
-            }),
-          false,
-        ),
-      (moved) => moved && saveSoon(),
-    )
-  }
-
-  const onResize = (dir: Dir) => (e: RPE) => {
-    e.stopPropagation()
-    const f0 = frame
-    const z = getState().camera.z
-    const ratio = f0.w / f0.h
-    drag(
-      e,
-      (sdx, sdy, ev) => {
-        const dx = sdx / z
-        const dy = sdy / z
-        let l = f0.x
-        let t = f0.y
-        let r = f0.x + f0.w
-        let b = f0.y + f0.h
-        if (dir.includes('w')) l += dx
-        if (dir.includes('e')) r += dx
-        if (dir.includes('n')) t += dy
-        if (dir.includes('s')) b += dy
-        if (ev.altKey) {
-          if (dir.includes('w')) r -= dx
-          if (dir.includes('e')) l -= dx
-          if (dir.includes('n')) b -= dy
-          if (dir.includes('s')) t -= dy
-        }
-        let w = Math.max(MIN, r - l)
-        let h = Math.max(MIN, b - t)
-        if (ev.shiftKey) {
-          if (dir.length === 2) {
-            if (w / h > ratio) w = h * ratio
-            else h = w / ratio
-          } else if (dir === 'e' || dir === 'w') h = w / ratio
-          else w = h * ratio
-        }
-        let x = dir.includes('w') ? r - w : l
-        let y = dir.includes('n') ? b - h : t
-        if (ev.altKey) {
-          x = f0.x + f0.w / 2 - w / 2
-          y = f0.y + f0.h / 2 - h / 2
-        } else if (ev.shiftKey && dir.length === 1) {
-          if (dir === 'e' || dir === 'w') y = f0.y + (f0.h - h) / 2
-          else x = f0.x + (f0.w - w) / 2
-        }
-        // A hand resize becomes the frame's own size again.
-        updateFrame(frame.id, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), natural: undefined }, false)
-      },
-      (moved) => moved && saveSoon(),
-    )
-  }
+  const onDown = (e: RPE) => pressFrame(e, frame.id)
+  const onResize = (dir: Dir) => (e: RPE) => resizeFrame(e, frame, dir)
 
   const kind =
     frame.type === 'code'
       ? frame.file?.endsWith('.html')
         ? 'HTML'
         : 'React'
-      : { image: 'Image', video: 'Video', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette' }[frame.type]
+      : { image: 'Image', video: 'Video', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette', section: 'Section' }[frame.type]
   const block = isBlock(frame)
   // A selected palette's columns take the pointer (hover tools), while drags still move it.
   const bodyOwnsPointer = frame.type === 'palette' && single && !interact
@@ -315,7 +267,10 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
       data-interact={interact || undefined}
       data-linked={linked || undefined}
       data-away={!view.inView || undefined}
-      style={{ left: frame.x, top: frame.y, width: frame.w, height: frame.h }}
+      data-hidden={off === HIDDEN || undefined}
+      style={{ left: frame.x + off.dx, top: frame.y + off.dy, width: frame.w, height: frame.h }}
+      onPointerEnter={() => setState({ hover: frame.id })}
+      onPointerLeave={() => getState().hover === frame.id && setState({ hover: null })}
     >
       {block ? (
         // Node-style header: also the drag handle, even while interacting with the content.
@@ -421,6 +376,7 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
       <div className="frame-outline" />
       {single &&
         !interact &&
+        off === NONE &&
         DIRS.map((d) => (
           <div
             key={d}
@@ -433,3 +389,4 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
     </div>
   )
 })
+

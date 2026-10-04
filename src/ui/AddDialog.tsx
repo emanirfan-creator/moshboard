@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { looksLikeInstall } from '../../shared/install.ts'
-import { addCode, addFrame, addFromRegistry, addLink, addPalette, addNote, addText, looksLikeCode, uploadFiles } from '../actions'
+import { addCode, addFrame, addFromRegistry, addLink, addPalette, addNote, addSection, addText, looksLikeCode, uploadFiles } from '../actions'
 import { setState, useStore, viewportCenter, type AddKind } from '../store'
 import { DEFAULT_FONT, fontStack, SWATCH_SIZE, swatchBox, swatchFont, type FontFamily } from '../../shared/fonts.ts'
 import { hasColors } from '../boardColors'
@@ -9,7 +9,7 @@ import { suggestFonts, type FontSuggestion } from '../fontSuggest'
 import { ColorPicker } from './ColorPicker'
 import { FontPicker } from './FontPicker'
 import { Segmented } from './Segmented'
-import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SwatchIcon, TextIcon, FontIcon } from './icons'
+import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SectionIcon, SwatchIcon, TextIcon, FontIcon } from './icons'
 
 const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[] = [
   { kind: 'media', title: 'Image or video', hint: 'Screenshots, clips, recordings', icon: <MediaIcon /> },
@@ -17,6 +17,7 @@ const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[]
   { kind: 'url', title: 'Link', hint: 'Pinterest, Cosmos or any site', icon: <LinkIcon /> },
   { kind: 'text', title: 'Text', hint: 'Type on the canvas (T)', icon: <TextIcon /> },
   { kind: 'note', title: 'Note', hint: 'Intent, constraints, what to keep', icon: <NoteIcon /> },
+  { kind: 'section', title: 'Section', hint: 'Group blocks under a title (S)', icon: <SectionIcon /> },
   { kind: 'color', title: 'Color', hint: 'Palette or single swatch', icon: <SwatchIcon /> },
   { kind: 'font', title: 'Font', hint: 'Typeface sample', icon: <FontIcon /> },
 ]
@@ -47,7 +48,10 @@ function Dialog({ kind }: { kind: AddKind }) {
               key={o.kind}
               className="dialog-opt"
               data-active={o.kind === kind || undefined}
-              onClick={() => (o.kind === 'text' ? (close(), addText()) : setState({ add: o.kind }))}
+              // Text and sections go straight onto the canvas: nothing to fill in first.
+              onClick={() =>
+                o.kind === 'text' ? (close(), addText()) : o.kind === 'section' ? (close(), addSection()) : setState({ add: o.kind })
+              }
             >
               {o.icon}
               <span>

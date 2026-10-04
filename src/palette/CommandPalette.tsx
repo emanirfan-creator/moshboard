@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { askClaude } from '../folder/ClaudeTask'
 import { chooseFolder, FOLDER_ONLY, folderSupported } from '../folder/folder'
 import { hasColors } from '../boardColors'
+import { canCompare, exitCompare, startCompare } from '../canvas/compare'
 import {
   addNote,
   addPalette,
@@ -35,6 +36,11 @@ import {
   duplicateCanvas,
   openSample,
   unlinkSelected,
+  addSection,
+  fitSection,
+  ungroupSection,
+  focusFrame,
+  pickSection,
 } from '../actions'
 import { isTunable } from '../../shared/autoParams.ts'
 import { shareBoard } from '../share'
@@ -125,6 +131,14 @@ function Palette() {
       add('Arrange', 'Align left', () => alignSelection('left'))
       add('Arrange', 'Align top', () => alignSelection('top'))
     }
+    if (s.compare) add('Section', 'Stop comparing', exitCompare, 'Esc')
+    else if (canCompare()) add('Section', sel.filter((f) => f!.type === 'section').length >= 2 ? 'Compare side by side' : 'Compare all sections side by side', startCompare, 'C')
+    if (one?.type === 'section') {
+      add('Section', 'Tidy up inside', () => tidySelection(), '⌃⌥T')
+      add('Section', one.chosen ? 'Unapprove this section' : 'Approve this section', () => pickSection())
+      add('Section', 'Fit to contents', () => fitSection())
+      add('Section', 'Remove section, keep contents', () => ungroupSection())
+    }
     if (canLinkSelected()) add('Frame', sel.some((f) => isLinked(f!)) ? 'Add to link' : 'Link to reference', linkSelected)
     if (sel.some((f) => isLinked(f!))) add('Frame', 'Unlink', unlinkSelected)
     if (one)
@@ -145,6 +159,7 @@ function Palette() {
     add('Add', 'Image or video…', () => setState({ add: 'media' }))
     add('Add', 'Component (install command or code)…', () => setState({ add: 'code' }))
     add('Add', 'Link (Pinterest, Cosmos, website)…', () => setState({ add: 'url' }))
+    add('Add', sel.length ? 'Section around selection' : 'Section', () => addSection(), 'S')
     add('Add', 'Text', () => addText(), 'T')
     add('Add', 'Note', () => addNote())
     add('Add', sel.some((f) => hasColors(f!, true)) ? 'Palette from selection' : 'Palette', () => addPalette())
@@ -167,6 +182,7 @@ function Palette() {
     if (s.folder) add('Folder', 'Use Claude with this folder', () => setState({ palette: false, onboarding: 'claude' }))
     add('Canvas', s.sidebar ? 'Hide sidebar' : 'Show sidebar', () => toggleSidebar(), '[')
     add('Help', 'Keyboard shortcuts', () => setState({ shortcuts: true }), '?')
+    for (const f of s.board?.frames ?? []) if (f.type === 'section') add('Go to', f.label || 'Section', () => focusFrame(f.id))
     for (const c of s.canvases) if (c.id !== s.boardName) add('Go to', c.name, () => switchBoard(c.id))
     return list
   }, [])

@@ -5,6 +5,7 @@ import {
   readClip,
   tidySelection,
   addNote,
+  addSection,
   addText,
   deleteSelected,
   duplicateSelected,
@@ -32,6 +33,8 @@ import { FOLDER_ONLY, onFolderChange, startFolder } from './folder/folder'
 import { ClaudeTask } from './folder/ClaudeTask'
 import { Onboarding } from './folder/Onboarding'
 import { Loader } from './ui/Loader'
+import { CompareBar } from './ui/CompareBar'
+import { exitCompare, startCompare } from './canvas/compare'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
@@ -63,7 +66,11 @@ function useHotkeys() {
       if (e.key === ' ') {
         e.preventDefault()
         if (!s.space) setState({ space: true })
-      } else if (e.key === 'Escape') setState(s.interact ? { interact: null } : { selected: [] })
+      } else if (e.key === 'Escape') {
+        if (s.interact) setState({ interact: null })
+        else if (s.selected.length) setState({ selected: [] })
+        else exitCompare()
+      }
       else if (mod && e.key === '0') {
         e.preventDefault()
         fitBoard()
@@ -96,7 +103,11 @@ function useHotkeys() {
         e.preventDefault()
         addNote()
       }
-      else if (e.key === 't') {
+      else if (e.key === 'c') (s.compare ? exitCompare() : startCompare())
+      else if (e.key === 's') {
+        e.preventDefault()
+        addSection()
+      } else if (e.key === 't') {
         e.preventDefault()
         addText()
       } else if (e.key === '[') toggleSidebar()
@@ -219,6 +230,7 @@ export function App() {
         </div>
       )}
       <Inspector />
+      <CompareBar />
       <Chrome />
       <Sidebar />
       <CommandPalette />

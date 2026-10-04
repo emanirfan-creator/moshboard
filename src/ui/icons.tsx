@@ -52,6 +52,17 @@ export const NoteIcon = () => (
     <path d="M3.5 2.5h9v11h-9zM5.5 5.5h5M5.5 8h5M5.5 10.5h3" />
   </Icon>
 )
+export const SectionIcon = () => (
+  <Icon>
+    <path d="M2.5 3h4" />
+    <rect x="2.5" y="5.5" width="11" height="8" rx="1.5" />
+  </Icon>
+)
+export const CaretIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="m2.5 4 2.5 2.5L7.5 4" />
+  </svg>
+)
 export const SwatchIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="5.5" />

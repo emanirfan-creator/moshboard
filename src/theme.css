@@ -190,6 +190,326 @@ button {
   cursor: nesw-resize;
 }
 
+/* ── sections ──
+   A titled area that holds blocks. Its title and empty space move it (⌘-drag box-selects
+   inside); the title paints above blocks so one sitting just above the section never hides it. */
+.section {
+  position: absolute;
+  pointer-events: none;
+}
+.section-box {
+  position: absolute;
+  inset: 0;
+  /* Sunken, not raised: a little darker than the canvas, where blocks are lighter. It reads as
+     a place blocks sit in, not another block. */
+  border-radius: 28px;
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow: inset 0 calc(1px * var(--inv)) calc(12px * var(--inv)) rgba(0, 0, 0, 0.25);
+  outline: calc(1px * var(--inv)) solid var(--line);
+  pointer-events: auto;
+  transition:
+    outline-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.section-box:hover,
+.section:has(.section-head:hover) .section-box {
+  outline-color: rgba(255, 255, 255, 0.14);
+}
+.section[data-selected] .section-box {
+  outline-color: var(--accent);
+}
+/* A block being dragged in: the section it will land in lights up. */
+.section[data-drop] .section-box {
+  outline-color: rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.12);
+}
+/* The title keeps a readable screen size when zoomed out, so a far view reads as an outline
+   of the board; zoomed in it stays its world size. It never runs past the section. */
+.section-head {
+  --k: max(1, var(--inv));
+  position: absolute;
+  left: 4px;
+  bottom: 100%;
+  max-width: calc(var(--w) / var(--k) - 8px);
+  transform: scale(var(--k));
+  transform-origin: 0 100%;
+  padding-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+  font-size: 15px;
+  pointer-events: auto;
+  cursor: default;
+  z-index: 3;
+}
+.section-title {
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+  max-width: 100%;
+}
+/* The approved direction: a soft double ring (the edge, a gap, a faint outer ring) and a check
+   before the title. Quiet on purpose: it's a power-user mark, not a label. */
+.section[data-chosen] .section-box {
+  outline-color: rgba(255, 255, 255, 0.42);
+  box-shadow:
+    inset 0 calc(1px * var(--inv)) calc(12px * var(--inv)) rgba(0, 0, 0, 0.25),
+    0 0 0 calc(5px * var(--inv)) var(--bg),
+    0 0 0 calc(6px * var(--inv)) rgba(255, 255, 255, 0.14),
+    0 0 calc(28px * var(--inv)) rgba(255, 255, 255, 0.05);
+}
+.section[data-chosen][data-selected] .section-box {
+  outline-color: var(--accent);
+}
+.section-check {
+  align-self: center;
+  flex: none;
+  color: var(--text-1);
+  margin-right: -2px;
+}
+.section-pick {
+  all: unset;
+  align-self: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+.section:hover .section-pick,
+.section-pick:focus-visible,
+.section-pick[data-shown],
+.section-pick[data-on] {
+  opacity: 1;
+}
+.section-pick:hover {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+}
+.section-pick[data-on] {
+  color: var(--bg);
+  background: var(--text-1);
+  box-shadow: none;
+}
+.section-count {
+  font-size: 12px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.section-desc {
+  font-size: 13px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.section[data-selected] span.section-desc {
+  cursor: text;
+}
+.section-add {
+  all: unset;
+  font-size: 13px;
+  color: var(--text-4);
+  cursor: text;
+  transition: color var(--dur) var(--ease);
+}
+.section-add:hover {
+  color: var(--text-3);
+}
+.section-input {
+  all: unset;
+  font-family: inherit;
+  cursor: text;
+}
+.section-input::placeholder {
+  color: var(--text-4);
+  font-weight: 400;
+}
+
+/* ── link lines ──
+   A copy to its reference, a note to what it's about. Hairline at rest; when an end is
+   selected or hovered it brightens and a dash runs from the reference outward. Stroke and
+   dots are sized in screen pixels (--inv). */
+.links {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+  pointer-events: none;
+}
+.link-line,
+.link-flow {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+  transition: stroke var(--dur) var(--ease);
+}
+.link-line {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 1px;
+}
+.links [data-note] .link-line {
+  stroke-dasharray: calc(3px * var(--inv)) calc(4px * var(--inv));
+}
+.link-flow {
+  stroke: transparent;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-dasharray: calc(10px * var(--inv)) calc(26px * var(--inv));
+}
+.links [data-on] .link-line {
+  stroke: rgba(255, 255, 255, 0.32);
+}
+.links [data-on] .link-flow {
+  stroke: rgba(255, 255, 255, 0.85);
+  animation: link-flow 1.4s linear infinite;
+}
+@keyframes link-flow {
+  to {
+    stroke-dashoffset: calc(-36px * var(--inv));
+  }
+}
+.link-end {
+  r: calc(3px * var(--inv));
+  fill: var(--bg);
+  stroke: rgba(255, 255, 255, 0.3);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  transition: stroke var(--dur) var(--ease), fill var(--dur) var(--ease);
+}
+.link-end.link-ref {
+  fill: rgba(255, 255, 255, 0.3);
+}
+.links [data-on] .link-end {
+  stroke: rgba(255, 255, 255, 0.85);
+}
+.links [data-on] .link-end.link-ref {
+  fill: rgba(255, 255, 255, 0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+  .links [data-on] .link-flow {
+    animation: none;
+    stroke: transparent;
+  }
+}
+
+/* ── compare ──
+   Sections side by side; everything else fades out of the way. Frames glide to where Compare
+   draws them and back (left/top only change when it starts or ends: drags are off). */
+.canvas[data-comparing] :is(.frame, .section) {
+  transition:
+    left 520ms var(--glide),
+    top 520ms var(--glide),
+    opacity 240ms var(--ease);
+}
+.canvas:not([data-comparing]) :is(.frame, .section) {
+  transition:
+    left 0ms,
+    top 0ms,
+    opacity 240ms var(--ease);
+}
+:is(.frame, .section)[data-hidden] {
+  opacity: 0;
+  pointer-events: none !important;
+}
+:is(.frame, .section)[data-hidden] * {
+  pointer-events: none !important;
+}
+.compare-summary {
+  --k: max(1, var(--inv));
+  position: absolute;
+  width: calc(var(--w) / var(--k));
+  transform: scale(var(--k));
+  transform-origin: 0 0;
+  padding-left: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+  animation: fade 300ms 200ms var(--ease) both;
+}
+.compare-colors {
+  display: flex;
+  gap: 6px;
+}
+.compare-colors i {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.compare-fonts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 20px;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.compare-counts {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.compare-bar {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 12px;
+  background: var(--shell);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-size: 13px;
+  white-space: nowrap;
+  animation: compare-bar-in 320ms var(--glide) both;
+}
+@keyframes compare-bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+.compare-label {
+  color: var(--text-4);
+}
+.compare-name {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.compare-vs {
+  color: var(--text-4);
+  font-weight: 400;
+  margin-right: 10px;
+}
+.compare-note {
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-2);
+  color: var(--text-3);
+}
+.compare-bar .btn {
+  margin-left: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .canvas[data-comparing] :is(.frame, .section) {
+    transition: opacity 240ms var(--ease);
+  }
+}
+
 /* frame contents: no surfaces, content sits on the canvas */
 .content-media {
   width: 100%;
@@ -2385,48 +2705,111 @@ body:has(.sidebar[data-open]) .hint {
   scale: 1;
 }
 
-/* ── dock: icons magnify under the pointer (useDock in Chrome.tsx sets --s) ──
-   The button widens so neighbours make room; the icon grows up out of the bar
-   from its bottom edge, like the macOS Dock. */
-.toolbar .dock-item {
-  --s: 1;
-  --base: 36px;
-  display: block;
-  width: calc(var(--base) * var(--s));
-  height: var(--base);
+/* ── bottom bar: a plain hover (a light tint), no motion ── */
+.toolbar .tool:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
 }
-.toolbar-group .dock-item {
-  --base: 32px;
-}
-.toolbar .dock-item,
-.toolbar .dock-item[data-active],
-.toolbar .dock-item[data-active]:hover {
-  background: transparent;
-}
-.dock-icon {
-  position: absolute;
-  left: 50%;
-  bottom: 0;
-  width: var(--base);
-  height: var(--base);
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  transform: translateX(-50%) scale(var(--s));
-  transform-origin: 50% 100%;
-  transition: background-color var(--dur) var(--ease);
-}
-.dock-item[data-active] .dock-icon {
+.toolbar .tool[data-active],
+.toolbar .tool[data-active]:hover {
   background: rgba(255, 255, 255, 0.12);
 }
-.toolbar .dock-item:hover svg {
+.toolbar .tool:hover svg,
+.toolbar .tool:active svg {
   transform: none;
 }
-.toolbar .dock-item:active svg {
-  transform: scale(0.84);
+
+/* Split tool (Note / Section): the tool, then a caret that opens its menu above the bar.
+   Both halves take the full bar height, so the caret is easy to hit; hovering the pair tints
+   it as one, the half under the pointer a step more. */
+.tool-split {
+  position: relative;
+  display: flex;
+  border-radius: 9px;
+  transition: background-color var(--dur) var(--ease);
 }
-.toolbar .dock-item[data-tip]::after {
-  bottom: calc(100% + 10px + (var(--s) - 1) * var(--base));
+.tool-split:hover,
+.tool-split[data-open] {
+  background: rgba(255, 255, 255, 0.04);
+}
+.toolbar .tool-split .tool {
+  border-radius: 9px 0 0 9px;
+}
+.tool-caret {
+  width: 18px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0 9px 9px 0;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease);
+}
+.tool-caret:hover,
+.tool-split[data-open] .tool-caret {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.06);
+}
+.tool-caret svg {
+  transition: transform 220ms var(--ease);
+}
+.tool-split[data-open] .tool-caret svg {
+  transform: rotate(180deg);
+}
+.tool-menu {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 0;
+  z-index: 5;
+  min-width: 168px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--overlay);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  transform-origin: 20% 100%;
+  animation: tool-menu-in 180ms var(--glide);
+}
+@keyframes tool-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+.tool-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.tool-menu button span {
+  flex: 1;
+}
+.tool-menu button:is(:hover, :focus-visible) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+}
+.tool-menu button[data-current] {
+  color: var(--text-1);
+}
+.tool-menu kbd {
+  color: var(--text-4);
+  font: 11px var(--font);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2434,9 +2817,11 @@ body:has(.sidebar[data-open]) .hint {
     transition: opacity 140ms var(--ease);
   }
   .tool:hover svg,
-  .tool:active svg,
-  .toolbar .dock-item:active svg {
+  .tool:active svg {
     transform: none;
+  }
+  .tool-menu {
+    animation: none;
   }
   .tool[data-tip]::after {
     scale: 1;
@@ -4015,6 +4400,7 @@ textarea,
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
+  opacity: 0.7;
 }
 .onboarding .dialog-body {
   position: relative;

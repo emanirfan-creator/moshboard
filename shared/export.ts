@@ -18,6 +18,7 @@ import {
   type Spring,
 } from './params.ts'
 import type { Board, Frame, MotionCapture, VideoAnalysis } from './types.ts'
+import { isSection, sectionOf, withContents } from './sections.ts'
 
 /** The board's files, as the export reads them (paths relative to the board folder). */
 export interface ExportFiles {
@@ -67,7 +68,8 @@ type Step = Partial<Record<TimingKind | 'ease' | 'spring', string>>
 export function buildExport(full: Board, files: ExportFiles, ids?: string[]): BuiltExport {
   let board = full
   if (ids?.length) {
-    const keep = new Set(ids)
+    // A selected section brings everything in it.
+    const keep = new Set(withContents(ids, full.frames))
     for (const f of full.frames) if (keep.has(f.id) && f.link) keep.add(f.link)
     for (const f of full.frames) if (f.link && keep.has(f.link)) keep.add(f.id)
     board = { ...full, frames: full.frames.filter((f) => keep.has(f.id)) }
@@ -467,6 +469,36 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     ...(swatchColors.length ? ['# Swatches', ...block(swatchColors.map((t) => colorRow(t.name)))] : []),
   ]
   const typeLines = fonts.length ? block([...fontTokens].map(([k, v]) => [k, v])) : []
+  // Sections: how the designer grouped the board. Each one's title and description say what
+  // its blocks share; a nested section is listed under its parent.
+  const sections = board.frames.filter(isSection)
+  const sectionTree = (parent: Frame | undefined, depth: number): string[] =>
+    sections
+      .filter((sec) => sectionOf(sec, board.frames)?.id === parent?.id)
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+      .flatMap((sec) => {
+        const items = board.frames
+          .filter((f) => !isSection(f) && f.type !== 'text' && sectionOf(f, board.frames)?.id === sec.id)
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .map((f) => (f.type === 'note' ? `"${(f.text ?? '').trim().replace(/\n+/g, ' ')}"` : name(f)))
+        const indent = '  '.repeat(depth)
+        return [
+          `${indent}- **${sec.label || 'Section'}**${sec.text ? `: ${sec.text}` : ''}${items.length ? ` (${items.join(', ')})` : ''}`,
+          ...sectionTree(sec, depth + 1),
+        ]
+      })
+  // An approved section: say so, and name the ones set aside, so they aren't built from.
+  const picked = sections.find((sec) => sec.chosen)
+  const setAside = picked ? full.frames.filter((f) => isSection(f) && !f.chosen && !sectionOf(f, full.frames)) : []
+  const directionLines = picked
+    ? [
+        '## Direction',
+        '',
+        `**${picked.label || 'Section'}** was approved${setAside.length ? ` over ${setAside.map((f) => `"${f.label || 'Section'}"`).join(', ')}` : ''}. Build from it.${!setAside.length ? '' : setAside.some((f) => byId.has(f.id)) ? ' The others are listed for contrast, not as a source.' : ' The others were set aside and left out of this spec.'}`,
+        '',
+      ]
+    : []
+  const sectionLines = sections.length ? ['## Sections', '', 'How the board is grouped. Treat each group as one idea; the blocks in it are examples of it.', '', ...sectionTree(undefined, 0), ''] : []
   const design = [
     `# ${board.name} · Design`,
     '',
@@ -491,6 +523,8 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     ),
     '```',
     '',
+    ...directionLines,
+    ...sectionLines,
     ...(intent.length ? ['## Intent', '', intent.join('\n\n'), ''] : []),
     ...(rules.length ? ['## Rules', '', 'From notes on the board.', '', ...rules.map((r) => `- ${r.replace(/^[-•*]\s*/, '')}`), ''] : []),
     ...(colorLines.length ? ['## Color', '', 'Named colors, each with the text color that reads on it and its contrast.', '', '```', ...colorLines, '```', ''] : []),

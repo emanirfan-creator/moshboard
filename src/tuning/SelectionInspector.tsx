@@ -17,6 +17,7 @@ import {
 import type { LayoutKind } from '../layout'
 import { frameById, setState, useStore } from '../store'
 import { CloseIcon } from '../ui/icons'
+import { startCompare } from '../canvas/compare'
 
 const I = ({ d }: { d: string }) => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -82,6 +83,7 @@ export function SelectionBody() {
   )
   const palettes = useStore((s) => s.selected.filter((id) => frameById(id)?.type === 'palette').length)
   const n = ids.length
+  const sections = useStore((s) => s.selected.filter((id) => frameById(id)?.type === 'section').length)
   // Re-read on any board change, so the buttons follow links made or removed elsewhere.
   const linkable = useStore((s) => (s.board, canLinkSelected()))
   const anyLinked = useStore((s) => s.selected.some((id) => !!frameById(id) && isLinked(frameById(id)!)))
@@ -95,6 +97,16 @@ export function SelectionBody() {
         </button>
       </header>
       <div className="insp-scroll">
+        {sections >= 2 && (
+          <section className="insp-section">
+            <h3>Directions</h3>
+            <div className="insp-buttons">
+              <button className="btn btn-primary" onClick={startCompare}>
+                Compare side by side <kbd>C</kbd>
+              </button>
+            </div>
+          </section>
+        )}
         <section className="insp-section">
           <h3>Tidy up</h3>
           <div className="layouts">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { exportBoard } from '../actions'
+import { Segmented } from './Segmented'
 import { shareBoard } from '../share'
 import { getState, setState, toast, useStore } from '../store'
 import { CloseIcon } from './icons'
@@ -27,6 +28,8 @@ export function ExportDialog() {
     return () => window.removeEventListener('keydown', onKey)
   }, [result])
 
+  const scope = useStore((s) => s.exportScope)
+  const pick = useStore((s) => s.board?.frames.find((f) => f.type === 'section' && f.chosen)?.label || (s.board?.frames.some((f) => f.chosen) ? 'Section' : null))
   if (!result) return null
 
   const ORDER = Object.keys(DESCRIBE)
@@ -53,9 +56,21 @@ export function ExportDialog() {
           <CloseIcon />
         </button>
         <div className="dialog-body">
-          <h2>{partial ? `Exported ${result.scope.frames} of ${result.scope.total} frames` : 'Spec exported'}</h2>
+          <h2>{scope === 'chosen' ? `Exported ${pick}` : partial ? `Exported ${result.scope.frames} of ${result.scope.total} frames` : 'Spec exported'}</h2>
+          {/* An approved section: export just it (plus what isn't in any section), or everything. */}
+          {pick && scope !== 'selection' && (
+            <Segmented
+              options={[
+                { id: 'chosen', label: `${pick} only` },
+                { id: 'all', label: 'Whole canvas' },
+              ]}
+              value={scope}
+              onChange={(v) => v !== scope && exportBoard(v as 'chosen' | 'all')}
+            />
+          )}
           <p>
-            {partial && 'Your selection plus linked frames. '}
+            {scope === 'chosen' && 'The approved section plus anything not in a section. '}
+            {scope === 'selection' && 'Your selection plus linked frames. '}
             Saved to <span className="mono path">{result.dir}</span>. Re-exporting overwrites it.
           </p>
 
@@ -130,12 +145,12 @@ export function ExportDialog() {
                 {copied === 'path' ? 'Copied' : 'Copy path'}
               </button>
               {'  ·  '}
-              {partial ? (
+              {scope === 'selection' ? (
                 <button className="link" onClick={() => exportBoard('all')}>
                   Export whole canvas
                 </button>
               ) : (
-                <button className="link" onClick={() => exportBoard()}>
+                <button className="link" onClick={() => exportBoard(scope === 'chosen' ? 'chosen' : 'all')}>
                   Export again
                 </button>
               )}

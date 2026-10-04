@@ -19,6 +19,7 @@ import { ensureDefaultExport } from './frames/sandbox'
 import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
 import { BLOCK_HEAD, BLOCK_PAD } from './canvas/blocks'
+import { boundsAround, isSection, SECTION_PAD, sectionContents, sectionOf, withContents } from '../shared/sections.ts'
 import {
   flushSave,
   frameById,
@@ -278,6 +279,8 @@ export function lastLayout(): LayoutKind {
  * rows. Text frames become section headers. One undo step (⌘Z).
  */
 export function tidySelection(kind: LayoutKind = lastLayout()) {
+  const one = getState().selected.length === 1 ? frameById(getState().selected[0]) : undefined
+  if (one && isSection(one)) return tidySection(one, kind)
   const frames = getState()
     .selected.map(frameById)
     .filter((f): f is Frame => !!f)
@@ -303,6 +306,107 @@ export function tidySelection(kind: LayoutKind = lastLayout()) {
     }),
   )
   toast(`Arranged as ${kind} · ⌘Z to undo`)
+}
+
+// ── sections ─────────────────────────────────────────────
+
+/**
+ * S: a section around the selection (it takes the selection's room plus padding), or an
+ * empty one in view. Its title opens for typing.
+ */
+export function addSection() {
+  const frames = getState().board?.frames ?? []
+  const sel = withContents(getState().selected, frames)
+    .map(frameById)
+    .filter((f): f is Frame => !!f)
+  const box = sel.length ? boundsAround(sel) : place(720, 480)
+  const f = { type: 'section' as const, id: newId(), ...box }
+  // First in the list: sections paint behind what's in them.
+  mutateFrames((fs) => [f, ...fs])
+  setState({ selected: [f.id], interact: null, renaming: f.id })
+  cue('paste')
+  return f
+}
+
+/** Approve a section as the direction to build; approving it again un-approves. One per board: approving one turns any other off. */
+export function pickSection(id = getState().selected[0]) {
+  const s = frameById(id)
+  if (!s || !isSection(s)) return
+  const on = !s.chosen
+  mutateFrames((fs) => fs.map((f) => (f.id === id ? { ...f, chosen: on || undefined } : f.chosen ? { ...f, chosen: undefined } : f)))
+  cue(on ? 'confirm' : 'toggle-off')
+}
+
+/** Size a section to what's in it, keeping its padding. */
+export function fitSection(id = getState().selected[0]) {
+  const s = frameById(id)
+  const frames = getState().board?.frames ?? []
+  if (!s || !isSection(s)) return
+  const inner = sectionContents(s, frames)
+  if (!inner.length) return toast('This section is empty')
+  updateFrame(s.id, boundsAround(inner))
+}
+
+/** Remove the section, leaving what was in it where it is. */
+export function ungroupSection(id = getState().selected[0]) {
+  const s = frameById(id)
+  if (!s || !isSection(s)) return
+  const inner = sectionContents(s, getState().board?.frames ?? []).filter((f) => sectionOf(f, getState().board!.frames)?.id === s.id)
+  mutateFrames((fs) => fs.filter((f) => f.id !== s.id))
+  setState({ selected: inner.map((f) => f.id) })
+}
+
+/** Tidy what's directly in a section, from its top-left corner, then fit the section around it. */
+function tidySection(s: Frame, kind: LayoutKind) {
+  const frames = getState().board?.frames ?? []
+  const inner = sectionContents(s, frames)
+  if (inner.some(isSection)) return toast('Tidy each inner section on its own')
+  if (inner.length < 2) return toast('Add two or more blocks to tidy this section')
+  const natural = new Map(inner.map((f) => [f.id, f.natural ?? { w: f.w, h: f.h }]))
+  const rects = arrange(
+    inner.map((f) => ({ ...f, ...natural.get(f.id)! })),
+    kind,
+  )
+  const x0 = Math.min(...[...rects.values()].map((r) => r.x))
+  const y0 = Math.min(...[...rects.values()].map((r) => r.y))
+  const dx = s.x + SECTION_PAD - x0
+  const dy = s.y + SECTION_PAD - y0
+  const placed = inner.map((f) => {
+    const r = rects.get(f.id)!
+    return { ...f, ...r, x: r.x + dx, y: r.y + dy, natural: natural.get(f.id) }
+  })
+  const box = boundsAround(placed)
+  const byId = new Map(placed.map((f) => [f.id, f]))
+  mutateFrames((fs) => fs.map((f) => byId.get(f.id) ?? (f.id === s.id ? { ...f, ...box } : f)))
+  toast(`Arranged as ${kind} · ⌘Z to undo`)
+}
+
+/**
+ * After a drag: a block that landed in a section but sticks out of it grows the section
+ * (and the sections around it) to hold it, so the box always matches what's in it.
+ */
+export function growSections(moved: string[]) {
+  const frames = getState().board?.frames
+  if (!frames) return
+  const grown = new Map<string, Frame>()
+  const current = (f: Frame) => grown.get(f.id) ?? f
+  const padded = (f: Frame) => ({ ...f, x: f.x - SECTION_PAD, y: f.y - SECTION_PAD, w: f.w + SECTION_PAD * 2, h: f.h + SECTION_PAD * 2 })
+  for (const id of moved) {
+    const f = frames.find((x) => x.id === id)
+    if (!f || isSection(f)) continue
+    // The sections it's in, innermost first, read before any of them grows.
+    const chain: Frame[] = []
+    for (let s = sectionOf(f, frames); s; s = sectionOf(s, frames)) chain.push(s)
+    let need: Frame = f
+    for (const s of chain) {
+      const cur = current(s)
+      const b = boundsAround([cur, padded(need)], 0)
+      if (b.x === cur.x && b.y === cur.y && b.w === cur.w && b.h === cur.h) break
+      need = { ...cur, ...b }
+      grown.set(s.id, need)
+    }
+  }
+  if (grown.size) mutateFrames((fs) => fs.map(current), false)
 }
 
 export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom'
@@ -496,7 +600,14 @@ export function addSwatch(kind: 'color' | 'font', at?: { x: number; y: number })
  * downloaded and become a video/image block; anything else is a website block.
  */
 export async function addLink(href: string, at?: { x: number; y: number }) {
+  // An install command typed into the link box is a component, not a site.
+  if (looksLikeInstall(href) && !/^https?:\/\//.test(href.trim())) return addFromRegistry(href)
   const url = /^https?:\/\//.test(href) ? href : `https://${href}`
+  // Anything else that isn't an address would be a site block that never loads.
+  if (/\s/.test(url.trim()) || !URL.canParse(url) || !new URL(url).hostname.includes('.')) {
+    toast('That isn’t a web address', true)
+    return
+  }
   if (!isMediaLink(url)) return addUrl(url, at)
   const host = new URL(url).hostname.replace(/^www\./, '')
   // A placeholder where it will land, so the canvas shows it's coming (and you can keep working).
@@ -774,8 +885,11 @@ export function deleteSelected() {
 
 /** Removes the selected frames (and their code files). False when nothing was selected. */
 function removeSelection() {
-  const { selected, board } = getState()
-  if (!selected.length || !board) return false
+  const { board } = getState()
+  if (!board) return false
+  // A section goes with everything in it (⌘K "Remove section, keep contents" leaves them).
+  const selected = withContents(getState().selected, board.frames)
+  if (!selected.length) return false
   mutateFrames((fs) =>
     fs.filter((f) => !selected.includes(f.id)).map((f) => (f.link && selected.includes(f.link) ? { ...f, link: undefined } : f)),
   )
@@ -785,7 +899,22 @@ function removeSelection() {
 }
 
 export async function duplicateSelected() {
-  for (const id of getState().selected) {
+  const frames = getState().board?.frames ?? []
+  if (getState().selected.some((id) => frameById(id)?.type === 'section')) {
+    // Through copy/paste, so links inside the section follow the copies. The copy goes beside
+    // the original, in clear space: overlapping sections would claim each other's blocks.
+    await copySelection(false, true)
+    const fs = clip!.frames
+    const x0 = Math.min(...fs.map((f) => f.x))
+    const y0 = Math.min(...fs.map((f) => f.y))
+    const w = Math.max(...fs.map((f) => f.x + f.w)) - x0
+    const h = Math.max(...fs.map((f) => f.y + f.h)) - y0
+    let dx = w + 120
+    const clear = (d: number) => !frames.some((f) => x0 + d < f.x + f.w + 48 && x0 + d + w + 48 > f.x && y0 < f.y + f.h + 48 && y0 + h + 48 > f.y)
+    for (let i = 0; i < 200 && !clear(dx); i++) dx += 120
+    return pasteFrames(clip, { dx, dy: 0 })
+  }
+  for (const id of withContents(getState().selected, frames)) {
     const f = frameById(id)
     if (!f) continue
     const { id: _old, ...rest } = f
@@ -816,9 +945,11 @@ let clip: Clip | null = null
 let pasteCount = 0
 
 /** ⌘C / ⌘X: copy the selection (internal + system clipboard, so it also pastes in another tab). */
-export async function copySelection(cut = false) {
+export async function copySelection(cut = false, quiet = false) {
   const s = getState()
-  const frames = s.selected.map(frameById).filter((f): f is Frame => !!f)
+  const frames = withContents(s.selected, s.board?.frames ?? [])
+    .map(frameById)
+    .filter((f): f is Frame => !!f)
   if (!frames.length) return
   const files: Record<string, string> = {}
   for (const f of frames) {
@@ -830,6 +961,7 @@ export async function copySelection(cut = false) {
   clip = { board: s.boardName, frames, files }
   pasteCount = 0
   // The in-app copy works even when the system clipboard refuses, so it sounds either way.
+  if (quiet) return
   copyText(CLIP_MARK + JSON.stringify(clip)).then((ok) => ok || cue('copy'), () => cue('copy'))
   if (cut) removeSelection()
   toast(`${cut ? 'Cut' : 'Copied'} ${frames.length} frame${frames.length > 1 ? 's' : ''} · ⌘V to paste`)
@@ -846,7 +978,7 @@ export function readClip(text: string): Clip | null {
 }
 
 /** ⌘V: paste copied frames. Each paste steps further out so copies don't stack exactly. */
-export async function pasteFrames(from: Clip | null = clip) {
+export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; dy: number }) {
   if (!from?.frames.length) return
   if (from !== clip) {
     clip = from
@@ -864,8 +996,8 @@ export async function pasteFrames(from: Clip | null = clip) {
   const { z } = s.camera
   const visible =
     from.board === s.boardName && Math.abs((x0 + x1) / 2 - cx) * z < window.innerWidth / 2 && Math.abs((y0 + y1) / 2 - cy) * z < window.innerHeight / 2
-  const dx = visible ? 32 * pasteCount : Math.round(cx - (x0 + x1) / 2) + 24 * (pasteCount - 1)
-  const dy = visible ? 32 * pasteCount : Math.round(cy - (y0 + y1) / 2) + 24 * (pasteCount - 1)
+  const dx = at ? at.dx : visible ? 32 * pasteCount : Math.round(cx - (x0 + x1) / 2) + 24 * (pasteCount - 1)
+  const dy = at ? at.dy : visible ? 32 * pasteCount : Math.round(cy - (y0 + y1) / 2) + 24 * (pasteCount - 1)
 
   const ids = new Map(fs.map((f) => [f.id, newId()]))
   const made: string[] = []
@@ -877,7 +1009,8 @@ export async function pasteFrames(from: Clip | null = clip) {
     if (src && from.board !== s.boardName && (f.type === 'image' || f.type === 'video')) {
       src = (await api.copyAsset(s.boardName, from.board, src).catch(() => ({ path: src! }))).path
     }
-    const base = { ...f, id, link, src, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
+    // A copy is never the approved direction: there's one, and it's the original.
+    const base = { ...f, id, link, src, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
     if (f.type === 'code' && f.file) {
       const kind = f.file.endsWith('.html') ? 'html' : 'tsx'
       const modules = f.modules && from.files[f.modules] ? (JSON.parse(from.files[f.modules]) as Record<string, string>) : undefined
@@ -943,6 +1076,7 @@ export function linkSelected() {
       return f.link === root.id ? f : { ...f, link: root.id }
     }),
   )
+  cue('bloom')
   toast(`${grouped ? 'Added to' : 'Linked to'} ${root.label ?? root.type} · ${members.size} linked`)
 }
 
@@ -953,6 +1087,7 @@ export function linkSelected() {
 export function unlinkSelected() {
   const ids = new Set(getState().selected)
   mutateFrames((fs) => fs.map((f) => (f.link && (ids.has(f.id) || ids.has(f.link)) ? { ...f, link: undefined } : f)))
+  cue('nudge-down')
   toast('Unlinked · ⌘Z to undo')
 }
 
@@ -1265,6 +1400,18 @@ export async function captureSelected(selector: string, trigger: string) {
 export function fitBoard() {
   const frames = getState().board?.frames ?? []
   if (!frames.length) return setCamera({ x: (viewLeft() + window.innerWidth) / 2, y: window.innerHeight / 2, z: 1 })
+  fitView(frames)
+}
+
+/** Bring a frame (a section from ⌘K "Go to") into view, selected; its title stays on screen. */
+export function focusFrame(id: string) {
+  const f = frameById(id)
+  if (!f) return
+  setState({ selected: [id], interact: null })
+  fitView([{ ...f, y: f.y - 40, h: f.h + 40 }])
+}
+
+export function fitView(frames: Pick<Frame, 'x' | 'y' | 'w' | 'h'>[]) {
   const x0 = Math.min(...frames.map((f) => f.x))
   const y0 = Math.min(...frames.map((f) => f.y))
   const x1 = Math.max(...frames.map((f) => f.x + f.w))
@@ -1272,7 +1419,10 @@ export function fitBoard() {
   const pad = 96
   const left = viewLeft()
   const width = window.innerWidth - left
-  const z = Math.min(1, (width - pad * 2) / (x1 - x0), (window.innerHeight - pad * 2) / (y1 - y0))
+  // The padding shrinks in a small window instead of leaving no room (a zero or negative zoom).
+  const padX = Math.min(pad, width / 4)
+  const padY = Math.min(pad, window.innerHeight / 4)
+  const z = Math.min(1, (width - padX * 2) / Math.max(1, x1 - x0), (window.innerHeight - padY * 2) / Math.max(1, y1 - y0))
   setCamera({
     x: left + width / 2 - ((x0 + x1) / 2) * z,
     y: window.innerHeight / 2 - ((y0 + y1) / 2) * z,
@@ -1287,13 +1437,43 @@ export function setViewport(width: number | undefined) {
   }
 }
 
-/** Export the selection (plus what it's linked to) if anything is selected, else the whole canvas. */
-export async function exportBoard(scope: 'auto' | 'all' = 'auto') {
-  const ids = scope === 'all' ? [] : getState().selected
+/** The picked direction's ids for a "pick only" export: it, plus everything that isn't in a section. */
+function pickedScope() {
+  const frames = getState().board?.frames ?? []
+  const pick = frames.find((f) => isSection(f) && f.chosen)
+  if (!pick) return null
+  return [pick.id, ...frames.filter((f) => !isSection(f) && !sectionOf(f, frames)).map((f) => f.id)]
+}
+
+const scopeKey = () => `mb:export-scope:${getState().boardName}`
+/** Whether exports without a selection use only the picked direction (the default once one is picked). */
+export function exportsPickOnly() {
+  try {
+    return localStorage.getItem(scopeKey()) !== 'all'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Export the selection (plus what it's linked to) if anything is selected; else the picked
+ * direction if there is one and the Export dialog is set to it; else the whole canvas.
+ */
+export async function exportBoard(scope: 'auto' | 'all' | 'chosen' = 'auto') {
+  if (scope !== 'auto' && !getState().selected.length) {
+    try {
+      localStorage.setItem(scopeKey(), scope)
+    } catch {
+      // storage unavailable
+    }
+  }
+  const selected = scope === 'auto' ? getState().selected : []
+  const picked = !selected.length && scope !== 'all' && (scope === 'chosen' || exportsPickOnly()) ? pickedScope() : null
+  const ids = selected.length ? selected : (picked ?? [])
   toast('Exporting…')
   try {
     const r = await api.exportBoard(getState().boardName, ids.length ? ids : undefined)
-    setState({ exported: r, toast: null })
+    setState({ exported: r, toast: null, exportScope: selected.length ? 'selection' : picked ? 'chosen' : 'all' })
     cue('ready')
   } catch (e) {
     toast(`Export failed: ${(e as Error).message}`, true)

@@ -1,4 +1,4 @@
-export type FrameType = 'image' | 'video' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette'
+export type FrameType = 'image' | 'video' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette' | 'section'
 
 export interface Segment {
   in: number // seconds
@@ -12,14 +12,17 @@ export interface Frame {
   y: number
   w: number
   h: number
+  /** section: its title */
   label?: string
+  /** section: the approved direction (one per board); "approved only" exports use it alone */
+  chosen?: boolean
   /** image/video: path relative to the board dir (assets/…); url: the href */
   src?: string
   /** code: path relative to the board dir (frames/<id>.tsx | .html) */
   file?: string
   /** code: extra modules it imports, as JSON { "@/components/ui/x": source } (from a registry install) */
   modules?: string
-  /** note: markdown; text: plain text */
+  /** note: markdown; text: plain text; section: what its blocks have in common (one line) */
   text?: string
   /** text: font size in px; font swatch: sample size */
   size?: number

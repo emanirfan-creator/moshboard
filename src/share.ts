@@ -10,6 +10,7 @@ import type { Frame } from '../shared/types.ts'
 import { api, mediaUrl } from './api'
 import { boardLabel } from './folder/folder'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './canvas/blocks'
+import { bySize, isSection } from '../shared/sections.ts'
 import { buildSrcdoc } from './frames/sandbox'
 import { getState, toast } from './store'
 import { parseModules } from './tuning/detection'
@@ -97,12 +98,18 @@ async function content(f: Frame, board: string, w: number, h: number): Promise<s
         return `<div class="font" style="font-family:${esc(fontStack(f.font, f.fontCategory))};font-weight:${f.weight ?? 400};${f.italic ? 'font-style:italic;' : ''}"><span style="font-size:${f.size ?? 40}px">${esc(f.font)}</span><small>${esc(f.label ?? '')}</small></div>`
       }
       return `<div class="swatch" style="background:${esc(f.color ?? '#888')}"><span>${esc(f.label ?? f.color ?? '')}</span></div>`
+    case 'section':
+      return ''
     case 'palette':
       return `<div class="palette">${(f.colors ?? []).map((c) => `<div style="background:${esc(c.hex)}"><span>${esc(c.hex)}</span></div>`).join('')}</div>`
   }
 }
 
 async function frameHtml(f: Frame, board: string) {
+  if (f.type === 'section') {
+    const desc = f.text ? `<span class="desc">${esc(f.text)}</span>` : ''
+    return `<div class="frame section" style="left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px"><header><b>${esc(f.label || 'Section')}</b>${desc}</header></div>`
+  }
   const block = isBlock(f)
   const inner = block ? { w: f.w - BLOCK_PAD * 2, h: f.h - BLOCK_HEAD - BLOCK_PAD } : { w: f.w, h: f.h }
   let body = ''
@@ -136,6 +143,10 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1012; col
 #view.drag { cursor: grabbing; }
 #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .frame { position: absolute; }
+.section { border: 1px solid rgba(255,255,255,.06); border-radius: 28px; background: rgba(0,0,0,.24); box-shadow: inset 0 1px 12px rgba(0,0,0,.25); }
+.section header { position: absolute; left: 4px; bottom: 100%; padding-bottom: 10px; display: flex; gap: 8px; align-items: baseline; white-space: nowrap; font-size: 15px; }
+.section header b { color: #f7f8f8; font-weight: 600; }
+.section header .desc { color: #8a8f98; font-size: 13px; }
 .block { background: #151618; border: 1px solid rgba(255,255,255,.06); border-radius: 18px; }
 .block header { position: absolute; left: 0; right: 0; top: 0; height: ${BLOCK_HEAD}px; display: flex; align-items: center; gap: 10px; padding: 0 16px; font-size: 13px; }
 .block .dot { width: 7px; height: 7px; border-radius: 50%; background: #d0d6e0; flex: none; }
@@ -209,7 +220,9 @@ export async function shareBoard() {
   if (!s.board || !frames.length) return toast('Nothing on this canvas to share yet', true)
   toast('Building the share page…')
   try {
-    const parts = await Promise.all(frames.map((f) => frameHtml(f, s.boardName)))
+    // Sections first (biggest at the back), so they sit behind their blocks.
+    const ordered = [...frames.filter(isSection).sort(bySize), ...frames.filter((f) => !isSection(f))]
+    const parts = await Promise.all(ordered.map((f) => frameHtml(f, s.boardName)))
     const fontLinks = [...new Set(frames.map((f) => f.fontHref).filter((h): h is string => !!h))]
     const bounds = {
       x0: Math.min(...frames.map((f) => f.x)),
