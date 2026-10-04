@@ -28,7 +28,7 @@ import { Chrome, Shortcuts } from './ui/Chrome'
 import { ExportDialog } from './ui/ExportDialog'
 import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
-import { onFolderChange, startFolder } from './folder/folder'
+import { FOLDER_ONLY, onFolderChange, startFolder } from './folder/folder'
 import { Onboarding } from './folder/Onboarding'
 
 const isTyping = (t: EventTarget | null) =>
@@ -148,7 +148,7 @@ function useLiveFiles() {
     // A connected folder reports its own changes; the local server sends them over Vite's socket.
     const offFolder = onFolderChange(on)
     const hot = import.meta.hot
-    const onHot = (c: { board: string; file: string }) => !getState().folder && on(c)
+    const onHot = (c: { board: string; file: string }) => !FOLDER_ONLY && on(c)
     hot?.on('mb:change', onHot)
     return () => {
       offFolder()

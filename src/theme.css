@@ -670,14 +670,14 @@ kbd {
   opacity: 0.4;
   cursor: default;
 }
-/* Primary CTA: black fill, grey border, white text. No accent color. */
+/* Primary CTA: the same fill as dialogs and the sidebar, grey border, white text. No accent color. */
 .btn-primary {
-  background: #000;
+  background: var(--shell);
   border-color: rgba(255, 255, 255, 0.18);
   color: var(--text-1);
 }
 .btn-primary:hover {
-  background: #000;
+  background: var(--shell);
   border-color: rgba(255, 255, 255, 0.32);
   color: #fff;
 }
@@ -3981,11 +3981,31 @@ textarea,
 .onboarding .dialog-body {
   padding: 24px 24px 22px;
 }
+/* Picking, reconnecting, folder gone: one message and one button, centered. */
+.onboarding[data-center] .dialog-body {
+  align-items: center;
+  text-align: center;
+  padding: 32px 32px 28px;
+}
+.onboarding[data-center] .dialog-body > p {
+  max-width: 320px;
+  text-wrap: balance;
+}
+.onboarding-mark {
+  margin-bottom: 14px;
+  color: var(--text-1);
+}
 .onboarding-cta {
   align-self: flex-start;
   height: 32px;
   padding: 0 14px;
   font-size: 13px;
+}
+.onboarding[data-center] .onboarding-cta {
+  align-self: center;
+}
+.onboarding[data-center] .onboarding-tip {
+  text-wrap: balance;
 }
 .onboarding-tip {
   margin: 12px 0 0;

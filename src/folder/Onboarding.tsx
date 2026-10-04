@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { setState, useStore } from '../store'
+import { AppMark } from '../ui/AppMark'
 import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
 import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
@@ -25,13 +26,23 @@ export function Onboarding() {
   return (
     <>
       <div className="palette-scrim onboarding-scrim" onPointerDown={blocking ? undefined : close} />
-      <div className="dialog dialog-small onboarding" role="dialog" aria-label="Set up Moshboard">
+      <div
+        className="dialog dialog-small onboarding"
+        data-center={step === 'welcome' || step === 'reconnect' || step === 'gone' || undefined}
+        role="dialog"
+        aria-label="Set up Moshboard"
+      >
         {!blocking && (
           <button className="icon-btn dialog-close" onClick={close} title="Close  Esc" aria-label="Close">
             <CloseIcon />
           </button>
         )}
         <div className="dialog-body">
+          {(step === 'welcome' || step === 'reconnect' || step === 'gone') && (
+            <span className="onboarding-mark">
+              <AppMark size={28} />
+            </span>
+          )}
           {step === 'welcome' && (
             <>
               <h2>Pick a home for your boards</h2>
