@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { arrange, arrangeable, arrangeAgain, canCrop, freeLayout, isTile, startCrop, takeOut } from '../arrange'
 import { askClaude } from '../folder/ClaudeTask'
-import { chooseFolder, FOLDER_ONLY, folderSupported } from '../folder/folder'
+import { chooseFolder, FOLDER_ONLY, folderSupported, switchFolder } from '../folder/folder'
 import { hasColors } from '../boardColors'
 import { canCompare, exitCompare, startCompare } from '../canvas/compare'
 import {
@@ -205,7 +205,8 @@ function Palette() {
     )
     add('Canvas', 'Duplicate canvas', () => duplicateCanvas(s.boardName))
     if (!s.folder) add('Canvas', 'Open the example board', openSample)
-    if (FOLDER_ONLY && folderSupported()) add('Folder', 'Choose another folder…', chooseFolder)
+    if (FOLDER_ONLY && folderSupported()) add('Folder', 'Open folder…', chooseFolder)
+    for (const f of s.folders) if (f.id !== s.folderId && !f.missing) add('Folder', `Switch to ${f.name}`, () => switchFolder(f.id))
     if (s.folder) add('Folder', 'Use Claude with this folder', () => setState({ palette: false, onboarding: 'claude' }))
     add('Canvas', s.sidebar ? 'Hide sidebar' : 'Show sidebar', () => toggleSidebar(), '[')
     add('Help', 'Keyboard shortcuts', () => setState({ shortcuts: true }), '?')

@@ -1310,6 +1310,56 @@ kbd {
   color: var(--danger);
 }
 
+/* Folder switcher (website): the open folder above its canvases, others in a menu. */
+.folder-switch {
+  position: relative;
+  margin-bottom: 2px;
+}
+.folder-switch-btn {
+  color: var(--text-1);
+  font-weight: 510;
+}
+.folder-switch-btn svg:last-child {
+  transform: rotate(90deg);
+  transition: transform var(--dur) var(--ease);
+}
+.folder-switch-btn[data-open] svg:last-child {
+  transform: rotate(-90deg);
+}
+.folder-menu {
+  left: 0;
+  right: 0;
+  top: 34px;
+}
+.folder-menu .folder-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 4px;
+}
+.folder-check {
+  flex: none;
+  width: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--text-1);
+}
+.folder-item[data-missing] {
+  color: var(--text-4);
+}
+.folder-missing {
+  color: var(--text-4);
+  font-size: 11px;
+}
+.folder-menu .nav-input {
+  margin: 1px 0;
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 4px;
+  background: var(--line);
+}
+
 /* ── canvas chrome ────────────────────────────────────── */
 
 .topbar {

@@ -5,7 +5,7 @@ import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
 import type { ClaudeTaskKind } from './folder/ClaudeTask'
-import type { FolderInfo, OnboardingStep } from './folder/folder'
+import type { FolderEntry, FolderInfo, OnboardingStep } from './folder/folder'
 import { cue } from './ui/sound'
 import { layoutMembers, movedSince, settleLayouts, type Rect } from './layout'
 import { linkNumbers } from '../shared/frame-links.ts'
@@ -63,6 +63,9 @@ export interface State {
   pending: Pending[]
   /** folder mode: the folder on the user's computer that holds the boards (see src/folder/folder.ts) */
   folder: FolderInfo | null
+  /** folder mode: every folder connected on this site, and which one is open */
+  folders: FolderEntry[]
+  folderId: string | null
   /** folder mode: the setup screen showing, if any */
   onboarding: OnboardingStep | null
   /** website: the "Ask Claude" sheet for a site frame (capture, snapshot, fonts), if open */
@@ -148,6 +151,8 @@ let state: State = {
   jobs: {},
   pending: [],
   folder: null,
+  folders: [],
+  folderId: null,
   onboarding: null,
   claudeTask: null,
   hover: null,

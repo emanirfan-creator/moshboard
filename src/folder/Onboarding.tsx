@@ -3,7 +3,7 @@ import { PixelCanvas } from '../components/ui/pixel-canvas'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
 import { CheckIcon, FolderIcon } from '../ui/icons'
-import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
+import { chooseFolder, FOLDER_ONLY, folderSupported, pendingRepoName, reconnectFolder, answerRepo, switchFolder } from './folder'
 
 const close = () => setState({ onboarding: null })
 /** The same greys as a block's loading shimmer (src/frames/BlockLoader.tsx). */
@@ -22,8 +22,12 @@ try {
 export function Onboarding() {
   const step = useStore((s) => s.onboarding)
   const folder = useStore((s) => s.folder)
+  const folderOpen = useStore((s) => !!s.folderId && !!s.board)
+  const folders = useStore((s) => s.folders)
+  const others = folders.filter((f) => !f.missing)
   // Picking and reconnecting block the app (there's nothing to show without a folder); the rest can be closed.
-  const blocking = step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY)
+  const blocking =
+    step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY) || (step === 'repo' && !folderOpen)
   // While a folder is being chosen and opened, the card shimmers like a loading block.
   const [connecting, setConnecting] = useState(false)
   // Hover follows the cursor over the card, not just it coming in: the next step replaces the card
@@ -78,6 +82,21 @@ export function Onboarding() {
             </>
           )}
 
+          {step === 'repo' && (
+            <>
+              <h2>Keep boards in a design folder?</h2>
+              <p>“{pendingRepoName()}” holds code. A design folder inside it keeps your boards apart.</p>
+              <button className="btn btn-primary onboarding-cta" onClick={connect(() => answerRepo(true))}>
+                <FolderIcon /> Use design folder
+              </button>
+              <p className="onboarding-tip">
+                <button className="link" onClick={connect(() => answerRepo(false))}>
+                  Use “{pendingRepoName()}” itself
+                </button>
+              </p>
+            </>
+          )}
+
           {step === 'gone' && (
             <>
               <h2>Your folder is gone</h2>
@@ -85,6 +104,13 @@ export function Onboarding() {
               <button className="btn btn-primary onboarding-cta" onClick={connect(chooseFolder)}>
                 <FolderIcon /> Choose folder
               </button>
+              {others.map((f) => (
+                <p key={f.id} className="onboarding-tip">
+                  <button className="link" onClick={connect(() => switchFolder(f.id))}>
+                    Open “{f.name}”
+                  </button>
+                </p>
+              ))}
             </>
           )}
 

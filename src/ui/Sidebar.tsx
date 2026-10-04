@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, sidebarShown, toggleSidebar, useStore } from '../store'
+import { chooseFolder, FOLDER_ONLY, removeFolder, renameFolder, switchFolder } from '../folder/folder'
 import { AppMark } from './AppMark'
-import { KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
+import { CheckIcon, ChevronIcon, FolderIcon, KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
 
 export function Sidebar() {
   const open = useStore(sidebarShown)
@@ -58,6 +59,8 @@ export function Sidebar() {
             <SidebarIcon />
           </button>
         </div>
+
+        {FOLDER_ONLY && <FolderSwitch />}
 
         <div className="nav-section">
           <span>Canvases</span>
@@ -182,12 +185,26 @@ function CanvasMenu({
 }) {
   const [confirm, setConfirm] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  useDismiss(ref, '.nav-more', onClose)
+  return (
+    <div className="menu" ref={ref}>
+      <button onClick={onRename}>Rename</button>
+      <button onClick={onDuplicate}>Duplicate</button>
+      <button className="danger" onClick={() => (confirm ? onDelete() : setConfirm(true))}>
+        {confirm ? 'Click again to delete' : 'Delete canvas'}
+      </button>
+    </div>
+  )
+}
+
+/** Closes a menu on a press anywhere outside it, Escape, or the window losing focus. */
+function useDismiss(ref: React.RefObject<HTMLDivElement | null>, toggleSelector: string, onClose: () => void) {
   useEffect(() => {
-    // Anywhere outside closes it. Its own ⋯ button is left to toggle it, or the
+    // Anywhere outside closes it. Its own toggle button is left to toggle it, or the
     // press would close it and the click reopen it.
     const away = (e: PointerEvent) => {
       const t = e.target as Element
-      const toggle = ref.current?.parentElement?.querySelector('.nav-more')
+      const toggle = ref.current?.parentElement?.querySelector(toggleSelector)
       if (!ref.current?.contains(t) && !toggle?.contains(t)) onClose()
     }
     const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -202,13 +219,76 @@ function CanvasMenu({
       window.removeEventListener('blur', blur)
     }
   }, [onClose])
+}
+
+/**
+ * The open folder, and the others connected on this site (one per project, say). Folders show by
+ * name only, never as a path. Double-click a name to rename it (two folders can share one).
+ */
+function FolderSwitch() {
+  const folders = useStore((s) => s.folders)
+  const current = useStore((s) => s.folderId)
+  const name = useStore((s) => s.folder?.name ?? '')
+  const [open, setOpen] = useState(false)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = () => {
+    setOpen(false)
+    setRenaming(null)
+  }
+  if (!current) return null
+  const run = (f: () => unknown) => () => {
+    close()
+    f()
+  }
   return (
-    <div className="menu" ref={ref}>
-      <button onClick={onRename}>Rename</button>
-      <button onClick={onDuplicate}>Duplicate</button>
-      <button className="danger" onClick={() => (confirm ? onDelete() : setConfirm(true))}>
-        {confirm ? 'Click again to delete' : 'Delete canvas'}
+    <div className="folder-switch">
+      <button className="nav-row folder-switch-btn" data-open={open || undefined} onClick={() => (open ? close() : setOpen(true))} title="Switch folder">
+        <FolderIcon />
+        <span className="nav-name">{name}</span>
+        <ChevronIcon />
       </button>
+      {open && (
+        <FolderMenu menuRef={ref} onClose={close}>
+          {folders.map((f) =>
+            renaming === f.id ? (
+              <InlineInput
+                key={f.id}
+                initial={f.name}
+                onDone={(v) => {
+                  setRenaming(null)
+                  if (v) renameFolder(f.id, v)
+                }}
+              />
+            ) : (
+              <button
+                key={f.id}
+                className="folder-item"
+                data-missing={f.missing || undefined}
+                onClick={run(() => switchFolder(f.id))}
+                onDoubleClick={() => !f.missing && setRenaming(f.id)}
+                title={f.missing ? 'Moved or deleted. Click to check again' : 'Double-click to rename'}
+              >
+                <span className="folder-check">{f.id === current && <CheckIcon />}</span>
+                <span className="nav-name">{f.name}</span>
+                {f.missing && <span className="folder-missing">Not found</span>}
+              </button>
+            ),
+          )}
+          <div className="menu-sep" />
+          <button onClick={run(chooseFolder)}>Open folder…</button>
+          <button onClick={run(() => removeFolder(current))}>Remove from list</button>
+        </FolderMenu>
+      )}
+    </div>
+  )
+}
+
+function FolderMenu({ menuRef, onClose, children }: { menuRef: React.RefObject<HTMLDivElement | null>; onClose: () => void; children: React.ReactNode }) {
+  useDismiss(menuRef, '.folder-switch-btn', onClose)
+  return (
+    <div className="menu folder-menu" ref={menuRef}>
+      {children}
     </div>
   )
 }
