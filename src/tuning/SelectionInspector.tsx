@@ -5,9 +5,13 @@ import {
   exportBoard,
   canLinkSelected,
   isLinked,
+  joinableLinks,
+  joinLink,
+  linkReference,
   linkSelected,
   unlinkSelected,
 } from '../actions'
+import { LinkTag } from '../ui/LinkTag'
 import { arrangeable, readingOrder } from '../arrange'
 import { SelectionArrange } from './ArrangeInspector'
 import { frameById, setState, useStore } from '../store'
@@ -28,7 +32,9 @@ export function SelectionBody() {
   const sections = useStore((s) => s.selected.filter((id) => frameById(id)?.type === 'section').length)
   // Re-read on any board change, so the buttons follow links made or removed elsewhere.
   const linkable = useStore((s) => (s.board, canLinkSelected()))
-  const anyLinked = useStore((s) => s.selected.some((id) => !!frameById(id) && isLinked(frameById(id)!)))
+  const anyLinked = useStore((s) => (s.board, s.selected.some((id) => !!frameById(id) && isLinked(frameById(id)!))))
+  const joinable = useStore((s) => (s.board, s.selected, joinableLinks().join()))
+  const refName = useStore((s) => (s.board, s.selected, linkReference()?.label ?? linkReference()?.type ?? ''))
   return (
     <>
       <header className="insp-head">
@@ -57,22 +63,38 @@ export function SelectionBody() {
         ) : (
           <SelectionArrange ids={arrangeIds.split(',')} />
         )}
-        {(colorish >= 2 || linkable || anyLinked) && (
+        {colorish >= 2 && (
           <section className="insp-section">
             <h3>Combine</h3>
             <div className="insp-buttons">
-              {colorish >= 2 && (
-                <button className="btn" onClick={combineSwatches} title="Left to right, no duplicates">
-                  {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
-                </button>
-              )}
+              <button className="btn" onClick={combineSwatches} title="Left to right, no duplicates">
+                {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
+              </button>
+            </div>
+          </section>
+        )}
+        {(linkable || anyLinked || joinable) && (
+          <section className="insp-section">
+            <h3>Link</h3>
+            <div className="insp-buttons">
               {linkable && (
-                <button className="btn" onClick={linkSelected} title="Link a reference to its copies and notes">
-                  {anyLinked ? 'Add to link' : 'Link'}
+                <button className="btn" onClick={() => linkSelected('together')} title="One link for all of them">
+                  Link together
                 </button>
               )}
+              {linkable && n > 2 && (
+                <button className="btn" onClick={() => linkSelected('each')} title="Each gets its own link, so they aren't linked to each other">
+                  Link each to {refName}
+                </button>
+              )}
+              {joinable &&
+                joinable.split(',').map((x) => (
+                  <button key={x} className="btn" onClick={() => joinLink(Number(x))}>
+                    Add to link <LinkTag n={Number(x)} />
+                  </button>
+                ))}
               {anyLinked && (
-                <button className="btn" onClick={unlinkSelected} title="Detach from the group, or free everything linked to a reference">
+                <button className="btn" onClick={() => unlinkSelected()} title="Leave their links; a reference ends the links that hang off it">
                   Unlink
                 </button>
               )}

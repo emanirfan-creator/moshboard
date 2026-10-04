@@ -68,6 +68,8 @@ export interface State {
   claudeTask: { kind: ClaudeTaskKind; frameId: string } | null
   /** frame under the pointer (its link lines light up) */
   hover: string | null
+  /** link whose number is under the pointer (a block's link tag): that link comes forward, the rest fade */
+  hoverLink: number | null
   /** section a dragged block will land in, highlighted while dragging */
   dropSection: string | null
   /** section whose title is being edited (a new one starts here) */
@@ -148,6 +150,7 @@ let state: State = {
   onboarding: null,
   claudeTask: null,
   hover: null,
+  hoverLink: null,
   dropSection: null,
   renaming: null,
   compare: null,

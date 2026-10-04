@@ -3,6 +3,7 @@
 // offers the next step as a single button.
 
 import type { Frame } from '../shared/types.ts'
+import { refsOf } from '../shared/frame-links.ts'
 import { analyzeSelected, copyRecreate, exportBoard, lockParams, replay } from './actions'
 import { getState, setState } from './store'
 import { askClaude } from './folder/ClaudeTask'
@@ -14,7 +15,7 @@ export const STAGE_LABEL: Record<Stage, string> = { measured: 'Measured', recrea
 
 const isRef = (f: Frame) => f.type === 'video' || f.type === 'url'
 /** Coded copies linked to a reference (the scaffold a site capture adds counts too). */
-const copiesOf = (f: Frame, frames: Frame[]) => frames.filter((c) => c.type === 'code' && c.link === f.id)
+const copiesOf = (f: Frame, frames: Frame[]) => frames.filter((c) => c.type === 'code' && refsOf(c).includes(f.id))
 
 /** How far a frame is through measure → recreate → tune, or null when it isn't part of it. */
 export function stageOf(f: Frame, frames: Frame[]): Stage | null {
@@ -30,15 +31,14 @@ function stages(frames: Frame[]) {
   m = new Map()
   const byId = new Map(frames.map((f) => [f.id, f]))
   const copies = new Map<string, Frame[]>()
-  for (const c of frames) if (c.type === 'code' && c.link) copies.set(c.link, [...(copies.get(c.link) ?? []), c])
+  for (const c of frames) if (c.type === 'code') for (const r of refsOf(c)) copies.set(r, [...(copies.get(r) ?? []), c])
   for (const f of frames) {
     let st: Stage | null = null
     if (isRef(f)) {
       const cs = copies.get(f.id) ?? []
       st = cs.some((c) => c.tuned) ? 'tuned' : cs.some((c) => c.file?.endsWith('.tsx')) ? 'recreated' : f.analysis ? 'measured' : null
-    } else if (f.type === 'code' && f.link) {
-      const ref = byId.get(f.link)
-      if (ref && isRef(ref)) st = f.tuned ? 'tuned' : 'recreated'
+    } else if (f.type === 'code' && refsOf(f).length) {
+      if (refsOf(f).some((r) => { const ref = byId.get(r); return !!ref && isRef(ref) })) st = f.tuned ? 'tuned' : 'recreated'
     }
     if (st) m.set(f.id, st)
   }
@@ -72,7 +72,7 @@ export function nextStep(f: Frame): Step | null {
       return { label: 'Copy /recreate', hint: 'Copies the command; paste it in Claude Code to turn the capture into a tunable copy', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
-  if (f.type === 'code' && f.link && stageOf(f, frames)) {
+  if (f.type === 'code' && refsOf(f).length && stageOf(f, frames)) {
     if (s.overrides[f.id]) return { label: 'Save tuning', hint: 'Write the tuned values into the code', kbd: '⌘S', run: () => lockParams() }
     if (!f.tuned) return { label: 'Replay side by side', hint: 'Compare with the reference, then tune in the panel', kbd: 'R', run: () => replay() }
     return { label: 'Export spec', hint: 'Write motion.md, tokens and snippets for this reference and its copy', run: () => exportBoard() }

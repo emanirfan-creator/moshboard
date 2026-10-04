@@ -15,7 +15,7 @@ In that browser version, "Analyze motion" and "Capture motion…" aren't availab
 
 ## 1. Read the reference
 
-- `board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis`, `label`, and any `note` frames whose `link` is this id (they hold the user's intent; follow them).
+- `board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis`, `label`, and any `note` frames linked to this id: a `links` entry with `"ref": "<id>"` (or, on older boards, `"link": "<id>"`). They hold the user's intent; follow them.
 - **video**: if `analysis` is missing, ask the user to select the video and press "Analyze motion" (or mark a segment with I/O first). Then read:
   - `assets/<id>.analysis.json`: `primary.startMs`, `primary.durationMs`, `primary.ease.bezier`, and `bursts` (several bursts usually mean stagger or a sequence).
   - `assets/<id>.sheet.png`: the keyframe contact sheet (6×4, left→right, top→bottom, evenly spaced across the segment). **Look at it.** It's how you see what moves, in what order, and how far.
@@ -54,7 +54,7 @@ Edit `board.json` and append:
   "label": "<ref label> (copy)", "link": "<frameId>",
   "x": <ref.x + ref.w + 48>, "y": <ref.y>, "w": <ref.w>, "h": <ref.h> }
 ```
-Keep the existing JSON formatting (2-space indent). The app hot-reloads from disk, so the frame appears live.
+Keep the existing JSON formatting (2-space indent). The app hot-reloads from disk, so the frame appears live. `"link"` is the simple way to link the copy to its reference: the app turns it into a numbered link (joining the reference's first link) when it reads the board.
 
 ## 4. Hand back
 

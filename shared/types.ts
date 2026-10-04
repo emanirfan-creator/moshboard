@@ -1,3 +1,5 @@
+import type { FrameLink } from './frame-links.ts'
+
 export type FrameType = 'image' | 'video' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette' | 'section'
 
 export interface Segment {
@@ -46,7 +48,9 @@ export interface Frame {
   fontLayout?: 'name' | 'specimen' | 'glyphs'
   /** image/video: the page it came from (e.g. a Cosmos element) */
   origin?: string
-  /** id of the frame this one copies (code replica) or annotates (note) */
+  /** the links this block follows: a reference it copies or annotates, and the link's number (shared/frame-links.ts) */
+  links?: FrameLink[]
+  /** older boards and tools: the one reference this block follows; read into `links` on load */
   link?: string
   /** video: the part of the clip that contains the motion */
   segment?: Segment

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { Frame } from '../../shared/types.ts'
+import { linkColor, linksOf } from '../../shared/frame-links.ts'
 import { useStore } from '../store'
 
 interface Pt {
@@ -38,15 +39,16 @@ function route(a: Frame, b: Frame): { d: string; from: Pt; to: Pt } | null {
 }
 
 /**
- * Links drawn on the canvas: a copy to its reference, a note to what it's about. Faint at
- * rest; when either end is selected or hovered the line brightens and a dash runs from the
- * reference to what follows it.
+ * Links drawn on the canvas: a copy to its reference, a note to what it's about, in the link's
+ * color. Faint at rest; when either end is selected or hovered the line brightens and a dash runs
+ * from the reference to what follows it. Hovering a link's number brings that link forward.
  */
 export function Links() {
   const frames = useStore((s) => s.board?.frames)
   const selected = useStore((s) => s.selected)
   const hover = useStore((s) => s.hover)
   const compare = useStore((s) => s.compare)
+  const hoverLink = useStore((s) => s.hoverLink)
   const lines = useMemo(() => {
     if (!frames) return []
     // Comparing: only frames on show, where they're drawn.
@@ -57,19 +59,28 @@ export function Links() {
         })
       : frames
     const byId = new Map(shown.map((f) => [f.id, f]))
-    return shown.flatMap((f) => {
-      const ref = f.link ? byId.get(f.link) : undefined
-      const r = ref && route(ref, f)
-      return r ? [{ id: f.id, ref: ref.id, note: f.type === 'note', ...r }] : []
-    })
+    return shown.flatMap((f) =>
+      linksOf(f).flatMap((l) => {
+        const ref = byId.get(l.ref)
+        const r = ref && route(ref, f)
+        return r ? [{ id: f.id, ref: ref.id, n: l.n, note: f.type === 'note', ...r }] : []
+      }),
+    )
   }, [frames, compare])
   if (!lines.length) return null
   return (
     <svg className="links" aria-hidden>
       {lines.map((l) => {
-        const on = selected.includes(l.id) || selected.includes(l.ref) || hover === l.id || hover === l.ref
+        const on =
+          hoverLink !== null ? hoverLink === l.n : selected.includes(l.id) || selected.includes(l.ref) || hover === l.id || hover === l.ref
         return (
-          <g key={l.id} data-on={on || undefined} data-note={l.note || undefined}>
+          <g
+            key={`${l.id}:${l.n}`}
+            data-on={on || undefined}
+            data-dim={(hoverLink !== null && hoverLink !== l.n) || undefined}
+            data-note={l.note || undefined}
+            style={{ '--c': linkColor(l.n) } as React.CSSProperties}
+          >
             <path className="link-line" d={l.d} />
             <path className="link-flow" d={l.d} />
             <circle className="link-end link-ref" cx={l.from.x} cy={l.from.y} />

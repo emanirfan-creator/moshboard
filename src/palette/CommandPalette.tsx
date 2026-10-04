@@ -21,6 +21,10 @@ import {
   fitBoard,
   linkSelected,
   canLinkSelected,
+  joinableLinks,
+  joinLink,
+  linkReference,
+  selectLink,
   isLinked,
   lockParams,
   makeTunable,
@@ -42,6 +46,7 @@ import {
   pickSection,
 } from '../actions'
 import { isTunable } from '../../shared/autoParams.ts'
+import { linkNumbers } from '../../shared/frame-links.ts'
 import { shareBoard } from '../share'
 import { setSounds, soundsOn } from '../ui/sound'
 import { frameById, getState, setState, toggleSidebar, updateFrame, useStore } from '../store'
@@ -151,8 +156,18 @@ function Palette() {
       add('Layout', 'Take out of the layout', () => takeOut(one.id))
       if (canCrop(one)) add('Layout', 'Crop', () => startCrop(one.id), '↵')
     }
-    if (canLinkSelected()) add('Frame', sel.some((f) => isLinked(f!)) ? 'Add to link' : 'Link to reference', linkSelected)
-    if (sel.some((f) => isLinked(f!))) add('Frame', 'Unlink', unlinkSelected)
+    if (canLinkSelected()) {
+      add('Link', 'Link together', () => linkSelected('together'))
+      const ref = linkReference()
+      if (sel.length > 2 && ref) add('Link', `Link each to ${ref.label ?? ref.type}`, () => linkSelected('each'))
+    }
+    for (const n of joinableLinks()) add('Link', `Add to link ${n}`, () => joinLink(n))
+    if (sel.some((f) => isLinked(f!))) add('Link', 'Unlink', () => unlinkSelected())
+    if (one)
+      for (const n of linkNumbers(one.id, s.board?.frames ?? [])) {
+        add('Link', `Select link ${n}`, () => selectLink(n))
+        if (linkNumbers(one.id, s.board?.frames ?? []).length > 1) add('Link', `Leave link ${n}`, () => unlinkSelected(n))
+      }
     if (one)
       add(
         'Frame',

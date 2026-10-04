@@ -1,4 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { refsOf } from '../../shared/frame-links.ts'
 import type { Frame } from '../../shared/types.ts'
 import { fontStack, GLYPHS, SPECIMEN, styleName, SWATCH_SIZE } from '../../shared/fonts.ts'
 import { assetUrl } from '../actions'
@@ -258,7 +259,7 @@ function SwatchFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
 function replayLinked(videoId: string) {
   const ids =
     getState()
-      .board?.frames.filter((f) => f.link === videoId && f.type === 'code')
+      .board?.frames.filter((f) => f.type === 'code' && refsOf(f).includes(videoId))
       .map((f) => f.id) ?? []
   if (!ids.length) return
   setState((s) => {

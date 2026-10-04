@@ -19,6 +19,7 @@ import {
 } from './params.ts'
 import type { Board, Frame, MotionCapture, VideoAnalysis } from './types.ts'
 import { isSection, sectionOf, withContents } from './sections.ts'
+import { normalizeLinks, refsOf } from './frame-links.ts'
 
 /** The board's files, as the export reads them (paths relative to the board folder). */
 export interface ExportFiles {
@@ -66,12 +67,14 @@ type Step = Partial<Record<TimingKind | 'ease' | 'spring', string>>
  * reference, notes attached to them), so a partial spec still has its context.
  */
 export function buildExport(full: Board, files: ExportFiles, ids?: string[]): BuiltExport {
+  // Older boards (and tools) write one `link` per block: read it as numbered links.
+  full = { ...full, frames: normalizeLinks(full.frames) }
   let board = full
   if (ids?.length) {
     // A selected section brings everything in it.
     const keep = new Set(withContents(ids, full.frames))
-    for (const f of full.frames) if (keep.has(f.id) && f.link) keep.add(f.link)
-    for (const f of full.frames) if (f.link && keep.has(f.link)) keep.add(f.id)
+    for (const f of full.frames) if (keep.has(f.id)) for (const r of refsOf(f)) keep.add(r)
+    for (const f of full.frames) if (refsOf(f).some((r) => keep.has(r))) keep.add(f.id)
     board = { ...full, frames: full.frames.filter((f) => keep.has(f.id)) }
   }
   const outputs = new Map<string, ExportOutput>()
@@ -276,9 +279,10 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     }
     if (extra.length) lines.push(`- **Imports:** ${extra.map((e) => `[\`${e}\`](${e})`).join(', ')} (\`@/…\` paths from the component library)`)
 
-    const ref = f.link ? byId.get(f.link) : undefined
-    if (ref) lines.push(...describeReference(ref, name(ref), copyRef, readJson))
-    for (const note of board.frames.filter((n) => n.type === 'note' && n.link && (n.link === f.id || n.link === ref?.id))) {
+    const refs = refsOf(f).flatMap((r) => byId.get(r) ?? [])
+    for (const ref of refs) lines.push(...describeReference(ref, name(ref), copyRef, readJson))
+    const about = new Set([f.id, ...refs.map((r) => r.id)])
+    for (const note of board.frames.filter((n) => n.type === 'note' && refsOf(n).some((r) => about.has(r)))) {
       lines.push(`- **Intent:** ${note.text?.trim().replace(/\n+/g, ' ')}`)
     }
     if (rows.length) lines.push('', '| Param | Value | Kind | Token |', '|---|---|---|---|', ...rows)
@@ -289,7 +293,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   }
 
   // References with no coded copy yet.
-  const replicated = new Set(codeFrames.map((f) => f.link).filter(Boolean))
+  const replicated = new Set(codeFrames.flatMap(refsOf))
   const pending = board.frames.filter((f) => (f.type === 'video' || f.type === 'url') && !replicated.has(f.id))
   if (pending.length) {
     motion.push(
@@ -442,7 +446,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   // ── design.md: the visual system, in the Design Harness token style ──
   // Notes are the designer's words: lines that read as rules go under Rules, the rest is intent.
   const RULE = /^(do|don['’]?t|do not|never|always|avoid|must|only)\b/i
-  const unlinkedNotes = notes.filter((n) => !n.link)
+  const unlinkedNotes = notes.filter((n) => !refsOf(n).length)
   const noteLines = unlinkedNotes.flatMap((n) => n.text!.trim().split(/\n+/).map((l) => l.trim()).filter(Boolean))
   const rules = noteLines.filter((l) => RULE.test(l.replace(/^[-•*]\s*/, '')))
   const intent = unlinkedNotes.map((n) => n.text!.trim().split(/\n+/).filter((l) => !RULE.test(l.trim().replace(/^[-•*]\s*/, ''))).join('\n')).filter((t) => t.trim())
@@ -546,7 +550,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
           '',
           ...images.map((f) => {
             const dest = copyRef(f.src!)
-            const about = notes.filter((n) => n.link === f.id).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`)
+            const about = notes.filter((n) => refsOf(n).includes(f.id)).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`)
             return `- **${name(f)}**: [\`${dest}\`](${dest})${about.join('')}`
           }),
           '',

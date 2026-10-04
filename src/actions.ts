@@ -8,6 +8,7 @@ import { cue, scanChirp, scanEmpty } from './ui/sound'
 import type { Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
+import { allLinks, linkNumbers, linksOf, MAX_LINKS, nextLinkNumber, normalizeLinks, refsOf, type FrameLink, type LinkInfo } from '../shared/frame-links.ts'
 import { layoutMembers, movedSince, settleLayouts } from './layout'
 import { copyText } from './clipboard'
 import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } from '../shared/color.ts'
@@ -76,6 +77,8 @@ async function readBoard(name: string): Promise<void> {
   const sameBoardReload = getState().boardName === name && !!getState().board
   // Layout sections and their blocks may be out of step after an edit on disk: blocks added
   // there, or moved, can join a layout they were put in.
+  // Older links (one `link` per block, also what tools write) become numbered links.
+  board.frames = normalizeLinks(board.frames)
   board.frames = settleLayouts(board.frames, movedSince(sameBoardReload ? getState().board!.frames : null))
   setState((s) => ({
     boardName: name,
@@ -778,7 +781,10 @@ function removeSelection() {
   const selected = withContents(getState().selected, board.frames)
   if (!selected.length) return false
   mutateFrames((fs) =>
-    fs.filter((f) => !selected.includes(f.id)).map((f) => (f.link && selected.includes(f.link) ? { ...f, link: undefined } : f)),
+    fs.filter((f) => !selected.includes(f.id)).map((f) => {
+      const keep = linksOf(f).filter((l) => !selected.includes(l.ref))
+      return keep.length === linksOf(f).length ? f : { ...f, links: keep.length ? keep : undefined }
+    }),
   )
   setState({ selected: [], interact: null })
   // Its files stay on disk so undo can bring it back whole; the canvas's next open clears them out (server/sweep.ts).
@@ -905,20 +911,32 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
 
   const ids = new Map(fs.map((f) => [f.id, newId()]))
   const made: string[] = []
+  let nextN = nextLinkNumber(getState().board?.frames ?? [])
+  const renumber = new Map<number, number>()
   // A layout section's blocks arrive one by one: hold layouts until they're all here.
   let release!: () => void
   holdLayouts(new Promise<void>((r) => (release = r)))
   try {
   for (const f of fs) {
     const id = ids.get(f.id)!
-    // Links inside the copied group follow it; links to frames outside stay if the target is here.
-    const link = f.link ? (ids.get(f.link) ?? (frameById(f.link) ? f.link : undefined)) : undefined
+    // Links inside the copied group follow it (as new links); links to blocks outside it stay,
+    // in the same link, if that block is on this canvas.
+    const legacy = f.link ? [{ ref: f.link, n: 0 }] : []
+    const links = (f.links ?? legacy).flatMap((l): FrameLink[] => {
+      const inside = ids.get(l.ref)
+      if (inside) {
+        if (!renumber.has(l.n)) renumber.set(l.n, nextN++)
+        return [{ ref: inside, n: renumber.get(l.n)! }]
+      }
+      if (!frameById(l.ref)) return []
+      return [{ ref: l.ref, n: l.n || followLink(l.ref)[0].n }]
+    })
     let src = f.src
     if (src && from.board !== s.boardName && (f.type === 'image' || f.type === 'video')) {
       src = (await api.copyAsset(s.boardName, from.board, src).catch(() => ({ path: src! }))).path
     }
     // A copy is never the approved direction: there's one, and it's the original.
-    const base = { ...f, id, link, src, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
+    const base = { ...f, id, links: links.length ? links : undefined, link: undefined, src, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
     // A layout keeps its copied blocks, in the same places.
     if (f.layout) {
       const order = f.layout.order.map((o) => ids.get(o) ?? '')
@@ -943,68 +961,141 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
 
 // ── linking & replay ────────────────────────────────────
 
-// A link is a group: one reference, with any number of copies and notes pointing at it.
+// A link is one reference with the blocks that follow it (copies, notes), and a number. A block
+// can be in up to MAX_LINKS links, so one reference can have its copies linked together or each
+// on their own (shared/frame-links.ts).
 
-/** The reference a frame's link group hangs off (the frame itself when it is the reference or unlinked). */
-export const linkRoot = (f: Frame) => (f.link && frameById(f.link) ? f.link : f.id)
+const boardFrames = () => getState().board?.frames ?? []
+const selectedFrames = () => getState().selected.map(frameById).filter((f): f is Frame => !!f)
+const inLink = (l: LinkInfo) => new Set([l.ref, ...l.members])
 
-/** Whether a frame is in a link group: it points at a reference, or something points at it. */
-export const isLinked = (f: Frame) => !!f.link || linkTargets(getState().board?.frames ?? []).has(f.id)
+/** Whether a block is in any link, as a reference or following one. */
+export const isLinked = (f: Frame) => linkNumbers(f.id, boardFrames()).length > 0
 
-// Ids something links to, rebuilt only when the frames array changes.
-const targets = new WeakMap<Frame[], Set<string>>()
-function linkTargets(frames: Frame[]) {
-  let t = targets.get(frames)
-  if (!t) targets.set(frames, (t = new Set(frames.flatMap((f) => (f.link ? [f.link] : [])))))
-  return t
-}
-
-/** Everything in the same link group as these frames, including them. */
+/** Everything sharing a link with these blocks, including them. */
 export function linkGroup(ids: string[]) {
-  const roots = new Set(ids.map(frameById).filter((f): f is Frame => !!f).map(linkRoot))
+  const frames = boardFrames()
+  const all = allLinks(frames)
   const set = new Set(ids)
-  for (const f of getState().board?.frames ?? []) if (roots.has(f.id) || (f.link && roots.has(f.link))) set.add(f.id)
+  for (const id of ids) for (const n of linkNumbers(id, frames)) for (const x of inLink(all.get(n)!)) set.add(x)
   return set
 }
 
-/** Selected frames that aren't all in one group already can be linked (or added to a group). */
+/** The reference new links among these blocks hang off: one that already is a reference, else the first that isn't a copy or a note. */
+export function linkReference(sel = selectedFrames()): Frame | undefined {
+  const refs = new Set([...allLinks(boardFrames()).values()].map((l) => l.ref))
+  return sel.find((f) => refs.has(f.id)) ?? sel.find((f) => f.type !== 'code' && f.type !== 'note') ?? sel[0]
+}
+
+/** Two or more selected blocks that aren't all in one link already can be linked. */
 export function canLinkSelected() {
-  const sel = getState().selected.map(frameById).filter((f): f is Frame => !!f)
-  return sel.length >= 2 && new Set(sel.map(linkRoot)).size > 1
+  const sel = selectedFrames()
+  if (sel.length < 2) return false
+  return ![...allLinks(boardFrames()).values()].some((l) => sel.every((f) => inLink(l).has(f.id)))
+}
+
+/** Links some selected blocks are in that the rest of the selection could join. */
+export function joinableLinks(sel = selectedFrames()): number[] {
+  const frames = boardFrames()
+  const all = allLinks(frames)
+  const ns = new Set(sel.flatMap((f) => linkNumbers(f.id, frames)))
+  return [...ns].filter((n) => sel.some((f) => !inLink(all.get(n)!).has(f.id))).sort((a, b) => a - b)
+}
+
+/** Follow `ref` in link `n`, leaving any other link to the same reference. */
+const follow = (f: Frame, ref: string, n: number): Frame => ({ ...f, links: [...linksOf(f).filter((l) => l.ref !== ref), { ref, n }] })
+
+/** Every block within the link limit, after a change (links a change empties don't count). */
+const withinLimit = (fs: Frame[]) => fs.every((f) => linkNumbers(f.id, fs).length <= MAX_LINKS)
+
+const tooMany = () => toast(`A block can be in ${MAX_LINKS} links at most`, true)
+
+/**
+ * Link the selected blocks to their reference: `together` makes one link of them all; `each`
+ * gives every other block its own link to the reference, so they aren't linked to each other.
+ */
+export function linkSelected(mode: 'together' | 'each' = 'together') {
+  const sel = selectedFrames()
+  const ref = linkReference(sel)
+  if (sel.length < 2 || !ref) return toast('Select a reference and its copies or notes', true)
+  const frames = boardFrames()
+  let others = sel.filter((f) => f.id !== ref.id)
+  if (mode === 'each') others = others.filter((f) => !refsOf(f).includes(ref.id))
+  if (!others.length) return toast('Those are already linked to ' + (ref.label ?? ref.type))
+  const apply = (plan: Map<string, number>) => frames.map((f) => (plan.has(f.id) ? follow(f, ref.id, plan.get(f.id)!) : f))
+  let n = nextLinkNumber(frames)
+  const plan = new Map<string, number>()
+  if (mode === 'together') {
+    // A link to this reference some of them are in already becomes the one link (no new number).
+    const ids = new Set(others.map((f) => f.id))
+    const reuse = [...allLinks(frames).values()].filter((l) => l.ref === ref.id && l.members.some((m) => ids.has(m))).map((l) => l.n)
+    if (reuse.length) n = Math.min(...reuse)
+    for (const f of others) plan.set(f.id, n)
+    if (!withinLimit(apply(plan))) return tooMany()
+  } else {
+    // One at a time, as many as fit.
+    for (const f of others) {
+      plan.set(f.id, n)
+      if (withinLimit(apply(plan))) n++
+      else plan.delete(f.id)
+    }
+    if (!plan.size) return tooMany()
+  }
+  mutateFrames(() => apply(plan))
+  cue('bloom')
+  const made = new Set(plan.values()).size
+  const name = ref.label ?? ref.type
+  if (plan.size < others.length) toast(`Linked ${plan.size} of ${others.length} to ${name}. A block can be in ${MAX_LINKS} links at most`, true)
+  else toast(made > 1 ? `${made} links to ${name}` : `Linked to ${name} · link ${[...plan.values()][0]}`)
+}
+
+/** The rest of the selection joins link `n` (following its reference). */
+export function joinLink(n: number) {
+  const frames = boardFrames()
+  const l = allLinks(frames).get(n)
+  if (!l) return
+  const others = selectedFrames().filter((f) => !inLink(l).has(f.id))
+  const joining = new Set<string>()
+  const apply = () => frames.map((f) => (joining.has(f.id) ? follow(f, l.ref, n) : f))
+  for (const f of others) {
+    joining.add(f.id)
+    if (!withinLimit(apply())) joining.delete(f.id)
+  }
+  if (!joining.size) return tooMany()
+  mutateFrames(apply)
+  cue('bloom')
+  if (joining.size < others.length) toast(`Added ${joining.size} of ${others.length} to link ${n}. A block can be in ${MAX_LINKS} links at most`, true)
+  else toast(`Added to link ${n}`)
 }
 
 /**
- * Link the selected frames into one group. If any of them is already linked,
- * the others join that group (keeping its reference); otherwise the reference is
- * the first selected frame that isn't a code copy or a note. Groups that meet
- * are merged, so everything points straight at one reference.
+ * Selected blocks leave their links (only link `n`, when given); a selected reference ends the
+ * links that hang off it.
  */
-export function linkSelected() {
-  const sel = getState().selected.map(frameById).filter((f): f is Frame => !!f)
-  if (sel.length < 2) return toast('Select a reference and its copies or notes', true)
-  const grouped = sel.find(isLinked)
-  const root = frameById(grouped ? linkRoot(grouped) : (sel.find((f) => f.type !== 'code' && f.type !== 'note') ?? sel[0]).id)!
-  const members = linkGroup(sel.map((f) => f.id))
+export function unlinkSelected(n?: number) {
+  const ids = new Set(getState().selected)
+  const drop = (f: Frame, l: FrameLink) => (n === undefined || l.n === n) && (ids.has(f.id) || ids.has(l.ref))
   mutateFrames((fs) =>
     fs.map((f) => {
-      if (!members.has(f.id)) return f
-      if (f.id === root.id) return f.link ? { ...f, link: undefined } : f
-      return f.link === root.id ? f : { ...f, link: root.id }
+      const keep = linksOf(f).filter((l) => !drop(f, l))
+      return keep.length === linksOf(f).length ? f : { ...f, links: keep.length ? keep : undefined }
     }),
   )
-  cue('bloom')
-  toast(`${grouped ? 'Added to' : 'Linked to'} ${root.label ?? root.type} · ${members.size} linked`)
+  cue('nudge-down')
+  toast(`${n === undefined ? 'Unlinked' : `Left link ${n}`} · ⌘Z to undo`)
 }
 
-/**
- * A selected copy or note leaves its group; a selected reference releases
- * everything linked to it.
- */
-export function unlinkSelected() {
-  const ids = new Set(getState().selected)
-  mutateFrames((fs) => fs.map((f) => (f.link && (ids.has(f.id) || ids.has(f.link)) ? { ...f, link: undefined } : f)))
-  cue('nudge-down')
-  toast('Unlinked · ⌘Z to undo')
+/** Select every block in link `n`. */
+export function selectLink(n: number) {
+  const l = allLinks(boardFrames()).get(n)
+  if (l) setState({ selected: [l.ref, ...l.members], interact: null })
+}
+
+/** A new block following `ref`: it joins the reference's first link, or starts one. */
+export function followLink(ref: string): FrameLink[] {
+  const frames = boardFrames()
+  const first = linkNumbers(ref, frames).find((n) => allLinks(frames).get(n)?.ref === ref)
+  return [{ ref, n: first ?? nextLinkNumber(frames) }]
 }
 
 /** Replay selected frames together with everything they're linked to. */
@@ -1057,7 +1148,7 @@ export function renameParam(id: string, name: string, label: string) {
  * captured transition. Shown on the copy's controls so tuning can aim at it.
  */
 export function referenceTiming(f: Frame): { duration?: number; ease?: Bezier } | null {
-  const ref = f.link ? frameById(f.link) : undefined
+  const ref = refsOf(f).map(frameById).find((r) => r?.analysis)
   if (!ref?.analysis) return null
   if (ref.type === 'video') {
     const p = readAnalysis(ref)?.primary
@@ -1158,7 +1249,7 @@ export async function lockParams(id = getState().selected[0]) {
     return { files: { ...st.files, ...files }, overrides }
   })
   // A linked copy that's been saved has been tuned: its reference moves on to the last step.
-  if (f.link && !frameById(id)?.tuned) updateFrame(id, { tuned: true })
+  if (refsOf(f).length && !frameById(id)?.tuned) updateFrame(id, { tuned: true })
   const where = [
     main !== src && f.file.split('/').pop(),
     moduleChanged && 'its component files',
@@ -1296,7 +1387,7 @@ export async function captureSelected(selector: string, trigger: string) {
     const n = capture.transitions.length + capture.animations.length
     await addCode('html', scaffold, {
       label: `${f.label ?? 'Site'}: ${trigger}`,
-      link: f.id,
+      links: followLink(f.id),
       x: f.x + f.w + 48,
       y: f.y,
       w: 420,

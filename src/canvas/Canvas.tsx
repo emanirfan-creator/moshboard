@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef, useState, type PointerEvent as RPE } from 'react'
 import type { Frame } from '../../shared/types.ts'
-import { addText, pasteText, regeneratePalette, uploadFiles } from '../actions'
+import { addText, pasteText, regeneratePalette, selectLink, uploadFiles } from '../actions'
+import { linkNumbers } from '../../shared/frame-links.ts'
+import { LinkTag } from '../ui/LinkTag'
 import { bySize, isSection, sectionAt } from '../../shared/sections.ts'
 import { Links } from './Links'
 import { DIRS, HANDLE_POS, HIDDEN, NONE, panCrop, pressFrame, resizeFrame, resizeTile, type Dir } from './gestures'
@@ -256,15 +258,17 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
   const selected = useStore((s) => s.selected.includes(frame.id))
   const single = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
   const interact = useStore((s) => s.interact === frame.id)
+  // In a link with the selected block, or in the link whose number is under the pointer.
   const linked = useStore((s) => {
+    if (!s.board) return false
+    const mine = linkNumbers(frame.id, s.board.frames)
+    if (!mine.length) return false
+    if (s.hoverLink !== null) return mine.includes(s.hoverLink)
     const sel = s.selected[0]
-    if (!sel || sel === frame.id) return false
-    const other = frameById(sel)
-    return !!other && (frame.link ?? frame.id) === (other.link ?? other.id) && (!!frame.link || !!other.link)
+    return !!sel && sel !== frame.id && linkNumbers(sel, s.board.frames).some((n) => mine.includes(n))
   })
   const modified = useStore((s) => !!s.overrides[frame.id])
   const error = useStore((s) => s.errors[frame.id])
-  const ref = useStore(() => (frame.link ? frameById(frame.link) : undefined))
   const stage = useStore((s) => (s.board ? stageOf(frame, s.board.frames) : null))
   // A long job on this frame (measuring, capturing, fetching): the loader plays over it.
   const job = useStore((s) => s.jobs[frame.id])
@@ -359,7 +363,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
               {STAGE_LABEL[stage]}
             </span>
           )}
-          {ref && <span className="block-meta">↔ {ref.label || ref.type}</span>}
+          <BlockLinks id={frame.id} />
           {modified && <span className="block-meta mod">Unsaved</span>}
           {frame.type === 'palette' && (
             <button
@@ -388,6 +392,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
         frame.type !== 'text' && (
           <div className="frame-label">
             <span>{frame.label || kind}</span>
+            <BlockLinks id={frame.id} />
           </div>
         )
       )}
@@ -442,3 +447,28 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
   )
 })
 
+/** A block's links, as their numbers: hover one to bring that link forward, click to select it. */
+function BlockLinks({ id }: { id: string }) {
+  const ns = useStore((s) => (s.board ? linkNumbers(id, s.board.frames).join() : ''))
+  if (!ns) return null
+  return (
+    <span className="block-links">
+      {ns.split(',').map((x) => {
+        const n = Number(x)
+        return (
+          <button
+            key={n}
+            className="block-link"
+            title={`Link ${n} · click to select it`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => (e.stopPropagation(), selectLink(n))}
+            onPointerEnter={() => setState({ hoverLink: n })}
+            onPointerLeave={() => getState().hoverLink === n && setState({ hoverLink: null })}
+          >
+            <LinkTag n={n} />
+          </button>
+        )
+      })}
+    </span>
+  )
+}

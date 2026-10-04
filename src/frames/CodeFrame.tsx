@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { refsOf } from '../../shared/frame-links.ts'
 import { SANDBOX_FONT, type UsedFont } from '../../shared/font-probe.ts'
 import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParams, type Param } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
@@ -218,7 +219,7 @@ export function CodeFrame({
   // Entrance animations loop on their own: play, rest, play again. Hover/click
   // components wait for the user, and copies linked to a video follow its loop.
   const loop = useStore((s) => s.loop)
-  const linkedToVideo = useStore(() => !!frame.link && frameById(frame.link)?.type === 'video')
+  const linkedToVideo = useStore(() => refsOf(frame).some((r) => frameById(r)?.type === 'video'))
   const trigger = source ? annotation(source, 'trigger')?.toLowerCase() : undefined
   // Only loop things that are about entrance motion: explicitly marked, or carrying timing params
   // (a duration, an ease, a spring). Params that only set looks (a 3D globe's colors, an icon

@@ -293,7 +293,7 @@ function CodeBody({ frame }: { frame: Frame }) {
   const reset = (name: string) => resetParam(frame.id, name)
   const rename = (name: string, label: string) => renameParam(frame.id, name, label)
   // Timing measured on the reference this copy is linked to, so the controls show what to aim for.
-  const refKey = useStore((s) => (frame.link && s.files ? JSON.stringify(referenceTiming(frame)) : 'null'))
+  const refKey = useStore((s) => (frame.links?.length && s.files ? JSON.stringify(referenceTiming(frame)) : 'null'))
   const reference = useMemo(() => JSON.parse(refKey) as ReturnType<typeof referenceTiming>, [refKey]) ?? undefined
   // Where the code uses each param ("<Pause size={…}>"): a readable name, and a section per element.
   const uses = useMemo(
