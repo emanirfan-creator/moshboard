@@ -13,7 +13,8 @@
         background: #0f1012;
       }
 
-      /* The loader: white dots that run along the Moshboard m and melt together (a goo filter).
+      /* The loader: a bright stretch of the Moshboard m's own stroke runs along the letter and
+         back, over a faint m. Drawn with the same path as the mark, so it can't drift off it.
          It shows only on a real wait: it fades in after --mb-loader-delay, so a quick load never
          shows it. Lives here so it can show before any script runs; src/ui/Loader.tsx reuses it. */
       .mb-loader {
@@ -25,57 +26,31 @@
         opacity: 0;
         animation: mb-loader-in 260ms ease var(--mb-loader-delay, 300ms) forwards;
       }
-      .mb-loader-box {
-        position: relative;
+      .mb-loader svg {
         width: 72px;
         height: 72px;
+        overflow: visible;
       }
+      /* Solid, not see-through: the two humps overlap where they meet, and a translucent stroke
+         would show that spot twice as bright. (8% white over the page background.) */
       .mb-loader-base {
-        position: absolute;
-        inset: 0;
-        color: rgba(255, 255, 255, 0.07);
+        stroke: #222325;
       }
-      .mb-loader-goo {
-        position: absolute;
-        inset: 0;
-        filter: url(#mb-goo);
+      .mb-loader-run {
+        stroke: #f7f8f8;
+        /* One dash a fifth of the letter long (the path is 100 units); a gap twice the path keeps
+           the next dash from peeking in at either end. */
+        stroke-dasharray: 20 200;
+        animation: mb-run 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
       }
-      .mb-loader-goo i {
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #f7f8f8;
-        /* The m on the 24-unit grid of src/ui/AppMark.tsx, three times as large, drawn in one stroke. */
-        offset-path: path('M13.5 55.8V33.3a11.25 11.25 0 0 1 22.5 0V21.3a11.25 11.25 0 0 1 22.5 0V45.3');
-        offset-anchor: center;
-        offset-rotate: 0deg;
-        animation: mb-trace 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
-      }
-      .mb-loader-goo i:nth-child(2) {
-        animation-delay: 70ms;
-        scale: 0.92;
-      }
-      .mb-loader-goo i:nth-child(3) {
-        animation-delay: 140ms;
-        scale: 0.84;
-      }
-      .mb-loader-goo i:nth-child(4) {
-        animation-delay: 210ms;
-        scale: 0.76;
-      }
-      .mb-loader-goo i:nth-child(5) {
-        animation-delay: 280ms;
-        scale: 0.68;
-      }
-      @keyframes mb-trace {
+      /* From the first foot to the last and back, always on the letter. The path goes down the
+         middle line to its foot and back up, so the run covers every stroke of the m. */
+      @keyframes mb-run {
         from {
-          offset-distance: 0%;
+          stroke-dashoffset: 0;
         }
         to {
-          offset-distance: 100%;
+          stroke-dashoffset: -80;
         }
       }
       @keyframes mb-loader-in {
@@ -84,11 +59,11 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .mb-loader-goo {
+        .mb-loader-run {
           display: none;
         }
         .mb-loader-base {
-          color: rgba(255, 255, 255, 0.4);
+          stroke: #6f7072;
         }
       }
     </style>
@@ -96,20 +71,12 @@
   <body>
     <div id="root">
       <div class="mb-loader" role="status" aria-label="Loading">
-        <div class="mb-loader-box">
-          <svg class="mb-loader-base" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <g transform="translate(0 -0.9)" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M4.5 19.5V12a3.75 3.75 0 0 1 7.5 0v7.5" />
-              <path d="M12 15.5V8a3.75 3.75 0 0 1 7.5 0V16" />
-            </g>
-          </svg>
-          <div class="mb-loader-goo"><i></i><i></i><i></i><i></i><i></i></div>
-        </div>
-        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
-          <filter id="mb-goo">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" />
-          </filter>
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <g transform="translate(0 -0.9)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path class="mb-loader-base" d="M4.5 19.5V12a3.75 3.75 0 0 1 7.5 0v7.5" />
+            <path class="mb-loader-base" d="M12 15.5V8a3.75 3.75 0 0 1 7.5 0V16" />
+            <path class="mb-loader-run" pathLength="100" d="M4.5 19.5V12a3.75 3.75 0 0 1 7.5 0v7.5V8a3.75 3.75 0 0 1 7.5 0V16" />
+          </g>
         </svg>
       </div>
     </div>
