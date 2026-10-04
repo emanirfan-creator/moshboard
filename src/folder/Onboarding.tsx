@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { PixelCanvas } from '../components/ui/pixel-canvas'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
-import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
+import { CheckIcon, FolderIcon } from '../ui/icons'
 import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
 const close = () => setState({ onboarding: null })
@@ -18,13 +18,12 @@ try {
   // storage blocked: no entrance
 }
 
-/** Setup screens for folder mode: pick a folder, reconnect it, and how to use Claude with it. */
+/** Setup screens for the website: pick a folder, reconnect it, and how to use Claude with it. All one card layout. */
 export function Onboarding() {
   const step = useStore((s) => s.onboarding)
   const folder = useStore((s) => s.folder)
   // Picking and reconnecting block the app (there's nothing to show without a folder); the rest can be closed.
   const blocking = step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY)
-  const centered = step === 'welcome' || step === 'reconnect' || step === 'gone'
   // While a folder is being chosen and opened, the card shimmers like a loading block.
   const [connecting, setConnecting] = useState(false)
   const connect = (run: () => Promise<unknown>) => () => {
@@ -47,24 +46,16 @@ export function Onboarding() {
       <div className="palette-scrim onboarding-scrim" onPointerDown={blocking ? undefined : close} />
       <div
         className="dialog dialog-small onboarding"
-        data-center={centered || undefined}
         data-intro={(firstVisit && step === 'welcome') || undefined}
         role="dialog"
         aria-label="Set up Moshboard"
       >
-        {!blocking && (
-          <button className="icon-btn dialog-close" onClick={close} title="Close  Esc" aria-label="Close">
-            <CloseIcon />
-          </button>
-        )}
-        {/* Ripples in on hover, and plays while a folder opens. */}
-        {centered && <PixelCanvas className="onboarding-pixels" active={connecting} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />}
+        {/* Every step is the same card: the mark, one message, one button. Pixels ripple in on hover and play while a folder opens. */}
+        <PixelCanvas className="onboarding-pixels" active={connecting} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />
         <div className="dialog-body">
-          {centered && (
-            <span className="onboarding-mark">
-              <AppMark size={48} idle />
-            </span>
-          )}
+          <span className="onboarding-mark">
+            <AppMark size={48} idle />
+          </span>
           {step === 'welcome' && (
             <>
               <h2>Pick a home for your boards</h2>
@@ -129,7 +120,8 @@ export function Onboarding() {
 
           {step === 'claude' && (
             <>
-              <h2>Let Claude recreate references</h2>
+              <h2>Use Claude with your boards</h2>
+              <p>Claude recreates references as code, captures a site’s motion, and snapshots sites that block previews.</p>
               <ol className="onboarding-steps">
                 <li>
                   <span>Open Claude and go to Code</span>
@@ -138,15 +130,13 @@ export function Onboarding() {
                   <span>Choose the folder “{name}”</span>
                 </li>
                 <li>
-                  <span>
-                    Select a reference here, press <kbd>⌘K</kbd>, choose Copy /recreate command, and paste it into Claude
-                  </span>
+                  <span>Copy a task from Moshboard and paste it in</span>
                 </li>
               </ol>
-              <p className="onboarding-tip">Using Codex? Open the same folder.</p>
               <button className="btn btn-primary onboarding-cta" onClick={close}>
                 Done
               </button>
+              <p className="onboarding-tip">Using Codex? Open the same folder.</p>
             </>
           )}
         </div>

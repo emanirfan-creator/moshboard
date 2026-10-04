@@ -3981,17 +3981,17 @@ textarea,
 .onboarding .dialog-body {
   padding: 24px 24px 22px;
 }
-/* Picking, reconnecting, folder gone: one message and one button, centered. */
-.onboarding[data-center] .dialog-body {
+/* Every setup step: the mark, one message and one button, centered. */
+.onboarding .dialog-body {
   align-items: center;
   text-align: center;
   padding: 44px 40px 36px;
 }
-.onboarding[data-center] .dialog-body h2 {
+.onboarding .dialog-body h2 {
   margin-bottom: 8px;
   font-size: 16px;
 }
-.onboarding[data-center] .dialog-body > p {
+.onboarding .dialog-body > p {
   max-width: 320px;
   margin-bottom: 24px;
   text-wrap: balance;
@@ -4013,7 +4013,7 @@ textarea,
   overflow: hidden;
   pointer-events: none;
 }
-.onboarding[data-center] .dialog-body {
+.onboarding .dialog-body {
   position: relative;
   z-index: 1;
 }
@@ -4027,10 +4027,10 @@ textarea,
   padding: 0 14px;
   font-size: 13px;
 }
-.onboarding[data-center] .onboarding-cta {
+.onboarding .onboarding-cta {
   align-self: center;
 }
-.onboarding[data-center] .onboarding-tip {
+.onboarding .onboarding-tip {
   margin-top: 16px;
   max-width: 280px;
   text-wrap: balance;
@@ -4042,7 +4042,10 @@ textarea,
 }
 .onboarding-list,
 .onboarding-steps {
-  margin: 4px 0 20px;
+  /* A left-aligned list, centered as a block under the heading. */
+  align-self: center;
+  text-align: left;
+  margin: 4px 0 24px;
   padding: 0;
   list-style: none;
   display: flex;
