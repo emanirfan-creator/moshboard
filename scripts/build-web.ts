@@ -13,6 +13,7 @@ const FUNCTIONS: Record<string, string> = {
   registry: '/api/registry(/.*)?',
   fonts: '/api/fonts',
   embeddable: '/api/embeddable(/.*)?',
+  tailwind: '/api/tailwind(/.*)?',
 }
 
 process.env.VITE_FOLDER_ONLY = '1'

@@ -2,6 +2,12 @@ import { useEffect, useState, type RefObject } from 'react'
 
 /** How long a block can sit off-screen before its heavy content (iframe) is unloaded. */
 const UNLOAD_AFTER_MS = 20_000
+/**
+ * How long a block stays drawn after leaving the screen. A pan sweeps blocks in and out
+ * constantly; switching a live iframe off and on again makes it redraw from scratch, which is
+ * what stutters. Coming into view is immediate.
+ */
+const HIDE_AFTER_MS = 600
 
 // One observer for every block (per margin) instead of one each: a big board otherwise
 // runs hundreds of observers through every pan and zoom.
@@ -35,7 +41,16 @@ export function useInView(ref: RefObject<Element | null>, margin = '50%') {
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    return observe(el, margin, setInView)
+    let t: ReturnType<typeof setTimeout> | undefined
+    const stop = observe(el, margin, (v) => {
+      clearTimeout(t)
+      if (v) setInView(true)
+      else t = setTimeout(() => setInView(false), HIDE_AFTER_MS)
+    })
+    return () => {
+      clearTimeout(t)
+      stop()
+    }
   }, [ref, margin])
 
   useEffect(() => {

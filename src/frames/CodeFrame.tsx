@@ -149,6 +149,8 @@ export function CodeFrame({
     setReady(false)
     if (!srcdoc) return
     const t = setTimeout(() => {
+      // Loaded (or showing its own error) in time: nothing to retry.
+      if (readyRef.current) return
       if (!retried.current) {
         retried.current = true
         setReload((n) => n + 1)

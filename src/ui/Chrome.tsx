@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { addNote, addSection, addText, exportBoard, fitBoard } from '../actions'
-import { getState, INSPECTOR_W, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, useStore, viewLeft } from '../store'
+import { getState, INSPECTOR_W, MAX_ZOOM, MIN_ZOOM, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, useStore, viewLeft } from '../store'
 import {
   CaretIcon,
   CloseIcon,
@@ -185,7 +185,7 @@ function ViewControls({ right }: { right: number }) {
     const c = getState().camera
     const cx = (viewLeft() + window.innerWidth) / 2
     const cy = window.innerHeight / 2
-    const nz = Math.min(4, Math.max(0.08, c.z * k))
+    const nz = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, c.z * k))
     setCamera({ z: nz, x: cx - (cx - c.x) * (nz / c.z), y: cy - (cy - c.y) * (nz / c.z) })
   }
   return (

@@ -282,8 +282,15 @@ export function useCamera<T>(select: (c: Camera) => T): T {
   return useSyncExternalStore(subscribeCamera, () => select(state.camera))
 }
 
+export const MIN_ZOOM = 0.08
+export const MAX_ZOOM = 4
+
 let cameraTimer: ReturnType<typeof setTimeout> | undefined
 export function setCamera(camera: Camera) {
+  // Every view goes through here, so a fit in a narrow window (or a bad saved view) can't
+  // flip the board with a zero or negative zoom.
+  if (![camera.x, camera.y, camera.z].every(Number.isFinite)) return
+  camera = { ...camera, z: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, camera.z)) }
   state = { ...state, camera }
   cameraSubs.forEach((f) => f())
   // Persist once movement settles, not on every pan/zoom event.

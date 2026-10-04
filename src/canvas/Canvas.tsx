@@ -15,6 +15,8 @@ import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
 import {
   frameById,
   getState,
+  MAX_ZOOM,
+  MIN_ZOOM,
   onCamera,
   screenToWorld,
   setCamera,
@@ -84,7 +86,7 @@ export function Canvas() {
       moving()
       const c = getState().camera
       if (e.ctrlKey || e.metaKey) {
-        const z = clamp(c.z * Math.exp(-e.deltaY * 0.01), 0.08, 4)
+        const z = clamp(c.z * Math.exp(-e.deltaY * 0.01), MIN_ZOOM, MAX_ZOOM)
         const k = z / c.z
         setCamera({ z, x: e.clientX - (e.clientX - c.x) * k, y: e.clientY - (e.clientY - c.y) * k })
       } else {

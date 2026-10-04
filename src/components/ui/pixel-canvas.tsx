@@ -110,6 +110,10 @@ function definePixelCanvas() {
     private reducedMotion: boolean
     private initialized = false
     private resizeObserver: ResizeObserver | null = null
+    // Off screen (or inside a hidden block) the animation waits instead of drawing every frame.
+    private visibleObserver: IntersectionObserver | null = null
+    private visible = true
+    private pending: 'appear' | 'disappear' | null = null
     private host: Element | null = null
     // Grid lives in CSS pixels; the context is scaled by devicePixelRatio.
     private cssW = 0
@@ -157,6 +161,11 @@ function definePixelCanvas() {
         if (this.active) this.handleAnimation('appear')
         this.resizeObserver = new ResizeObserver(() => requestAnimationFrame(() => this.handleResize()))
         this.resizeObserver.observe(this)
+        this.visibleObserver = new IntersectionObserver(([e]) => {
+          this.visible = e.isIntersecting
+          if (this.visible && this.pending) this.handleAnimation(this.pending)
+        })
+        this.visibleObserver.observe(this)
       })
       this.host?.addEventListener('mouseenter', this.onEnter)
       this.host?.addEventListener('mouseleave', this.onLeave)
@@ -169,6 +178,7 @@ function definePixelCanvas() {
     disconnectedCallback() {
       this.initialized = false
       this.resizeObserver?.disconnect()
+      this.visibleObserver?.disconnect()
       this.host?.removeEventListener('mouseenter', this.onEnter)
       this.host?.removeEventListener('mouseleave', this.onLeave)
       this.host?.removeEventListener('focus', this.onEnter, { capture: true })
@@ -231,7 +241,13 @@ function definePixelCanvas() {
 
     handleAnimation(name: 'appear' | 'disappear') {
       if (this.animation) cancelAnimationFrame(this.animation)
+      this.pending = name
       const animate = () => {
+        if (!this.visible) {
+          // Picks up where it left off when it's back on screen.
+          this.animation = null
+          return
+        }
         this.animation = requestAnimationFrame(animate)
         const timeNow = performance.now()
         const timePassed = timeNow - this.timePrevious
@@ -247,6 +263,7 @@ function definePixelCanvas() {
         if (allIdle && this.animation) {
           cancelAnimationFrame(this.animation)
           this.animation = null
+          this.pending = null
         }
       }
       animate()

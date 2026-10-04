@@ -2562,9 +2562,10 @@ body:has(.sidebar[data-open]) .hint {
   pointer-events: auto;
 }
 
-/* Off screen: skip drawing a block's content. Iframes inside stop rendering and running
-   animation frames until it comes back (the in-view margin brings it back before it shows). */
-.frame[data-away] .frame-body {
+/* Off screen: skip drawing a block's content. Not for blocks holding an iframe (code, sites):
+   Chrome already stops drawing an off-screen iframe, and switching one off makes it redraw from
+   scratch when it comes back, which is what stuttered while panning. */
+.frame[data-away]:not([data-type='code'], [data-type='url']) .frame-body {
   content-visibility: hidden;
 }
 

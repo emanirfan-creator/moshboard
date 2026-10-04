@@ -96,6 +96,11 @@ function LiveSite({ frame, interact, size }: { frame: Frame; interact: boolean; 
   const vp = frame.viewport
   const scale = vp ? size.w / vp : 1
   const [loaded, setLoaded] = useState(false)
+  // Some pages never report that they loaded (a dead address, a stalled server): stop waiting.
+  useEffect(() => {
+    const t = setTimeout(() => setLoaded(true), 15_000)
+    return () => clearTimeout(t)
+  }, [frame.src])
   return (
     <>
       <BlockLoader loading={!loaded} />
