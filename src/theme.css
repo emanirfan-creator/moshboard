@@ -1839,6 +1839,9 @@ body:has(.sidebar[data-open]) .hint {
   color: var(--text-3);
   font-size: 12px;
 }
+.export-prompt + .export-prompt {
+  margin-top: 12px;
+}
 .export-prompt p {
   margin: 8px 0 0;
   color: var(--text-2);
