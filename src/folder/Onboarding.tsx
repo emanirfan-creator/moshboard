@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { PixelCanvas } from '../components/ui/pixel-canvas'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
-import { GlowEdge } from '../ui/GlowEdge'
 import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
 import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
@@ -58,7 +57,6 @@ export function Onboarding() {
             <CloseIcon />
           </button>
         )}
-        {centered && <GlowEdge />}
         {/* Ripples in on hover, and plays while a folder opens. */}
         {centered && <PixelCanvas className="onboarding-pixels" active={connecting} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />}
         <div className="dialog-body">
