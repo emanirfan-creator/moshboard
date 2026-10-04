@@ -8,6 +8,7 @@ import { fontStack } from '../shared/fonts.ts'
 import { presetFor } from '../shared/providers.ts'
 import type { Frame } from '../shared/types.ts'
 import { api, mediaUrl } from './api'
+import { boardLabel } from './folder/folder'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './canvas/blocks'
 import { buildSrcdoc } from './frames/sandbox'
 import { getState, toast } from './store'
@@ -225,7 +226,7 @@ export async function shareBoard() {
     a.click()
     setTimeout(() => URL.revokeObjectURL(a.href), 10000)
     const mb = html.length / 1e6
-    toast(`Saved ${__BOARDS__}/${s.boardName}/export/${name} (${mb < 1 ? '<1' : Math.round(mb)} MB) and downloaded it`)
+    toast(`Saved ${boardLabel(s.boardName)}/export/${name} (${mb < 1 ? '<1' : Math.round(mb)} MB) and downloaded it`)
     cue('ready')
   } catch (e) {
     toast(`Couldn’t build the share page: ${(e as Error).message}`, true)

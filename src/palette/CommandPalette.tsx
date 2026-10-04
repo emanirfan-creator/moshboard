@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { chooseFolder, disconnectFolder, FOLDER_ONLY, folderSupported } from '../folder/folder'
 import { hasColors } from '../boardColors'
 import {
   addNote,
@@ -154,7 +155,10 @@ function Palette() {
       ask({ placeholder: 'Canvas name', initial: s.board?.name, submit: (v) => renameCanvas(v) }),
     )
     add('Canvas', 'Duplicate canvas', () => duplicateCanvas(s.boardName))
-    add('Canvas', 'Open the example board', openSample)
+    if (!s.folder) add('Canvas', 'Open the example board', openSample)
+    if (folderSupported()) add('Folder', s.folder ? 'Choose another folder…' : 'Open a folder…', chooseFolder)
+    if (s.folder) add('Folder', 'Use Claude with this folder', () => setState({ palette: false, onboarding: 'claude' }))
+    if (s.folder && !FOLDER_ONLY) add('Folder', 'Use the boards next to Moshboard', disconnectFolder)
     add('Canvas', s.sidebar ? 'Hide sidebar' : 'Show sidebar', () => toggleSidebar(), '[')
     add('Help', 'Keyboard shortcuts', () => setState({ shortcuts: true }), '?')
     for (const c of s.canvases) if (c.id !== s.boardName) add('Go to', c.name, () => switchBoard(c.id))

@@ -26,6 +26,8 @@ const relPath = (rel: string) => rel.split('/').map(enc).join('/')
 async function ok(r: Response) {
   if (!r.ok) {
     const body = await r.json().catch(() => ({}))
+    // Folder mode: Chrome took back access to the folder (see src/folder/folder.ts).
+    if (body.reconnect) window.dispatchEvent(new Event('mb:reconnect'))
     // Extra fields (e.g. `moved` for a renamed canvas) ride along on the error.
     throw Object.assign(new Error(body.error ?? `${r.status} ${r.statusText}`), body)
   }

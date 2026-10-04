@@ -14,6 +14,7 @@ import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } fro
 import { boardSamples, hasColors } from './boardColors'
 import { DEFAULT_FONT, SWATCH_SIZE, swatchBox, swatchFont } from '../shared/fonts.ts'
 import { api, mediaUrl } from './api'
+import { boardLabel, boardsLabel } from './folder/folder'
 import { ensureDefaultExport } from './frames/sandbox'
 import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
@@ -122,7 +123,9 @@ export function ensureFile(rel: string) {
 }
 
 export async function refreshCanvases() {
-  setState({ canvases: await api.boards() })
+  // Before a folder is connected (hosted app) there are no canvases to list yet.
+  const canvases = await api.boards().catch(() => null)
+  if (canvases) setState({ canvases })
 }
 
 export async function switchBoard(id: string) {
@@ -189,7 +192,7 @@ export async function deleteCanvas(id: string) {
     if (rest.length) await switchBoard(rest[0].id)
     else await createCanvas('Untitled')
   }
-  toast(`Moved “${info?.name ?? id}” to ${__BOARDS__}/.trash`)
+  toast(`Moved “${info?.name ?? id}” to ${boardsLabel()}/.trash`)
 }
 
 // ── frames ──────────────────────────────────────────────
@@ -1165,11 +1168,11 @@ export function copySetupFix(id = getState().selected[0]) {
   const s = getState()
   const rel = `frames/${f.id}.wrapper.tsx`
   const prompt = [
-    `In Moshboard board "${s.boardName}", the component in ${__BOARDS__}/${s.boardName}/${f.file} (frame "${f.id}") doesn’t render:`,
+    `In Moshboard board "${s.boardName}", the component in ${boardLabel(s.boardName)}/${f.file} (frame "${f.id}") doesn’t render:`,
     `"${s.errors[f.id] ?? 'it needs a provider or context'}"`,
     ``,
-    `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix ${__BOARDS__}/${s.boardName}/${f.wrapper}` : `Create ${__BOARDS__}/${s.boardName}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
-      `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in ${__BOARDS__}/${s.boardName}/board.json`}. Don’t change the component itself.`,
+    `It needs its library’s provider or a React context around it. ${f.wrapper ? `Fix ${boardLabel(s.boardName)}/${f.wrapper}` : `Create ${boardLabel(s.boardName)}/${rel}`}, default-exporting \`function Wrapper({ children })\` that renders the providers it needs around children` +
+      `${f.wrapper ? '' : `, and set "wrapper": "${rel}" on that frame in ${boardLabel(s.boardName)}/board.json`}. Don’t change the component itself.`,
   ].join('\n')
   copyText(prompt).then((ok) =>
     ok ? toast('Copied a fix. Paste it into Claude Code') : toast('Couldn’t copy to the clipboard', true),

@@ -4,3 +4,4 @@ boards/*/export
 boards/.trash
 .DS_Store
 boards/
+.vercel

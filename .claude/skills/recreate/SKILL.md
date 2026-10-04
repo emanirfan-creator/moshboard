@@ -9,7 +9,9 @@ Turn one reference frame into a **coded copy** with `@param` handles, placed nex
 
 ## Where the board is
 
-Paths below are relative to the board folder, `<boards>/<board>/` (the one holding `board.json`). In the Moshboard folder itself that's `boards/<board>/`. In an app repo, boards sit wherever Moshboard was pointed with `MOSHBOARD_BOARDS` (often `design/<board>/`); find `<board>/board.json` if it isn't obvious.
+Paths below are relative to the board folder, `<boards>/<board>/` (the one holding `board.json`). In the Moshboard folder itself that's `boards/<board>/`. In an app repo, boards sit wherever Moshboard was pointed with `MOSHBOARD_BOARDS` (often `design/<board>/`); find `<board>/board.json` if it isn't obvious. In a folder connected to Moshboard in the browser (this skill sits in its `.claude/`), each board is a subfolder next to `.claude/`, or, when `board.json` is right there, the folder itself is the board.
+
+In that browser version, "Analyze motion" and "Capture motion…" aren't available yet. If a video has no `analysis`, work from the clip itself (pull frames with `ffmpeg` if it's installed) and say the timings are estimates.
 
 ## 1. Read the reference
 

@@ -4,6 +4,7 @@ import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
+import type { FolderInfo, OnboardingStep } from './folder/folder'
 import { cue } from './ui/sound'
 
 export interface Camera {
@@ -55,6 +56,10 @@ export interface State {
   jobs: Record<string, string>
   /** blocks for frames still on their way (a link downloading, a component fetching) */
   pending: Pending[]
+  /** folder mode: the folder on the user's computer that holds the boards (see src/folder/folder.ts) */
+  folder: FolderInfo | null
+  /** folder mode: the setup screen showing, if any */
+  onboarding: OnboardingStep | null
 }
 
 export interface Pending {
@@ -104,6 +109,8 @@ let state: State = {
   picking: null,
   jobs: {},
   pending: [],
+  folder: null,
+  onboarding: null,
 }
 
 const subs = new Set<() => void>()

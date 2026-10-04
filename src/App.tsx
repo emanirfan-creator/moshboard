@@ -28,6 +28,8 @@ import { Chrome, Shortcuts } from './ui/Chrome'
 import { ExportDialog } from './ui/ExportDialog'
 import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
+import { onFolderChange, startFolder } from './folder/folder'
+import { Onboarding } from './folder/Onboarding'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
@@ -135,8 +137,6 @@ function usePaste() {
 /** Claude Code (or anyone) editing board files on disk shows up live. */
 function useLiveFiles() {
   useEffect(() => {
-    const hot = import.meta.hot
-    if (!hot) return
     const on = ({ board, file }: { board: string; file: string }) => {
       const s = getState()
       // Any canvas's name can change on disk, so the sidebar list follows board.json edits.
@@ -145,8 +145,15 @@ function useLiveFiles() {
       if (file === 'board.json') loadBoard(board)
       else if (file in s.files) loadFile(file)
     }
-    hot.on('mb:change', on)
-    return () => hot.off?.('mb:change', on)
+    // A connected folder reports its own changes; the local server sends them over Vite's socket.
+    const offFolder = onFolderChange(on)
+    const hot = import.meta.hot
+    const onHot = (c: { board: string; file: string }) => !getState().folder && on(c)
+    hot?.on('mb:change', onHot)
+    return () => {
+      offFolder()
+      hot?.off?.('mb:change', onHot)
+    }
   }, [])
 }
 
@@ -155,9 +162,12 @@ export function App() {
   const toast = useStore((s) => s.toast)
   // Center in the visible canvas, not the window (the sidebar covers the left).
   const emptyLeft = useStore((s) => (s.sidebar ? SIDEBAR_W : 0))
+  const inFolder = useStore((s) => !!s.folder)
 
   useEffect(() => {
-    loadBoard(decodeURIComponent(location.hash.slice(1)) || 'default')
+    startFolder().then((ready) => {
+      if (ready) loadBoard(decodeURIComponent(location.hash.slice(1)) || 'default')
+    })
     const onHash = () => {
       const name = decodeURIComponent(location.hash.slice(1))
       if (name && name !== getState().boardName) loadBoard(name)
@@ -183,9 +193,11 @@ export function App() {
             <p className="empty-tip">
               Or paste (<kbd>⌘V</kbd>) or drop anything here.
             </p>
-            <button className="btn btn-ghost empty-sample" onClick={openSample}>
-              See an example board
-            </button>
+            {!inFolder && (
+              <button className="btn btn-ghost empty-sample" onClick={openSample}>
+                See an example board
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -197,6 +209,7 @@ export function App() {
       <Shortcuts />
       <ExportDialog />
       <CapturePicker />
+      <Onboarding />
       {toast && (
         <div className="toast" data-error={toast.error || undefined}>
           {toast.text}

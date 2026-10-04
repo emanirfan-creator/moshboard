@@ -3972,3 +3972,64 @@ textarea,
 .frame.pending .block-title {
   color: var(--text-3);
 }
+
+/* ── folder setup (src/folder/Onboarding.tsx) ────────── */
+
+.onboarding-scrim {
+  background: rgba(0, 0, 0, 0.45);
+}
+.onboarding .dialog-body {
+  padding: 24px 24px 22px;
+}
+.onboarding-cta {
+  align-self: flex-start;
+  height: 32px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.onboarding-tip {
+  margin: 12px 0 0;
+  color: var(--text-4);
+  font-size: 12px;
+}
+.onboarding-list,
+.onboarding-steps {
+  margin: 4px 0 20px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text-2);
+}
+.onboarding-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.onboarding-list svg {
+  flex: none;
+  color: var(--text-3);
+}
+.onboarding-steps {
+  counter-reset: step;
+}
+.onboarding-steps li {
+  counter-increment: step;
+  display: flex;
+  gap: 10px;
+  line-height: 1.5;
+}
+.onboarding-steps li::before {
+  content: counter(step);
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: 11px;
+  margin-top: 1px;
+}

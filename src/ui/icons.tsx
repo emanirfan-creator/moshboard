@@ -129,3 +129,13 @@ export const HandIcon = () => (
     <path d="M5.5 8V3.8a1 1 0 0 1 2 0V7.5M7.5 7V3a1 1 0 0 1 2 0v4M9.5 7.2V3.8a1 1 0 0 1 2 0V8.5M11.5 6.5a1 1 0 0 1 2 0V10a4 4 0 0 1-4 4H9a4 4 0 0 1-3.2-1.6L3.2 9a1 1 0 0 1 1.5-1.3L5.5 8.6" />
   </Icon>
 )
+export const FolderIcon = () => (
+  <Icon>
+    <path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" />
+  </Icon>
+)
+export const CheckIcon = () => (
+  <Icon>
+    <path d="m3.5 8.5 3 3 6-7" />
+  </Icon>
+)
