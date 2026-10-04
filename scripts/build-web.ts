@@ -3,7 +3,7 @@
 // (server/web/*) as functions. Everything the website needs from a server is in this list.
 import fs from 'node:fs'
 import path from 'node:path'
-import { build } from 'vite'
+import { build, type Plugin } from 'vite'
 
 const OUT = path.resolve('.vercel/output')
 /** Function name → the local route(s) it answers, so the client calls the same paths as locally. */
@@ -18,7 +18,41 @@ const FUNCTIONS: Record<string, string> = {
 process.env.VITE_FOLDER_ONLY = '1'
 fs.rmSync(OUT, { recursive: true, force: true })
 
-await build({ build: { outDir: path.join(OUT, 'static'), emptyOutDir: true } })
+await build({
+  plugins: [preloadFont()],
+  build: {
+    outDir: path.join(OUT, 'static'),
+    emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // Libraries in their own files: they rarely change, so they stay cached across deploys
+        // and only the app's own code is downloaded again.
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /node_modules[\\/](\.pnpm[\\/][^\\/]+[\\/]node_modules[\\/])?(react|react-dom|scheduler)[\\/]/ },
+            { name: 'compiler', test: /node_modules[\\/].*(sucrase|ts-interface-checker|@jridgewell|lines-and-columns)[\\/]/ },
+            { name: 'vendor', test: /node_modules[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
+})
+
+/** Starts the Latin Inter download with the page, instead of after the stylesheet is read. */
+function preloadFont(): Plugin {
+  return {
+    name: 'preload-font',
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        const font = Object.keys(ctx.bundle ?? {}).find((f) => /inter-latin-opsz-normal-.*\.woff2$/.test(f))
+        if (!font) return
+        return [{ tag: 'link', attrs: { rel: 'preload', href: `/${font}`, as: 'font', type: 'font/woff2', crossorigin: '' }, injectTo: 'head' }]
+      },
+    },
+  }
+}
 
 for (const name of Object.keys(FUNCTIONS)) {
   const dir = path.join(OUT, 'functions/api', `${name}.func`)
@@ -49,6 +83,8 @@ fs.writeFileSync(
       routes: [
         // The folder worker must update as soon as a new version ships.
         { src: '^/folder-sw\\.js$', headers: { 'Cache-Control': 'no-cache' }, continue: true },
+        // Built files have the content hash in their name, so a browser never needs to ask again.
+        { src: '^/assets/(.*)$', headers: { 'Cache-Control': 'public, max-age=31536000, immutable' }, continue: true },
         ...Object.entries(FUNCTIONS).map(([name, route]) => ({ src: `^${route}$`, dest: `/api/${name}` })),
         { handle: 'filesystem' },
       ],

@@ -19,6 +19,19 @@
         "5181"
       ],
       "port": 5181
+    },
+    {
+      "name": "website-build",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--outDir",
+        ".vercel/output/static",
+        "--port",
+        "5182"
+      ],
+      "port": 5182
     }
   ]
 }
