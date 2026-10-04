@@ -8,6 +8,7 @@ import type { ClaudeTaskKind } from './folder/ClaudeTask'
 import type { FolderInfo, OnboardingStep } from './folder/folder'
 import { cue } from './ui/sound'
 import { layoutMembers, movedSince, settleLayouts, type Rect } from './layout'
+import { linkNumbers } from '../shared/frame-links.ts'
 
 export interface Camera {
   x: number
@@ -382,7 +383,11 @@ export const inspectorOpen = (s: State) =>
   (s.selected.length === 1 && inspected(frameById(s.selected[0])))
 const inspected = (f?: Frame) =>
   !!f &&
-  (INSPECTED.has(f.type) || f.type === 'swatch' || f.type === 'section' || (!!state.board && layoutMembers(state.board.frames).has(f.id)))
+  (INSPECTED.has(f.type) ||
+    f.type === 'swatch' ||
+    f.type === 'section' ||
+    // Blocks in a layout or a link: the panel has their place there, or their links.
+    (!!state.board && (layoutMembers(state.board.frames).has(f.id) || linkNumbers(f.id, state.board.frames).length > 0)))
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
 /**
  * Whether the sidebar is on screen: the user's setting, except that the website keeps it closed

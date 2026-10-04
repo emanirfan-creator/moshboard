@@ -47,6 +47,7 @@ import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
 import { SectionBody, TileBody } from './ArrangeInspector'
+import { LinksBody } from './LinksInspector'
 import { isTile } from '../arrange'
 
 const MODE_KIND = { grid: 'Grid', columns: 'Columns', rows: 'Rows' } as const
@@ -143,6 +144,7 @@ function Body({ frame }: { frame: Frame }) {
       </header>
       {frame.type === 'section' && <SectionBody frame={frame} />}
       {tile && <TileBody frame={frame} />}
+      <LinksBody frame={frame} />
       {frame.type === 'code' && <CodeBody frame={frame} />}
       {frame.type === 'video' && <VideoBody frame={frame} />}
       {frame.type === 'text' && <TextBody frame={frame} />}

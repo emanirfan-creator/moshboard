@@ -380,6 +380,21 @@ button {
   stroke-linecap: round;
   stroke-dasharray: calc(10px * var(--inv)) calc(26px * var(--inv));
 }
+/* A wide, invisible stroke to click: it goes to the line's other end. */
+.link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.canvas[data-comparing] .link-hit {
+  pointer-events: none;
+}
+.links g:has(.link-hit:hover) .link-line {
+  stroke: var(--c);
+}
 .links [data-on] .link-line {
   stroke: color-mix(in srgb, var(--c) 70%, transparent);
 }
@@ -4677,4 +4692,30 @@ textarea,
   font-size: 11px;
   font-weight: 400;
   font-variant-numeric: tabular-nums;
+}
+
+/* A block's links in the side panel: one row each. */
+.link-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.link-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.link-row-what {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-row .btn {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
 }

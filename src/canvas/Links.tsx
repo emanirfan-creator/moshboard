@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import type { Frame } from '../../shared/types.ts'
 import { linkColor, linksOf } from '../../shared/frame-links.ts'
-import { useStore } from '../store'
+import { getState, screenToWorld, useStore } from '../store'
+import { followLine } from './follow'
 
 interface Pt {
   x: number
@@ -42,6 +43,7 @@ function route(a: Frame, b: Frame): { d: string; from: Pt; to: Pt } | null {
  * Links drawn on the canvas: a copy to its reference, a note to what it's about, in the link's
  * color. Faint at rest; when either end is selected or hovered the line brightens and a dash runs
  * from the reference to what follows it. Hovering a link's number brings that link forward.
+ * Clicking a line goes to its other end (the end farther from the click).
  */
 export function Links() {
   const frames = useStore((s) => s.board?.frames)
@@ -82,6 +84,12 @@ export function Links() {
             style={{ '--c': linkColor(l.n) } as React.CSSProperties}
           >
             <path className="link-line" d={l.d} />
+            <path
+              className="link-hit"
+              d={l.d}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => !getState().compare && followLine(l.ref, l.id, l, screenToWorld(e.clientX, e.clientY))}
+            />
             <path className="link-flow" d={l.d} />
             <circle className="link-end link-ref" cx={l.from.x} cy={l.from.y} />
             <circle className="link-end" cx={l.to.x} cy={l.to.y} />

@@ -220,6 +220,8 @@ const SHORTCUTS: [string, string][] = [
   ['Drag on empty canvas', 'Select an area'],
   ['Shift + click', 'Add to selection'],
   ['⌃⌥T', 'Arrange selection (again: next shape)'],
+  ['L', 'Go to a linked block (again: the next one)'],
+  ['⌥←', 'Back to where you were'],
   ['← ↑ → ↓', 'Move a block inside a layout'],
   ['↵', 'Crop a picture in a layout'],
   ['⌘Z  /  ⌘⇧Z', 'Undo / redo'],

@@ -93,6 +93,8 @@ Add `--out <folder>` to write somewhere else.
 | Shift + click | Add to selection |
 | ⌃⌥T | Arrange the selection the way you last did (again: next shape) |
 | ← ↑ → ↓ | Move a block inside a layout (it trades places) |
+| L | Go to a linked block (again: the next one); clicking a link line goes to its other end |
+| ⌥← | Back to where you were before the jump |
 | ↵ | Crop a picture in a layout |
 | ⌘Z / ⌘⇧Z | Undo / redo |
 | H / Space + drag | Pan |
