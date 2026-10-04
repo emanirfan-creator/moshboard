@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { Frame } from '../../shared/types.ts'
 import { assetUrl } from '../actions'
+import { askClaude } from '../folder/ClaudeTask'
+import { FOLDER_ONLY } from '../folder/folder'
 import { api } from '../api'
 import { getState, updateFrame } from '../store'
 import { BlockLoader } from './BlockLoader'
@@ -43,13 +45,30 @@ export function UrlFrame({ frame, interact, size }: { frame: Frame; interact: bo
   }, [frame.id, frame.src, frame.embed])
 
   useEffect(() => {
-    if (frame.embed !== 'blocked' || frame.snapshot || error) return
+    // The website can't take snapshots itself; it asks Claude (below).
+    if (frame.embed !== 'blocked' || frame.snapshot || error || FOLDER_ONLY) return
     takeSnapshot(frame).catch((e) => setError((e as Error).message))
   }, [frame.embed, frame.snapshot, error])
 
   if (!frame.embed) return <BlockLoader loading label="Checking site" />
   if (frame.embed === 'live') return <LiveSite frame={frame} interact={interact} size={size} />
 
+  if (FOLDER_ONLY && !frame.snapshot) {
+    return (
+      <div className="block-error" role="note">
+        <h3>This site doesn’t allow previews</h3>
+        <p>Claude can open {new URL(frame.src!).host} in your Chrome and save a picture of it here.</p>
+        <div className="block-error-actions" onPointerDown={(e) => e.stopPropagation()}>
+          <button className="btn" onClick={() => askClaude('snapshot', frame.id)}>
+            Snapshot with Claude
+          </button>
+          <button className="btn" onClick={() => window.open(frame.src, '_blank', 'noopener')}>
+            Open site
+          </button>
+        </div>
+      </div>
+    )
+  }
   if (error) {
     return (
       <div className="block-error" role="alert">

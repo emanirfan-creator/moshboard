@@ -4084,6 +4084,33 @@ textarea,
   font-size: 11px;
   margin-top: 1px;
 }
+/* "Ask Claude" sheet (src/folder/ClaudeTask.tsx): the setup card with a field and a trigger switch. */
+.claude-task-field {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  text-align: left;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.claude-task-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: transparent;
+  outline: 0;
+  color: var(--text-1);
+  font-size: 13px;
+  user-select: text;
+  transition: border-color var(--dur) var(--ease);
+}
+.claude-task-field input:focus {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
 /* The board fades in when it first arrives (App.tsx). */
 .board-layer[data-in] {
   animation: board-in 320ms var(--ease) both;

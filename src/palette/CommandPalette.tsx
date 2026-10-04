@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { askClaude } from '../folder/ClaudeTask'
 import { chooseFolder, FOLDER_ONLY, folderSupported } from '../folder/folder'
 import { hasColors } from '../boardColors'
 import {
@@ -98,7 +99,13 @@ function Palette() {
       add('Video', 'Copy /recreate command', copyRecreate)
       add('Video', 'Replay with linked copy', () => replay(), 'R')
     }
-    if (one?.type === 'url') {
+    if (one?.type === 'url' && FOLDER_ONLY) {
+      // The website can't drive a browser: these go to the user's Claude.
+      add('Site', 'Capture motion with Claude…', () => askClaude('capture', one.id))
+      if (one.embed === 'blocked') add('Site', 'Snapshot with Claude…', () => askClaude('snapshot', one.id))
+      add('Site', 'Read fonts with Claude…', () => askClaude('fonts', one.id))
+      add('Site', 'Copy /recreate command', copyRecreate)
+    } else if (one?.type === 'url') {
       add('Site', 'Capture motion…', () => setState({ picking: one.id }))
       add('Site', 'Copy /recreate command', copyRecreate)
     }

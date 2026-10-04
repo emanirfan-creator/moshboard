@@ -5,6 +5,8 @@
 import type { Frame } from '../shared/types.ts'
 import { analyzeSelected, copyRecreate, exportBoard, lockParams, replay } from './actions'
 import { getState, setState } from './store'
+import { askClaude } from './folder/ClaudeTask'
+import { FOLDER_ONLY } from './folder/folder'
 
 export type Stage = 'measured' | 'recreated' | 'tuned'
 export const STAGES: Stage[] = ['measured', 'recreated', 'tuned']
@@ -62,7 +64,10 @@ export function nextStep(f: Frame): Step | null {
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
   if (f.type === 'url') {
-    if (!f.analysis) return { label: 'Capture motion', hint: 'Pick an element on the site and record its exact timing', run: () => setState({ picking: f.id }) }
+    if (!f.analysis)
+      return FOLDER_ONLY
+        ? { label: 'Capture with Claude', hint: 'Claude opens the site in your Chrome and records its exact timing', run: () => askClaude('capture', f.id) }
+        : { label: 'Capture motion', hint: 'Pick an element on the site and record its exact timing', run: () => setState({ picking: f.id }) }
     if (!copiesOf(f, frames).some((c) => c.file?.endsWith('.tsx')))
       return { label: 'Copy /recreate', hint: 'Copies the command; paste it in Claude Code to turn the capture into a tunable copy', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }

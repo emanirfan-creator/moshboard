@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:web": "VITE_FOLDER_ONLY=1 vite",
-    "build:web": "node scripts/build-web.ts",
+    "dev:web": "node scripts/build-tools.ts && VITE_FOLDER_ONLY=1 vite",
+    "build:tools": "node scripts/build-tools.ts",
+    "build:web": "node scripts/build-tools.ts && node scripts/build-web.ts",
     "typecheck": "tsc --noEmit",
     "export": "node scripts/export.ts",
     "skill:install": "node scripts/install-skill.ts"

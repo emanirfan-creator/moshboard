@@ -326,12 +326,31 @@ sources) and \`assets/\` (uploads and analysis). The app watches these files, so
 
 To recreate a reference as a tunable code frame (\`/recreate <board> <frameId>\`), follow
 \`.claude/skills/recreate/SKILL.md\`.
+
+To capture a website's motion, snapshot a site, or read its fonts, follow
+\`.claude/skills/moshboard-site/SKILL.md\` (it runs a script with the installed Chrome).
 `
 
 const FILES: [string, string][] = [
   ['.claude/skills/recreate/SKILL.md', skill],
   ['AGENTS.md', AGENTS],
 ]
+
+/** The live-site tools and their skill, built by scripts/build-tools.ts and served with the site. */
+async function siteTools(): Promise<[string, string][]> {
+  const get = (name: string) => fetch(`/tools/${name}`).then((r) => (r.ok ? r.text() : Promise.reject()))
+  try {
+    const [skillText, script] = await Promise.all([get('SKILL.md'), get('moshboard-tools.mjs')])
+    return [
+      ['.claude/skills/moshboard-site/SKILL.md', skillText],
+      ['.claude/skills/moshboard-site/moshboard-tools.mjs', script],
+      // The browser driver it sets up on first run stays out of git.
+      ['.claude/skills/moshboard-site/.gitignore', '.deps/\n'],
+    ]
+  } catch {
+    return []
+  }
+}
 
 function hash(text: string) {
   let h = 5381
@@ -347,7 +366,7 @@ function hash(text: string) {
 async function installAssistant(dir: Dir): Promise<boolean> {
   const written = (await idbGet<Record<string, string>>('installed')) ?? {}
   let ready = true
-  for (const [rel, content] of FILES) {
+  for (const [rel, content] of [...FILES, ...(FOLDER_ONLY ? await siteTools() : [])]) {
     const parts = rel.split('/')
     let current: string | null = null
     try {

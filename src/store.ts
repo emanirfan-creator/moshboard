@@ -4,6 +4,7 @@ import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
 import type { Board, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
+import type { ClaudeTaskKind } from './folder/ClaudeTask'
 import type { FolderInfo, OnboardingStep } from './folder/folder'
 import { cue } from './ui/sound'
 
@@ -60,6 +61,8 @@ export interface State {
   folder: FolderInfo | null
   /** folder mode: the setup screen showing, if any */
   onboarding: OnboardingStep | null
+  /** website: the "Ask Claude" sheet for a site frame (capture, snapshot, fonts), if open */
+  claudeTask: { kind: ClaudeTaskKind; frameId: string } | null
 }
 
 export interface Pending {
@@ -111,6 +114,7 @@ let state: State = {
   pending: [],
   folder: null,
   onboarding: null,
+  claudeTask: null,
 }
 
 const subs = new Set<() => void>()

@@ -29,6 +29,7 @@ import { ExportDialog } from './ui/ExportDialog'
 import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
 import { FOLDER_ONLY, onFolderChange, startFolder } from './folder/folder'
+import { ClaudeTask } from './folder/ClaudeTask'
 import { Onboarding } from './folder/Onboarding'
 import { Loader } from './ui/Loader'
 
@@ -225,6 +226,7 @@ export function App() {
       <ExportDialog />
       <CapturePicker />
       <Onboarding />
+      <ClaudeTask />
       {toast && (
         <div className="toast" data-error={toast.error || undefined}>
           {toast.text}

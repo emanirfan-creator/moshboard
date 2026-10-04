@@ -5,3 +5,4 @@ boards/.trash
 .DS_Store
 boards/
 .vercel
+public/tools
