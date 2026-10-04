@@ -334,6 +334,23 @@ export function setCamera(camera: Camera) {
   }, 300)
 }
 
+// A zoom gesture (pinch or ⌘-scroll) in progress. Live code frames show a still picture of
+// themselves meanwhile (see CodeFrame), so nothing has to redraw at every zoom step.
+let zooming = false
+const zoomSubs = new Set<(on: boolean) => void>()
+export const isZooming = () => zooming
+export function onZoomGesture(f: (on: boolean) => void) {
+  zoomSubs.add(f)
+  return () => {
+    zoomSubs.delete(f)
+  }
+}
+export function setZooming(on: boolean) {
+  if (on === zooming) return
+  zooming = on
+  zoomSubs.forEach((f) => f(on))
+}
+
 export function storedCamera(board: string): Camera | null {
   try {
     const raw = localStorage.getItem(`mb:camera:${board}`)

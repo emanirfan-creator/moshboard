@@ -281,6 +281,65 @@ const runtime = (values: Record<string, unknown>) => `
   // HTML frames are ready on load; React frames announce it after their first render.
   window.addEventListener("load", function () { if (!window.__mbReact) { parent.postMessage({ type: "mb:ready" }, "*"); measureSoon(); } });
   window.addEventListener("unhandledrejection", function (e) { report(e.reason && e.reason.message || e.reason); });
+  // A still picture of the frame as it is now (an SVG of the page), shown on the canvas while it
+  // zooms: redrawing a live frame at every zoom step is what made zooming stutter. Taken in an
+  // animation frame, right after the component draws, so WebGL canvases still hold their pixels.
+  window.addEventListener("message", function (e) {
+    if (!e.data || e.data.type !== "mb:still") return;
+    var id = e.data.id;
+    requestAnimationFrame(function () {
+      try {
+        var w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
+        // Elements mid-animation keep where they are right now, not where their animation starts.
+        var moving = [];
+        document.getAnimations().forEach(function (a) { var t = a.effect && a.effect.target; if (t && t.nodeType === 1) moving.push(t); });
+        var all = document.body.querySelectorAll("*"), frozen = [];
+        moving.forEach(function (el) {
+          var cs = getComputedStyle(el);
+          frozen.push([el, cs.transform, cs.opacity, cs.filter, cs.clipPath, cs.translate, cs.scale, cs.rotate]);
+        });
+        var clone = document.documentElement.cloneNode(true);
+        var cloneAll = clone.querySelector("body").querySelectorAll("*"), index = new Map();
+        for (var i = 0; i < all.length; i++) index.set(all[i], cloneAll[i]);
+        frozen.forEach(function (f) {
+          var c = index.get(f[0]);
+          if (!c || !c.style) return;
+          c.style.transform = f[1]; c.style.opacity = f[2]; c.style.filter = f[3]; c.style.clipPath = f[4];
+          c.style.translate = f[5]; c.style.scale = f[6]; c.style.rotate = f[7];
+        });
+        // Canvases and videos become pictures of what they show.
+        for (var j = 0; j < all.length; j++) {
+          var el = all[j], tag = el.tagName;
+          if (tag !== "CANVAS" && tag !== "VIDEO") continue;
+          var url = "";
+          try {
+            if (tag === "CANVAS") url = el.toDataURL();
+            else {
+              var c2 = document.createElement("canvas");
+              c2.width = el.videoWidth; c2.height = el.videoHeight;
+              c2.getContext("2d").drawImage(el, 0, 0);
+              url = c2.toDataURL();
+            }
+          } catch (err) {}
+          var img = document.createElement("img"), r = el.getBoundingClientRect(), old = index.get(el);
+          if (!old) continue;
+          img.setAttribute("class", el.getAttribute("class") || "");
+          img.setAttribute("style", (el.getAttribute("style") || "") + ";width:" + r.width + "px;height:" + r.height + "px");
+          if (url) img.src = url;
+          old.replaceWith(img);
+        }
+        clone.querySelectorAll("script").forEach(function (s) { s.remove(); });
+        var stop = document.createElement("style");
+        stop.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; }";
+        clone.querySelector("head").append(stop);
+        var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '"><foreignObject width="100%" height="100%">' +
+          new XMLSerializer().serializeToString(clone) + "</foreignObject></svg>";
+        parent.postMessage({ type: "mb:still", id: id, url: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) }, "*");
+      } catch (err) {
+        parent.postMessage({ type: "mb:still", id: id, url: null }, "*");
+      }
+    });
+  });
 })();`
 
 function safeJson(v: unknown) {

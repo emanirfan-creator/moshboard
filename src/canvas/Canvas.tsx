@@ -22,6 +22,7 @@ import {
   onCamera,
   screenToWorld,
   setCamera,
+  setZooming,
   setState,
   updateFrame,
   useStore,
@@ -79,7 +80,10 @@ export function Canvas() {
     const moving = () => {
       el.dataset.moving = ''
       clearTimeout(settle)
-      settle = setTimeout(() => delete el.dataset.moving, 160)
+      settle = setTimeout(() => {
+        delete el.dataset.moving
+        setZooming(false)
+      }, 160)
     }
     const onWheel = (e: WheelEvent) => {
       // Cropping: scrolling over the picture zooms it in its box.
@@ -97,6 +101,7 @@ export function Canvas() {
       moving()
       const c = getState().camera
       if (e.ctrlKey || e.metaKey) {
+        setZooming(true)
         const z = clamp(c.z * Math.exp(-e.deltaY * 0.01), MIN_ZOOM, MAX_ZOOM)
         const k = z / c.z
         setCamera({ z, x: e.clientX - (e.clientX - c.x) * k, y: e.clientY - (e.clientY - c.y) * k })

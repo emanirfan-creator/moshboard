@@ -1831,6 +1831,18 @@ kbd {
 .frame[data-block] .content-iframe {
   background: var(--inner);
 }
+/* A code frame's still picture while the canvas zooms (see CodeFrame): sits exactly over the frame. */
+.frame-still {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+.frame-still canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .frame[data-linked] .frame-outline {
   outline-color: rgba(255, 255, 255, 0.32) !important;
 }

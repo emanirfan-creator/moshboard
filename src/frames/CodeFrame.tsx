@@ -4,7 +4,7 @@ import { annotation, cssVars, defaults, parseParams, runtimeValues, startupParam
 import type { Frame } from '../../shared/types.ts'
 import { ensureFile } from '../actions'
 import { api } from '../api'
-import { frameById, getState, setState, updateFrame, useStore } from '../store'
+import { frameById, getState, isZooming, onZoomGesture, setState, updateFrame, useStore } from '../store'
 import { BLOCK_HEAD, BLOCK_PAD } from '../canvas/blocks'
 import { BlockError } from './BlockError'
 import { BlockLoader } from './BlockLoader'
@@ -39,6 +39,14 @@ function setError(id: string, message?: string) {
   })
 }
 
+// Frames come back to live after a zoom one after another, a few frames apart.
+let liveAgain = { at: 0, n: 0 }
+function liveAgainDelay() {
+  const now = performance.now()
+  if (now - liveAgain.at > 500) liveAgain = { at: now, n: 0 }
+  return liveAgain.n++ * 50
+}
+
 export function CodeFrame({
   frame,
   interact,
@@ -57,6 +65,43 @@ export function CodeFrame({
   const error = useStore((s) => s.errors[frame.id])
   const modulesRaw = useStore((s) => (frame.modules ? s.files[frame.modules] : ''))
   const iframe = useRef<HTMLIFrameElement>(null)
+
+  // While the canvas zooms, a still picture of the frame stands in for it: redrawing a live frame
+  // at every zoom step is what stutters. The picture is made ahead of time, while nothing is
+  // happening (once the frame settles, when it comes on screen, after each zoom), so it can swap
+  // in on the zoom's first step. The live frame comes back when the zoom stops.
+  const [still, setStill] = useState<HTMLCanvasElement | null>(null)
+  const picture = useRef<HTMLCanvasElement | null>(null)
+  const stillReq = useRef(0)
+  const canStill = useRef(false)
+  canStill.current = inView && !interact && !error
+  const takePicture = () => {
+    if (canStill.current && readyRef.current)
+      iframe.current?.contentWindow?.postMessage({ type: 'mb:still', id: ++stillReq.current }, '*')
+  }
+  const pictureTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const pictureSoon = (ms = 1500) => {
+    clearTimeout(pictureTimer.current)
+    pictureTimer.current = setTimeout(() => !isZooming() && takePicture(), ms)
+  }
+  useEffect(() => () => clearTimeout(pictureTimer.current), [])
+  useEffect(
+    () =>
+      onZoomGesture((on) => {
+        if (on) {
+          if (canStill.current && picture.current) setStill(picture.current)
+          return
+        }
+        // Back to live one frame at a time: all of them redrawing at once is a visible hitch.
+        setTimeout(() => !isZooming() && setStill(null), liveAgainDelay())
+        pictureSoon(1500)
+      }),
+    [],
+  )
+  // Zooming out brings more frames on screen: they swap to their picture too.
+  useEffect(() => {
+    if (inView && isZooming() && !interact && picture.current) setStill(picture.current)
+  }, [inView])
 
   useEffect(() => {
     if (source === undefined) ensureFile(file)
@@ -147,6 +192,7 @@ export function CodeFrame({
   useEffect(() => {
     setError(frame.id)
     setReady(false)
+    picture.current = null
     if (!srcdoc) return
     const t = setTimeout(() => {
       // Loaded (or showing its own error) in time: nothing to retry.
@@ -281,6 +327,24 @@ export function CodeFrame({
         retried.current = false
       }
       if (e.data?.type === 'mb:size') fitToContent(frame.id, e.data.w, e.data.h)
+      if (e.data?.type === 'mb:still' && e.data.url && e.data.id === stillReq.current) {
+        const id = e.data.id
+        const img = new Image()
+        img.src = e.data.url
+        img
+          .decode()
+          .then(() => {
+            if (id !== stillReq.current) return
+            // Painted once into a bitmap: an SVG picture would be redrawn at every zoom step too.
+            const c = document.createElement('canvas')
+            c.width = img.naturalWidth
+            c.height = img.naturalHeight
+            c.getContext('2d')?.drawImage(img, 0, 0)
+            picture.current = c
+            if (isZooming() && canStill.current) setStill(c)
+          })
+          .catch(() => {})
+      }
       if (e.data?.type === 'mb:fonts' && Array.isArray(e.data.fonts)) {
         // Kept on the frame (like a site's) for font suggestions; the inherited default isn't a choice.
         const fonts = (e.data.fonts as UsedFont[]).filter((u) => u.stack !== SANDBOX_FONT)
@@ -291,6 +355,11 @@ export function CodeFrame({
     window.addEventListener('message', on)
     return () => window.removeEventListener('message', on)
   }, [frame.id])
+
+  // A fresh zoom picture once the frame settles, comes on screen, or is tuned.
+  useEffect(() => {
+    if (ready && inView && !interact && !error) pictureSoon()
+  }, [ready, inView, interact, error, values, props, tune])
 
   const vp = frame.viewport
   const scale = vp ? size.w / vp : 1
@@ -310,9 +379,16 @@ export function CodeFrame({
           height: size.h / scale,
           transform: scale !== 1 ? `scale(${scale})` : undefined,
           pointerEvents: interact ? 'auto' : 'none',
-          visibility: ready && !error ? 'visible' : 'hidden',
+          visibility: ready && !error && !still ? 'visible' : 'hidden',
         }}
       />
+      {still && (
+        <div
+          className="content-iframe frame-still"
+          ref={(el) => el?.replaceChildren(still)}
+          style={{ width: vp ?? size.w, height: size.h / scale, transform: scale !== 1 ? `scale(${scale})` : undefined }}
+        />
+      )}
     </>
   )
 }
