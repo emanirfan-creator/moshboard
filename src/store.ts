@@ -7,6 +7,7 @@ import { api, type CanvasInfo, type ExportResult } from './api'
 import type { ClaudeTaskKind } from './folder/ClaudeTask'
 import type { FolderInfo, OnboardingStep } from './folder/folder'
 import { cue } from './ui/sound'
+import { layoutMembers, movedSince, settleLayouts, type Rect } from './layout'
 
 export interface Camera {
   x: number
@@ -73,6 +74,12 @@ export interface State {
   renaming: string | null
   /** Compare: sections shown side by side (see src/canvas/compare.ts) */
   compare: Compare | null
+  /** a layout shape being hovered in the side panel: where blocks would go (and the section's box) */
+  arrange: { rects: Record<string, Rect>; section: Rect; id: string | null } | null
+  /** block a dragged block would swap with, inside a layout section */
+  dropTile: string | null
+  /** image/video whose crop is being moved (drag to pan, scroll to zoom) */
+  crop: string | null
 }
 
 export interface Compare {
@@ -141,6 +148,9 @@ let state: State = {
   dropSection: null,
   renaming: null,
   compare: null,
+  arrange: null,
+  dropTile: null,
+  crop: null,
 }
 
 const subs = new Set<() => void>()
@@ -175,6 +185,7 @@ const HISTORY = 100
 /** Call when a board is (re)loaded from disk: that's the new baseline, not an undoable change. */
 export function resetHistory(frames: Frame[], keep = false) {
   committed = frames
+  settled = frames
   if (!keep) {
     undoStack.length = 0
     redoStack.length = 0
@@ -223,6 +234,7 @@ function travel(from: Frame[][], to: Frame[][]) {
   if (!prev || !state.board) return false
   to.push(state.board.frames)
   committed = prev
+  settled = prev
   const ids = new Set(prev.map((f) => f.id))
   setState({ board: { ...state.board, frames: prev }, selected: state.selected.filter((id) => ids.has(id)) })
   persist()
@@ -233,9 +245,26 @@ const step = (ok: boolean, sound: 'turn-back' | 'turn-forward') => (ok && cue(so
 export const undo = () => step(travel(undoStack, redoStack), 'turn-back')
 export const redo = () => step(travel(redoStack, undoStack), 'turn-forward')
 
+// Layout sections and their blocks are brought in line after every change (src/layout.ts),
+// except mid-gesture (a drag moves blocks freely until it ends) and while a paste is adding
+// a section's blocks one by one.
+let layoutsHeld = 0
+// The frames as layouts last saw them: what moved since then (a drag, a paste) may join one.
+let settled: Frame[] | null = null
+export const markSettled = (frames: Frame[]) => void (settled = frames)
+export function holdLayouts<T>(p: Promise<T>): Promise<T> {
+  layoutsHeld++
+  return p.finally(() => {
+    layoutsHeld--
+    if (!layoutsHeld) mutateFrames((fs) => fs)
+  })
+}
+
 export function mutateFrames(fn: (frames: Frame[]) => Frame[], save = true) {
   if (!state.board) return
-  setState({ board: { ...state.board, frames: fn(state.board.frames) } })
+  let frames = fn(state.board.frames)
+  if (!state.gesture && !layoutsHeld) settled = frames = settleLayouts(frames, movedSince(settled))
+  setState({ board: { ...state.board, frames } })
   if (save) saveSoon()
 }
 
@@ -327,7 +356,9 @@ const INSPECTED = new Set(['code', 'video', 'text', 'palette'])
 export const inspectorOpen = (s: State) =>
   s.selected.length > 1 ||
   (s.selected.length === 1 && inspected(frameById(s.selected[0])))
-const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || f.type === 'swatch')
+const inspected = (f?: Frame) =>
+  !!f &&
+  (INSPECTED.has(f.type) || f.type === 'swatch' || f.type === 'section' || (!!state.board && layoutMembers(state.board.frames).has(f.id)))
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
 /**
  * Whether the sidebar is on screen: the user's setting, except that the website keeps it closed

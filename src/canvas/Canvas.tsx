@@ -3,7 +3,9 @@ import type { Frame } from '../../shared/types.ts'
 import { addText, pasteText, regeneratePalette, uploadFiles } from '../actions'
 import { bySize, isSection, sectionAt } from '../../shared/sections.ts'
 import { Links } from './Links'
-import { DIRS, HANDLE_POS, HIDDEN, NONE, pressFrame, resizeFrame, type Dir } from './gestures'
+import { DIRS, HANDLE_POS, HIDDEN, NONE, panCrop, pressFrame, resizeFrame, resizeTile, type Dir } from './gestures'
+import { layoutMembers } from '../layout'
+import { canCrop, startCrop } from '../arrange'
 import { SectionView } from './SectionView'
 import { CompareSummaries } from './CompareSummaries'
 import { clamp, drag } from '../drag'
@@ -80,6 +82,15 @@ export function Canvas() {
       settle = setTimeout(() => delete el.dataset.moving, 160)
     }
     const onWheel = (e: WheelEvent) => {
+      // Cropping: scrolling over the picture zooms it in its box.
+      const crop = getState().crop
+      if (crop && (e.target as Element).closest?.(`.frame[data-id="${crop}"]`)) {
+        e.preventDefault()
+        const f = frameById(crop)
+        const c = f?.crop ?? { x: 0, y: 0, s: 1 }
+        if (f) updateFrame(f.id, { crop: { ...c, s: clamp(c.s * Math.exp(-e.deltaY * 0.0015), 1, 4) } })
+        return
+      }
       // A frame you're interacting with (e.g. a site snapshot) scrolls itself.
       if (!e.ctrlKey && !e.metaKey && (e.target as Element).closest?.('[data-wheel-scroll]')) return
       e.preventDefault()
@@ -191,6 +202,7 @@ export function Canvas() {
           ?.filter(isSection)
           .sort(bySize)
           .map((f) => <SectionView key={f.id} frame={f} />)}
+        <ArrangeGhost />
         <Links />
         <CompareSummaries />
         {frames?.map((f) => !isSection(f) && <FrameView key={f.id} frame={f} />)}
@@ -211,7 +223,31 @@ export function Canvas() {
   )
 }
 
-const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
+/** Hovering a layout for loose blocks: the section they'd go in. */
+function ArrangeGhost() {
+  const box = useStore((s) => (s.arrange && !s.arrange.id ? s.arrange.section : null))
+  if (!box) return null
+  return (
+    <div className="section" data-preview style={{ left: box.x, top: box.y, width: box.w, height: box.h }}>
+      <div className="section-box" />
+    </div>
+  )
+}
+
+/** A block's handles inside a layout: every edge in a grid, the sides in columns, the bottom in rows. */
+const TILE_DIRS: Record<string, readonly Dir[]> = { grid: DIRS, columns: ['e', 'w'], rows: ['s'] }
+
+const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
+  // Hovering a layout in the side panel: drawn where the layout would put it.
+  const preview = useStore((s) => s.arrange?.rects[stored.id])
+  const frame = preview ? { ...stored, ...preview } : stored
+  const tileMode = useStore((s) => {
+    const sid = s.board && layoutMembers(s.board.frames).get(stored.id)
+    return sid ? (frameById(sid)?.layout?.mode ?? null) : null
+  })
+  const tile = !!tileMode || !!preview
+  const cropping = useStore((s) => s.crop === stored.id)
+  const dropTile = useStore((s) => s.dropTile === stored.id)
   const selected = useStore((s) => s.selected.includes(frame.id))
   const single = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
   const interact = useStore((s) => s.interact === frame.id)
@@ -239,7 +275,7 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
   const view = useInView(el)
 
   const onDown = (e: RPE) => pressFrame(e, frame.id)
-  const onResize = (dir: Dir) => (e: RPE) => resizeFrame(e, frame, dir)
+  const onResize = (dir: Dir) => (e: RPE) => (tileMode ? resizeTile(e, frame, dir) : resizeFrame(e, frame, dir))
 
   const kind =
     frame.type === 'code'
@@ -257,14 +293,19 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
   ]
     .filter(Boolean)
     .join(' · ')
-  const inner = block ? { w: frame.w - BLOCK_PAD * 2, h: frame.h - BLOCK_HEAD - BLOCK_PAD } : { w: frame.w, h: frame.h }
+  // In a layout a block is all content: its header shows over it on hover.
+  const inner = block && !tile ? { w: frame.w - BLOCK_PAD * 2, h: frame.h - BLOCK_HEAD - BLOCK_PAD } : { w: frame.w, h: frame.h }
 
   return (
     <div
       ref={el}
       className="frame"
+      data-id={frame.id}
       data-type={frame.type}
       data-block={block || undefined}
+      data-tile={tile || undefined}
+      data-crop={cropping || undefined}
+      data-drop-tile={dropTile || undefined}
       data-selected={selected || undefined}
       data-interact={interact || undefined}
       data-linked={linked || undefined}
@@ -363,9 +404,11 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
       {!interact && !bodyOwnsPointer && (
         <div
           className="frame-hit"
-          onPointerDown={onDown}
+          onPointerDown={(e) => (cropping ? panCrop(e, frame) : onDown(e))}
           onDoubleClick={(e) => {
             e.stopPropagation()
+            // A picture in a layout: double-click moves what part of it shows.
+            if (canCrop(frame)) return startCrop(frame.id)
             // A font swatch has nothing to interact with on the canvas (and interacting would
             // take away its drag area): double-click jumps to the inspector's font search instead.
             if (frame.type === 'swatch' && frame.font) {
@@ -378,8 +421,10 @@ const FrameView = memo(function FrameView({ frame }: { frame: Frame }) {
       <div className="frame-outline" />
       {single &&
         !interact &&
+        !cropping &&
+        !preview &&
         off === NONE &&
-        DIRS.map((d) => (
+        (tileMode ? TILE_DIRS[tileMode] : DIRS).map((d) => (
           <div
             key={d}
             className="handle"

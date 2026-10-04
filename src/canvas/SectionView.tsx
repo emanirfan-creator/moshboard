@@ -1,9 +1,11 @@
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { Frame } from '../../shared/types.ts'
 import { isSection, sectionContents } from '../../shared/sections.ts'
 import { addText, pickSection } from '../actions'
 import { getState, screenToWorld, setState, updateFrame, useStore } from '../store'
-import { DIRS, HANDLE_POS, HIDDEN, NONE, pressFrame, resizeFrame } from './gestures'
+import { DIRS, HANDLE_POS, HIDDEN, NONE, dragLine, pressFrame, resizeFrame } from './gestures'
+import { computeLayout, layoutMembers } from '../layout'
+import { frameById } from '../store'
 
 /**
  * A section: a titled area that holds the blocks inside it. The title sits above the box at
@@ -11,7 +13,21 @@ import { DIRS, HANDLE_POS, HIDDEN, NONE, pressFrame, resizeFrame } from './gestu
  * its title or its empty space to move it with its blocks (like Figma); ⌘-drag inside it to
  * box-select its blocks.
  */
-export const SectionView = memo(function SectionView({ frame }: { frame: Frame }) {
+export const SectionView = memo(function SectionView({ frame: stored }: { frame: Frame }) {
+  // Hovering a layout in the side panel: drawn at the size it would take.
+  const preview = useStore((s) => (s.arrange?.id === stored.id ? s.arrange.section : null))
+  const frame = preview ? { ...stored, ...preview } : stored
+  // A grid's lines show while it or one of its blocks is selected.
+  const showLines = useStore(
+    (s) =>
+      stored.layout?.mode === 'grid' &&
+      !s.arrange &&
+      !s.crop &&
+      s.selected.length === 1 &&
+      (s.selected[0] === stored.id || (!!s.board && layoutMembers(s.board.frames).get(s.selected[0]) === stored.id)),
+  )
+  const frames = useStore((s) => (showLines ? s.board?.frames : undefined))
+  const lines = useMemo(() => (frames ? computeLayout(stored, stored.layout!, frameById).lines : null), [frames, stored])
   const selected = useStore((s) => s.selected.includes(frame.id))
   const single = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
   const drop = useStore((s) => s.dropSection === frame.id)
@@ -28,6 +44,8 @@ export const SectionView = memo(function SectionView({ frame }: { frame: Frame }
       data-drop={drop || undefined}
       data-hidden={off === HIDDEN || undefined}
       data-chosen={frame.chosen || undefined}
+      data-layout={frame.layout?.mode}
+      data-preview={preview ? '' : undefined}
       style={{ left: frame.x + off.dx, top: frame.y + off.dy, width: frame.w, height: frame.h, '--w': `${frame.w}px` } as React.CSSProperties}
     >
       <div
@@ -36,7 +54,8 @@ export const SectionView = memo(function SectionView({ frame }: { frame: Frame }
           // ⌘-drag falls through to the canvas: a selection box inside the section.
           if (!e.metaKey && !e.ctrlKey) pressFrame(e, frame.id)
         }}
-        onDoubleClick={(e) => (e.stopPropagation(), addText(screenToWorld(e.clientX, e.clientY), false))}
+        // Double-click writes there; a layout places its blocks itself.
+        onDoubleClick={(e) => (e.stopPropagation(), !frame.layout && addText(screenToWorld(e.clientX, e.clientY), false))}
       />
       <div
         className="section-head"
@@ -133,9 +152,26 @@ export const SectionView = memo(function SectionView({ frame }: { frame: Frame }
           )
         )}
       </div>
+      {lines?.map((l) => (
+        <div
+          key={`${l.path.join('.')}:${l.i}`}
+          className="layout-line"
+          data-axis={l.axis}
+          style={
+            l.axis === 'x'
+              ? { left: l.at - frame.x, top: l.from - frame.y, height: l.len }
+              : { left: l.from - frame.x, top: l.at - frame.y, width: l.len }
+          }
+          onPointerDown={(e) => dragLine(e, stored, l)}
+        >
+          <i />
+        </div>
+      ))}
       {single &&
+        !preview &&
         off === NONE &&
-        DIRS.map((d) => (
+        // Columns and rows set their own height: only the width is yours.
+        (frame.layout && frame.layout.mode !== 'grid' ? (['e', 'w'] as const) : DIRS).map((d) => (
           <div
             key={d}
             className="handle"

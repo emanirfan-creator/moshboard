@@ -8,7 +8,7 @@ import { cue, scanChirp, scanEmpty } from './ui/sound'
 import type { Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
-import { arrange, type LayoutKind } from './layout'
+import { layoutMembers, movedSince, settleLayouts } from './layout'
 import { copyText } from './clipboard'
 import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } from '../shared/color.ts'
 import { boardSamples, hasColors } from './boardColors'
@@ -23,6 +23,7 @@ import { boundsAround, isSection, SECTION_PAD, sectionContents, sectionOf, withC
 import {
   flushSave,
   frameById,
+  holdLayouts,
   getState,
   mutateFrames,
   resetHistory,
@@ -73,6 +74,9 @@ async function readBoard(name: string): Promise<void> {
     throw new Error(`Canvas ${name} not found`)
   }
   const sameBoardReload = getState().boardName === name && !!getState().board
+  // Layout sections and their blocks may be out of step after an edit on disk: blocks added
+  // there, or moved, can join a layout they were put in.
+  board.frames = settleLayouts(board.frames, movedSince(sameBoardReload ? getState().board!.frames : null))
   setState((s) => ({
     boardName: name,
     board,
@@ -262,52 +266,6 @@ export function addText(at?: { x: number; y: number }, centered = true) {
   return f
 }
 
-// ── arrange ──────────────────────────────────────────────
-
-const LAYOUT_KEY = 'mb:layout'
-export function lastLayout(): LayoutKind {
-  try {
-    const v = localStorage.getItem(LAYOUT_KEY)
-    return v === 'masonry' || v === 'rows' ? v : 'bento'
-  } catch {
-    return 'bento'
-  }
-}
-
-/**
- * Arrange the selection (see src/layout.ts): bento grid by default, or masonry /
- * rows. Text frames become section headers. One undo step (⌘Z).
- */
-export function tidySelection(kind: LayoutKind = lastLayout()) {
-  const one = getState().selected.length === 1 ? frameById(getState().selected[0]) : undefined
-  if (one && isSection(one)) return tidySection(one, kind)
-  const frames = getState()
-    .selected.map(frameById)
-    .filter((f): f is Frame => !!f)
-  if (frames.length < 2) return toast('Select two or more frames to tidy up')
-  try {
-    localStorage.setItem(LAYOUT_KEY, kind)
-  } catch {
-    // storage unavailable
-  }
-  // Lay out from each frame's own size (remembered the first time it's arranged), so
-  // re-tidying is stable and Rows can restore original sizes.
-  const natural = new Map(frames.map((f) => [f.id, f.natural ?? { w: f.w, h: f.h }]))
-  const rects = arrange(
-    frames.map((f) => ({ ...f, ...natural.get(f.id)! })),
-    kind,
-  )
-  mutateFrames((fs) =>
-    fs.map((f) => {
-      const r = rects.get(f.id)
-      if (!r) return f
-      const nat = natural.get(f.id)!
-      return { ...f, ...r, natural: nat }
-    }),
-  )
-  toast(`Arranged as ${kind} · ⌘Z to undo`)
-}
-
 // ── sections ─────────────────────────────────────────────
 
 /**
@@ -316,6 +274,9 @@ export function tidySelection(kind: LayoutKind = lastLayout()) {
  */
 export function addSection() {
   const frames = getState().board?.frames ?? []
+  // Blocks in a layout are placed by it; a section inside it would sit on top of them.
+  const tiles = layoutMembers(frames)
+  if (getState().selected.some((id) => tiles.has(id))) return toast('These are in a layout already. Select its section to change it.')
   const sel = withContents(getState().selected, frames)
     .map(frameById)
     .filter((f): f is Frame => !!f)
@@ -342,6 +303,7 @@ export function fitSection(id = getState().selected[0]) {
   const s = frameById(id)
   const frames = getState().board?.frames ?? []
   if (!s || !isSection(s)) return
+  if (s.layout) return toast('A layout section sizes itself')
   const inner = sectionContents(s, frames)
   if (!inner.length) return toast('This section is empty')
   updateFrame(s.id, boundsAround(inner))
@@ -356,31 +318,6 @@ export function ungroupSection(id = getState().selected[0]) {
   setState({ selected: inner.map((f) => f.id) })
 }
 
-/** Tidy what's directly in a section, from its top-left corner, then fit the section around it. */
-function tidySection(s: Frame, kind: LayoutKind) {
-  const frames = getState().board?.frames ?? []
-  const inner = sectionContents(s, frames)
-  if (inner.some(isSection)) return toast('Tidy each inner section on its own')
-  if (inner.length < 2) return toast('Add two or more blocks to tidy this section')
-  const natural = new Map(inner.map((f) => [f.id, f.natural ?? { w: f.w, h: f.h }]))
-  const rects = arrange(
-    inner.map((f) => ({ ...f, ...natural.get(f.id)! })),
-    kind,
-  )
-  const x0 = Math.min(...[...rects.values()].map((r) => r.x))
-  const y0 = Math.min(...[...rects.values()].map((r) => r.y))
-  const dx = s.x + SECTION_PAD - x0
-  const dy = s.y + SECTION_PAD - y0
-  const placed = inner.map((f) => {
-    const r = rects.get(f.id)!
-    return { ...f, ...r, x: r.x + dx, y: r.y + dy, natural: natural.get(f.id) }
-  })
-  const box = boundsAround(placed)
-  const byId = new Map(placed.map((f) => [f.id, f]))
-  mutateFrames((fs) => fs.map((f) => byId.get(f.id) ?? (f.id === s.id ? { ...f, ...box } : f)))
-  toast(`Arranged as ${kind} · ⌘Z to undo`)
-}
-
 /**
  * After a drag: a block that landed in a section but sticks out of it grows the section
  * (and the sections around it) to hold it, so the box always matches what's in it.
@@ -391,9 +328,11 @@ export function growSections(moved: string[]) {
   const grown = new Map<string, Frame>()
   const current = (f: Frame) => grown.get(f.id) ?? f
   const padded = (f: Frame) => ({ ...f, x: f.x - SECTION_PAD, y: f.y - SECTION_PAD, w: f.w + SECTION_PAD * 2, h: f.h + SECTION_PAD * 2 })
+  // Blocks in a layout are placed by it; a layout section itself grows the sections around it.
+  const tiles = layoutMembers(frames)
   for (const id of moved) {
     const f = frames.find((x) => x.id === id)
-    if (!f || isSection(f)) continue
+    if (!f || (isSection(f) && !f.layout) || tiles.has(f.id)) continue
     // The sections it's in, innermost first, read before any of them grows.
     const chain: Frame[] = []
     for (let s = sectionOf(f, frames); s; s = sectionOf(s, frames)) chain.push(s)
@@ -407,60 +346,6 @@ export function growSections(moved: string[]) {
     }
   }
   if (grown.size) mutateFrames((fs) => fs.map(current), false)
-}
-
-export type AlignEdge = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom'
-
-export function alignSelection(edge: AlignEdge) {
-  const frames = getState()
-    .selected.map(frameById)
-    .filter((f): f is Frame => !!f)
-  if (frames.length < 2) return
-  const x0 = Math.min(...frames.map((f) => f.x))
-  const x1 = Math.max(...frames.map((f) => f.x + f.w))
-  const y0 = Math.min(...frames.map((f) => f.y))
-  const y1 = Math.max(...frames.map((f) => f.y + f.h))
-  const ids = new Set(frames.map((f) => f.id))
-  mutateFrames((fs) =>
-    fs.map((f) => {
-      if (!ids.has(f.id)) return f
-      switch (edge) {
-        case 'left':
-          return { ...f, x: x0 }
-        case 'right':
-          return { ...f, x: x1 - f.w }
-        case 'hcenter':
-          return { ...f, x: Math.round((x0 + x1) / 2 - f.w / 2) }
-        case 'top':
-          return { ...f, y: y0 }
-        case 'bottom':
-          return { ...f, y: y1 - f.h }
-        case 'vcenter':
-          return { ...f, y: Math.round((y0 + y1) / 2 - f.h / 2) }
-      }
-    }),
-  )
-}
-
-/** Space the selection evenly along one axis, keeping the outer two in place. */
-export function distributeSelection(axis: 'x' | 'y') {
-  const frames = getState()
-    .selected.map(frameById)
-    .filter((f): f is Frame => !!f)
-    .sort((a, b) => a[axis] - b[axis])
-  if (frames.length < 3) return
-  const size = axis === 'x' ? 'w' : 'h'
-  const start = frames[0][axis]
-  const end = frames[frames.length - 1][axis] + frames[frames.length - 1][size]
-  const total = frames.reduce((n, f) => n + f[size], 0)
-  const gap = (end - start - total) / (frames.length - 1)
-  const pos = new Map<string, number>()
-  let at = start
-  for (const f of frames) {
-    pos.set(f.id, Math.round(at))
-    at += f[size] + gap
-  }
-  mutateFrames((fs) => fs.map((f) => (pos.has(f.id) ? { ...f, [axis]: pos.get(f.id)! } : f)))
 }
 
 // ── palettes ─────────────────────────────────────────────
@@ -1020,6 +905,10 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
 
   const ids = new Map(fs.map((f) => [f.id, newId()]))
   const made: string[] = []
+  // A layout section's blocks arrive one by one: hold layouts until they're all here.
+  let release!: () => void
+  holdLayouts(new Promise<void>((r) => (release = r)))
+  try {
   for (const f of fs) {
     const id = ids.get(f.id)!
     // Links inside the copied group follow it; links to frames outside stay if the target is here.
@@ -1030,6 +919,11 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
     }
     // A copy is never the approved direction: there's one, and it's the original.
     const base = { ...f, id, link, src, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
+    // A layout keeps its copied blocks, in the same places.
+    if (f.layout) {
+      const order = f.layout.order.map((o) => ids.get(o) ?? '')
+      base.layout = order.every(Boolean) ? { ...f.layout, order, span: undefined } : undefined
+    }
     if (f.type === 'code' && f.file) {
       const kind = f.file.endsWith('.html') ? 'html' : 'tsx'
       const modules = f.modules && from.files[f.modules] ? (JSON.parse(from.files[f.modules]) as Record<string, string>) : undefined
@@ -1039,6 +933,9 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
       addFrame(base)
     }
     made.push(id)
+  }
+  } finally {
+    release()
   }
   setState({ selected: made, interact: null })
   cue('paste')

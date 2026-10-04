@@ -56,8 +56,12 @@ export interface Frame {
   embed?: 'live' | 'blocked'
   /** url: full-page screenshot used when the site blocks embedding */
   snapshot?: string
-  /** the frame's own size before any tidy-up layout resized it (layouts work from this) */
+  /** the frame's own size before a section's layout sized it (it gets it back when it leaves) */
   natural?: { w: number; h: number }
+  /** section: lays out the blocks in it as a grid, columns or rows (see src/layout.ts) */
+  layout?: SectionLayout
+  /** image/video in a layout: what part shows in its box (pan -0.5..0.5 across the overflow, zoom ≥ 1) */
+  crop?: { x: number; y: number; s: number }
   /** code: not sized yet; set when added, cleared once it's sized to what it renders */
   fit?: boolean
   /** code/url: logical render width; content is scaled to fit the frame */
@@ -72,6 +76,32 @@ export interface Frame {
   labels?: Record<string, string>
   /** code: values set on the component's own props in the side panel (see shared/props.ts) */
   props?: Record<string, unknown>
+}
+
+/**
+ * A grid is a tree of splits: a split lays its parts side by side (row) or stacked (col),
+ * each with a weight; leaves are slots into the layout's `order`. Each line between two parts
+ * belongs to one split, so moving it only resizes the blocks on either side.
+ */
+export type LayoutNode = { slot: number } | { dir: 'row' | 'col'; kids: { n: LayoutNode; w: number }[] }
+
+export interface SectionLayout {
+  mode: 'grid' | 'columns' | 'rows'
+  /** block ids, slot by slot (slot 0 is the big one in a grid shape) */
+  order: string[]
+  gap: number
+  /** grid: the shape picked from the list; unset once reshaped by hand */
+  shape?: number
+  /** grid: the splits; unset means "build `shape` for the current count" */
+  tree?: LayoutNode
+  /** columns: how many */
+  columns?: number
+  /** columns: blocks spanning more than one column */
+  span?: Record<string, number>
+  /** rows: the height rows are packed at */
+  rowHeight?: number
+  /** rows: heights set by hand, by row */
+  rowH?: (number | null)[]
 }
 
 /** A measured transition/animation, tuned on the canvas. It comes from a library or stylesheet, not a literal in the code. */

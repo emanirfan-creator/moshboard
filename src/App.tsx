@@ -3,7 +3,6 @@ import {
   copySelection,
   pasteFrames,
   readClip,
-  tidySelection,
   addNote,
   addSection,
   addText,
@@ -22,7 +21,8 @@ import {
 } from './actions'
 import { Canvas } from './canvas/Canvas'
 import { CommandPalette } from './palette/CommandPalette'
-import { getState, redo, setState, SIDEBAR_W, sidebarShown, toast, toggleSidebar, undo, useStore } from './store'
+import { frameById, getState, redo, setState, SIDEBAR_W, sidebarShown, toast, toggleSidebar, undo, useStore } from './store'
+import { arrangeAgain, canCrop, moveTile, startCrop } from './arrange'
 import { Inspector } from './tuning/Inspector'
 import { AddDialog } from './ui/AddDialog'
 import { Chrome, Shortcuts } from './ui/Chrome'
@@ -67,7 +67,8 @@ function useHotkeys() {
         e.preventDefault()
         if (!s.space) setState({ space: true })
       } else if (e.key === 'Escape') {
-        if (s.interact) setState({ interact: null })
+        if (s.crop) setState({ crop: null })
+        else if (s.interact) setState({ interact: null })
         else if (s.selected.length) setState({ selected: [] })
         else exitCompare()
       }
@@ -79,7 +80,7 @@ function useHotkeys() {
         duplicateSelected()
       } else if (e.ctrlKey && e.altKey && e.code === 'KeyT') {
         e.preventDefault()
-        tidySelection()
+        arrangeAgain()
       } else if (mod && (e.key === 'c' || e.key === 'x') && s.selected.length && !window.getSelection()?.toString()) {
         e.preventDefault()
         copySelection(e.key === 'x')
@@ -92,6 +93,14 @@ function useHotkeys() {
         } else setState({ selected: s.board?.frames.map((f) => f.id) ?? [] })
       } else if (mod) return
       else if (e.key === 'Backspace' || e.key === 'Delete') deleteSelected()
+      else if (e.key.startsWith('Arrow') && !s.crop) {
+        // A block in a layout trades places with its neighbor.
+        const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft']
+        if (dir && moveTile(dir)) e.preventDefault()
+      } else if (e.key === 'Enter' && s.selected.length === 1 && canCrop(frameById(s.selected[0]))) {
+        e.preventDefault()
+        startCrop(s.selected[0])
+      }
       else if (e.key === 'r') replay()
       else if (e.key === 'i') markSegment('in')
       else if (e.key === 'o') markSegment('out')

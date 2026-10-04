@@ -1,268 +1,439 @@
-import type { Frame } from '../shared/types.ts'
+import type { Frame, LayoutNode, SectionLayout } from '../shared/types.ts'
+import { isSection, sectionOf } from '../shared/sections.ts'
+import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './canvas/blocks'
 
-// Arranging a selection: bento (unit grid with spans, packed densely, gaps filled),
-// masonry (equal columns, aspect kept, shortest column first) and rows (packed rows,
-// sizes untouched). Text frames act as section headers in every layout.
+// A section can lay out the blocks in it: a grid (a tree of splits), columns (masonry,
+// each block keeps its shape) or rows (equal-height rows that fill the width). The layout
+// lives on the section (`layout` in board.json) and writes every block's x/y/w/h, so
+// everything else (export, links, Compare) sees ordinary frames.
 
-export type LayoutKind = 'bento' | 'masonry' | 'rows'
 export type Rect = { x: number; y: number; w: number; h: number }
+export type LayoutMode = SectionLayout['mode']
 
-const GAP = 24
-const HEADER_GAP = 16
+/** Room between a layout section's edge and its blocks. */
+export const LAYOUT_PAD = 24
+export const LAYOUT_GAP = 16
+/** Smallest a block gets when a line is dragged against it. */
+export const MIN_TILE = 56
+/** Dragged this far past a block's smallest size, the block moves out of the way. */
+export const PUSH = 48
 
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b)
-  return s[Math.floor(s.length / 2)] ?? 0
+// ── shapes ─────────────────────────────────────────────
+
+type Kid = { n: LayoutNode; w: number }
+const kid = (n: number | LayoutNode | Kid): Kid => (typeof n === 'number' ? { n: { slot: n }, w: 1 } : 'w' in n ? (n as Kid) : { n: n as LayoutNode, w: 1 })
+const wt = (n: number | LayoutNode, w: number): Kid => ({ n: typeof n === 'number' ? { slot: n } : n, w })
+const row = (...ks: (number | LayoutNode | Kid)[]): LayoutNode => ({ dir: 'row', kids: ks.map(kid) })
+const col = (...ks: (number | LayoutNode | Kid)[]): LayoutNode => ({ dir: 'col', kids: ks.map(kid) })
+export const isLeaf = (n: LayoutNode): n is { slot: number } => 'slot' in n
+
+/** Hand-made shapes per count: the tree and its height for a width of 1. Slot 0 is the big one. */
+const SHAPES: Record<number, { t: LayoutNode; a: number }[]> = {
+  1: [{ t: { slot: 0 }, a: 0.62 }],
+  2: [{ t: row(0, 1), a: 0.5 }, { t: row(wt(0, 2), 1), a: 0.42 }, { t: col(0, 1), a: 1.1 }],
+  3: [{ t: row(wt(0, 2), col(1, 2)), a: 0.6 }, { t: row(0, 1, 2), a: 0.38 }, { t: col(wt(0, 1.5), row(1, 2)), a: 0.95 }],
+  4: [
+    { t: row(wt(0, 2), col(1, 2, 3)), a: 0.62 },
+    { t: col(row(0, 1), row(2, 3)), a: 0.7 },
+    { t: col(wt(0, 1.5), row(1, 2, 3)), a: 0.8 },
+    { t: row(wt(0, 1.6), col(1, row(2, 3))), a: 0.62 },
+  ],
+  5: [
+    { t: row(wt(0, 2), col(row(1, 2), row(3, 4))), a: 0.58 },
+    { t: col(wt(row(wt(0, 2), 1), 1.6), row(2, 3, 4)), a: 0.82 },
+    { t: row(col(wt(0, 2), 1), col(2, 3, 4)), a: 0.72 },
+    { t: col(row(0, 1, 2), row(wt(3, 2), 4)), a: 0.62 },
+  ],
+  6: [
+    { t: row(wt(0, 2), col(row(1, 2), row(3, 4), 5)), a: 0.68 },
+    { t: col(wt(row(wt(0, 2), col(1, 2)), 1.6), row(3, 4, 5)), a: 0.85 },
+    { t: col(row(0, 1, 2), row(3, 4, 5)), a: 0.62 },
+    { t: row(col(wt(0, 2), 1), col(2, 3), col(4, 5)), a: 0.62 },
+  ],
+  7: [
+    { t: col(wt(row(wt(0, 2), col(1, 2)), 1.6), row(3, 4, 5, 6)), a: 0.8 },
+    { t: row(wt(0, 1.6), col(row(1, 2), row(3, 4), row(5, 6))), a: 0.7 },
+    { t: col(row(0, 1, 2), row(3, 4, 5, 6)), a: 0.58 },
+  ],
+  8: [
+    { t: col(wt(row(wt(0, 2), col(1, 2)), 1.6), row(3, 4, 5), row(6, 7)), a: 0.95 },
+    { t: col(row(0, 1, 2, 3), row(4, 5, 6, 7)), a: 0.5 },
+    { t: row(wt(0, 1.6), col(row(1, 2), row(3, 4), row(5, 6, 7))), a: 0.7 },
+  ],
 }
 
-/** Reading order: visual rows (by vertical overlap), then left to right. */
-export function readingOrder(frames: Frame[]) {
-  const byY = [...frames].sort((a, b) => a.y - b.y)
-  const rows: Frame[][] = []
-  for (const f of byY) {
-    const row = rows[rows.length - 1]
-    const mid = f.y + f.h / 2
-    if (row && row.some((r) => mid > r.y && mid < r.y + r.h)) row.push(f)
-    else rows.push([f])
+/** Shapes for any count: the hand-made ones, or a big block over rows of four. */
+export function shapesFor(n: number): { t: LayoutNode; a: number }[] {
+  if (n <= 0) return []
+  if (SHAPES[n]) return SHAPES[n]
+  const rowsOf = (from: number, per: number) => {
+    const out: LayoutNode[] = []
+    for (let i = from; i < n; i += per) out.push(row(...Array.from({ length: Math.min(per, n - i) }, (_, k) => i + k)))
+    return out
   }
-  return rows.flatMap((r) => r.sort((a, b) => a.x - b.x))
+  const hero = row(wt(0, 2), col(1, 2))
+  const rest = rowsOf(3, 4)
+  const plain = rowsOf(0, 4)
+  return [
+    { t: col(wt(hero, 2), ...rest), a: 0.4 + rest.length * 0.25 },
+    { t: col(...plain), a: plain.length * 0.25 },
+  ]
 }
 
-/** Split into sections: a text frame starts a new section and is its header. */
-function sections(ordered: Frame[]) {
-  const out: { header?: Frame; items: Frame[] }[] = [{ items: [] }]
-  for (const f of ordered) {
-    if (f.type === 'text') out.push({ header: f, items: [] })
-    else out[out.length - 1].items.push(f)
-  }
-  return out.filter((s) => s.header || s.items.length)
+export const COLUMN_OPTIONS = [2, 3, 4, 5]
+export const ROW_OPTIONS = [{ h: 160, label: 'Short' }, { h: 240, label: 'Medium' }, { h: 320, label: 'Tall' }]
+
+/** The choices offered for a mode and count (shape index, column count or row height). */
+export function optionsFor(mode: LayoutMode, n: number): number[] {
+  if (mode === 'grid') return shapesFor(n).map((_, i) => i)
+  if (mode === 'columns') return COLUMN_OPTIONS
+  return ROW_OPTIONS.map((r) => r.h)
+}
+/** Which option a layout is on, if any (a grid reshaped by hand is on none). */
+export function currentOption(L: SectionLayout): number | null {
+  if (L.mode === 'grid') return L.shape ?? null
+  if (L.mode === 'columns') return L.columns ?? 3
+  return L.rowHeight ?? 240
+}
+/** A layout set to an option, fresh: hand changes for the old shape are dropped. */
+export function withOption(L: SectionLayout, mode: LayoutMode, option: number): SectionLayout {
+  const base: SectionLayout = { mode, order: L.order, gap: L.gap }
+  if (mode === 'grid') return { ...base, shape: option }
+  if (mode === 'columns') return { ...base, columns: option }
+  return { ...base, rowHeight: option }
 }
 
-/** Shared column grid for the whole selection, so every section lines up. */
-function grid(frames: Frame[]) {
-  const media = frames.filter((f) => f.type !== 'text')
-  return Math.min(360, Math.max(200, median(media.map((f) => Math.sqrt(f.w * f.h))) * 0.75))
+// ── tree ───────────────────────────────────────────────
+
+const clone = <T,>(x: T): T => structuredClone(x)
+export const slotsOf = (n: LayoutNode): number[] => (isLeaf(n) ? [n.slot] : n.kids.flatMap((k) => slotsOf(k.n)))
+/** The split at a path of kid indexes from the root. */
+export function nodeAt(tree: LayoutNode, path: number[]): LayoutNode {
+  let n = tree
+  for (const i of path) n = (n as Exclude<LayoutNode, { slot: number }>).kids[i].n
+  return n
 }
-
-// ── bento ──────────────────────────────────────────────
-// Bento grid rules: square cells, a small set of tile sizes, size = importance
-// (1–2 hero tiles at 2×2 / 3×2, utility tiles at 2×1 / 1×2, micro tiles 1×1),
-// and the tiles fill one clean rectangle with even gutters. Media is cropped to
-// its tile (object-fit: cover), which is what makes a bento read as one piece.
-
-type Span = [number, number]
-
-function bentoCols(count: number) {
-  return count <= 2 ? 2 : count <= 5 ? 3 : 4
+function trailTo(n: LayoutNode, slot: number, trail: number[] = []): number[] | null {
+  if (isLeaf(n)) return n.slot === slot ? trail : null
+  for (let i = 0; i < n.kids.length; i++) {
+    const t = trailTo(n.kids[i].n, slot, [...trail, i])
+    if (t) return t
+  }
+  return null
 }
-
-function tileFor(f: Frame, hero: boolean, cols: number, wideHero: boolean): Span {
-  const a = f.w / f.h
-  if (f.type === 'palette') return [Math.min(cols, Math.max(2, Math.round((f.colors?.length ?? 5) / 2))), 1]
-  if (hero) return wideHero && a > 1.25 && cols >= 4 ? [3, 2] : [2, 2]
-  const media = f.type === 'code' || f.type === 'url'
-  if (a > 1.6 || (media && a >= 1)) return [2, 1]
-  if (a < 0.62 || (media && a < 1)) return [1, 2]
-  return [1, 1]
-}
-
-interface Packing {
-  place: Map<string, { r: number; c: number; cw: number; ch: number }>
-  rows: number
-  cols: number
-}
-
-/** Pack one configuration and close its holes; returns the tile grid. */
-function packBento(items: Frame[], cols: number, heroCount: number, wideHero: boolean): Packing {
-  // Heroes: the largest frames by area.
-  const heroes = new Set(
-    [...items]
-      .filter((f) => f.type !== 'palette')
-      .sort((a, b) => b.w * b.h - a.w * a.h)
-      .slice(0, heroCount)
-      .map((f) => f.id),
-  )
-  // Heroes go in first (top-left reads as most important), then reading order.
-  const ordered = [...items.filter((f) => heroes.has(f.id)), ...items.filter((f) => !heroes.has(f.id))]
-
-  const occ: (string | null)[][] = []
-  const row = (r: number) => (occ[r] ??= Array(cols).fill(null))
-  const free = (r: number, c: number, cw: number, ch: number) => {
-    if (c + cw > cols) return false
-    for (let dr = 0; dr < ch; dr++) for (let dc = 0; dc < cw; dc++) if (row(r + dr)[c + dc]) return false
-    return true
-  }
-  const fill = (id: string, r: number, c: number, cw: number, ch: number) => {
-    for (let dr = 0; dr < ch; dr++) for (let dc = 0; dc < cw; dc++) row(r + dr)[c + dc] = id
-  }
-  const place = new Map<string, { r: number; c: number; cw: number; ch: number }>()
-
-  for (const f of ordered) {
-    const [cw, ch] = tileFor(f, heroes.has(f.id), cols, wideHero)
-    for (let r = 0; ; r++) {
-      const c = Array.from({ length: cols }, (_, i) => i).find((i) => free(r, i, cw, ch))
-      if (c !== undefined) {
-        fill(f.id, r, c, cw, ch)
-        place.set(f.id, { r, c, cw, ch })
-        break
-      }
-    }
-  }
-
-  // Close every hole so the grid is one clean rectangle: grow a neighbor into the
-  // empty cell (left neighbor rightward, or the one above downward), keeping tiles
-  // rectangular. Repeat until nothing changes.
-  const rows = occ.length
-  for (let changed = true; changed; ) {
-    changed = false
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (row(r)[c]) continue
-        const left = c > 0 ? place.get(row(r)[c - 1] ?? '') : undefined
-        const up = r > 0 ? place.get(row(r - 1)[c] ?? '') : undefined
-        const tryGrowRight = (p?: { r: number; c: number; cw: number; ch: number }) =>
-          p && p.c + p.cw === c && Array.from({ length: p.ch }, (_, d) => p.r + d < rows && !row(p.r + d)[c]).every(Boolean)
-        const tryGrowDown = (p?: { r: number; c: number; cw: number; ch: number }) =>
-          p && p.r + p.ch === r && Array.from({ length: p.cw }, (_, d) => !row(r)[p.c + d]).every(Boolean)
-        if (tryGrowRight(left)) {
-          for (let d = 0; d < left!.ch; d++) row(left!.r + d)[c] = row(r)[c - 1]
-          left!.cw++
-          changed = true
-        } else if (tryGrowDown(up)) {
-          for (let d = 0; d < up!.cw; d++) row(r)[up!.c + d] = row(r - 1)[c]
-          up!.ch++
-          changed = true
-        }
-      }
-    }
-  }
-
-  return { place, rows, cols }
-}
-
-/** How far tiles stray from each frame's own shape, plus a nudge toward a 3:2 block. */
-function bentoCost(items: Frame[], p: Packing) {
-  let cost = 0
-  for (const f of items) {
-    const t = p.place.get(f.id)!
-    cost += Math.abs(Math.log((t.cw + (t.cw - 1) * 0.1) / (t.ch + (t.ch - 1) * 0.1) / (f.w / f.h)))
-  }
-  return cost + Math.abs(Math.log(p.cols / p.rows / 1.5)) * 0.5
-}
-
-function bentoSection(items: Frame[], maxCols: number, width: number, x0: number, y0: number) {
-  // Try the valid shapes of bento for this group and keep the one that closes into
-  // a rectangle while distorting frames the least.
-  let best: Packing | null = null
-  let bestCost = Infinity
-  const colOptions = [...new Set([Math.max(2, maxCols - 1), maxCols])]
-  for (const cols of colOptions) {
-    for (let heroes = 0; heroes <= Math.min(2, items.length >= 8 ? 2 : items.length >= 3 ? 1 : 0); heroes++) {
-      for (const wide of [true, false]) {
-        const p = packBento(items, cols, heroes, wide)
-        // Hierarchy matters: prefer having a hero once there are a few frames.
-        const cost = bentoCost(items, p) + (items.length >= 3 && heroes === 0 ? 0.6 : 0)
-        if (cost < bestCost) {
-          bestCost = cost
-          best = p
-        }
-      }
-    }
-  }
-  const { place, rows, cols } = best!
-  const unit = (width - (cols - 1) * GAP) / cols
-  const out = new Map<string, Rect>()
-  for (const [id, p] of place) {
-    out.set(id, {
-      x: x0 + p.c * (unit + GAP),
-      y: y0 + p.r * (unit + GAP),
-      w: p.cw * unit + (p.cw - 1) * GAP,
-      h: p.ch * unit + (p.ch - 1) * GAP,
-    })
-  }
-  return { rects: out, height: rows ? rows * (unit + GAP) - GAP : 0 }
-}
-
-// ── masonry ────────────────────────────────────────────
-
-function masonrySection(items: Frame[], cols: number, colW: number, x0: number, y0: number) {
-  const heights = Array(cols).fill(0)
-  const out = new Map<string, Rect>()
-  for (const f of items) {
-    // Span as many columns as its own width suggests; exact aspect for everything.
-    const span = Math.max(1, Math.min(cols, Math.round((f.w + GAP) / (colW + GAP))))
-    const w = span * colW + (span - 1) * GAP
-    const h = Math.round((f.h / f.w) * w)
-    // Lowest place where `span` neighboring columns are free.
-    let c = 0
-    let top = Infinity
-    for (let i = 0; i + span <= cols; i++) {
-      const t = Math.max(...heights.slice(i, i + span))
-      if (t < top) {
-        top = t
-        c = i
-      }
-    }
-    out.set(f.id, { x: x0 + c * (colW + GAP), y: y0 + top, w, h })
-    for (let i = c; i < c + span; i++) heights[i] = top + h + GAP
-  }
-  return { rects: out, height: Math.max(0, ...heights) - GAP }
-}
-
-// ── rows ───────────────────────────────────────────────
-
-function rowsSection(items: Frame[], targetW: number, x0: number, y0: number) {
-  const out = new Map<string, Rect>()
-  let x = x0
-  let y = y0
-  let rowH = 0
-  for (const f of items) {
-    if (x > x0 && x + f.w > x0 + targetW) {
-      x = x0
-      y += rowH + GAP
-      rowH = 0
-    }
-    out.set(f.id, { x, y, w: f.w, h: f.h })
-    x += f.w + GAP
-    rowH = Math.max(rowH, f.h)
-  }
-  return { rects: out, height: y - y0 + rowH }
-}
-
-/** New rectangles for every frame in the selection. */
-export function arrange(frames: Frame[], kind: LayoutKind): Map<string, Rect> {
-  const ordered = readingOrder(frames)
-  const x0 = Math.min(...frames.map((f) => f.x))
-  let y = Math.min(...frames.map((f) => f.y))
-  const unit = grid(frames)
-  const media = ordered.filter((f) => f.type !== 'text')
-  const area = media.reduce((n, f) => n + f.w * f.h, 0)
-  // Columns: enough for a roughly 3:2 block, at least what the widest item needs.
-  const cols = Math.max(2, Math.min(8, Math.round(Math.sqrt(area * 1.5) / (unit + GAP)) || 3))
-  const width = cols * unit + (cols - 1) * GAP
-  const out = new Map<string, Rect>()
-
-  for (const s of sections(ordered)) {
-    if (s.header) {
-      out.set(s.header.id, { x: x0, y, w: Math.min(width, Math.max(s.header.w, 320)), h: s.header.h })
-      y += s.header.h + HEADER_GAP
-    }
-    if (!s.items.length) continue
-    const bc = bentoCols(media.length)
-    const r =
-      kind === 'bento'
-        ? bentoSection(s.items, bc, width, x0, y)
-        : kind === 'masonry'
-          ? masonrySection(s.items, Math.max(2, Math.min(cols, 5)), Math.round((width - (Math.max(2, Math.min(cols, 5)) - 1) * GAP) / Math.max(2, Math.min(cols, 5))), x0, y)
-          : rowsSection(s.items, Math.max(width, Math.max(...s.items.map((f) => f.w))), x0, y)
-    r.rects.forEach((v, k) => out.set(k, v))
-    y += r.height + GAP * 2
-  }
-  for (const v of out.values()) {
-    v.x = Math.round(v.x)
-    v.y = Math.round(v.y)
-    v.w = Math.round(v.w)
-    v.h = Math.round(v.h)
+/** The tree without a slot's leaf; a split left with one part becomes that part. Slots keep their numbers. */
+export function detachLeaf(tree: LayoutNode, slot: number): LayoutNode | undefined {
+  const t = trailTo(tree, slot)
+  if (!t) return tree
+  if (!t.length) return undefined
+  const out = clone(tree)
+  const parent = nodeAt(out, t.slice(0, -1)) as Exclude<LayoutNode, { slot: number }>
+  parent.kids.splice(t[t.length - 1], 1)
+  if (parent.kids.length === 1) {
+    const only = parent.kids[0].n
+    if (t.length === 1) return only
+    const gp = nodeAt(out, t.slice(0, -2)) as Exclude<LayoutNode, { slot: number }>
+    gp.kids[t[t.length - 2]].n = only
   }
   return out
+}
+/** Put a new slot beside another by splitting that block along its longer side. */
+export function splitLeaf(tree: LayoutNode, target: number, slot: number, rect: Rect): LayoutNode {
+  const t = trailTo(tree, target)
+  const split: LayoutNode = { dir: rect.w >= rect.h ? 'row' : 'col', kids: [{ n: { slot: target }, w: 1 }, { n: { slot }, w: 1 }] }
+  if (!t) return tree
+  if (!t.length) return split
+  const out = clone(tree)
+  const parent = nodeAt(out, t.slice(0, -1)) as Exclude<LayoutNode, { slot: number }>
+  parent.kids[t[t.length - 1]].n = split
+  return out
+}
+/** After a slot is gone: slots above it move down one, so they stay 0..n-1. */
+function renumber(n: LayoutNode, gone: number): LayoutNode {
+  if (isLeaf(n)) return n.slot > gone ? { slot: n.slot - 1 } : n
+  return { dir: n.dir, kids: n.kids.map((k) => ({ n: renumber(k.n, gone), w: k.w })) }
+}
+export function evenTree(n: LayoutNode): LayoutNode {
+  return isLeaf(n) ? n : { dir: n.dir, kids: n.kids.map((k) => ({ n: evenTree(k.n), w: 1 })) }
+}
+export function minExtent(n: LayoutNode, axis: 'x' | 'y', gap: number): number {
+  if (isLeaf(n)) return MIN_TILE
+  const ms = n.kids.map((k) => minExtent(k.n, axis, gap))
+  return (n.dir === 'row') === (axis === 'x') ? ms.reduce((a, b) => a + b, 0) + gap * (ms.length - 1) : Math.max(...ms)
+}
+
+// ── geometry ───────────────────────────────────────────
+
+export interface Leaf extends Rect {
+  slot: number
+  /** kid indexes from the root to this leaf */
+  trail: number[]
+}
+export interface Line {
+  /** the split it belongs to, and the part after it */
+  path: number[]
+  i: number
+  axis: 'x' | 'y'
+  /** world position across the axis, where it starts and how long it is */
+  at: number
+  from: number
+  len: number
+  /** sizes of the parts on either side */
+  sa: number
+  sb: number
+}
+export interface Geo {
+  rects: Map<string, Rect>
+  /** height of what's laid out (the section is this plus padding in columns/rows) */
+  height: number
+  lines: Line[]
+  leaves: Leaf[]
+  leafOf: Map<string, Leaf>
+  colW?: number
+  cols?: number
+  rowOf?: Map<string, number>
+  rows?: { h: number; max: number }[]
+}
+
+/** The area blocks are laid out in. */
+export const layoutArea = (s: Rect): Rect => ({ x: s.x + LAYOUT_PAD, y: s.y + LAYOUT_PAD, w: Math.max(80, s.w - LAYOUT_PAD * 2), h: Math.max(80, s.h - LAYOUT_PAD * 2) })
+
+/** A frame's content shape, from its own size (a block's header and padding aren't content). */
+export function aspectOf(f: Frame) {
+  const n = f.natural ?? f
+  const a = isBlock(f) ? (n.w - BLOCK_PAD * 2) / Math.max(1, n.h - BLOCK_HEAD - BLOCK_PAD) : n.w / Math.max(1, n.h)
+  return Math.min(4, Math.max(0.25, a || 1))
+}
+
+/** The grid's tree for its current count: as stored, or its shape built fresh. */
+export function treeFor(L: SectionLayout): LayoutNode | undefined {
+  const n = L.order.length
+  if (!n) return undefined
+  const valid = (t?: LayoutNode) => {
+    if (!t) return false
+    const s = slotsOf(t).sort((a, b) => a - b)
+    return s.length === n && s.every((v, i) => v === i)
+  }
+  if (valid(L.tree)) return L.tree
+  const shapes = shapesFor(n)
+  return clone(shapes[Math.min(L.shape ?? 0, shapes.length - 1)].t)
+}
+/** Height a grid shape wants at a width. */
+export function shapeHeight(n: number, shape: number, width: number) {
+  const shapes = shapesFor(n)
+  return Math.round(width * (shapes[Math.min(shape, shapes.length - 1)]?.a ?? 0.62))
+}
+
+function layoutTree(n: LayoutNode, r: Rect, gap: number, out: Geo, trail: number[], path: number[]) {
+  if (isLeaf(n)) return void out.leaves.push({ ...r, slot: n.slot, trail })
+  const horiz = n.dir === 'row'
+  const tot = n.kids.reduce((s, k) => s + k.w, 0) || 1
+  const avail = (horiz ? r.w : r.h) - gap * (n.kids.length - 1)
+  let pos = horiz ? r.x : r.y
+  let prev = 0
+  n.kids.forEach((k, i) => {
+    const s = (avail * k.w) / tot
+    if (i > 0) out.lines.push({ path, i, axis: horiz ? 'x' : 'y', at: pos - gap / 2, from: horiz ? r.y : r.x, len: horiz ? r.h : r.w, sa: prev, sb: s })
+    const sub = horiz ? { x: pos, y: r.y, w: s, h: r.h } : { x: r.x, y: pos, w: r.w, h: s }
+    layoutTree(k.n, sub, gap, out, [...trail, i], [...trail, i])
+    prev = s
+    pos += s + gap
+  })
+}
+
+/** The spots of a tree laid out in a section, whatever slots it holds. */
+export function treeLeaves(tree: LayoutNode, section: Rect, gap: number): Leaf[] {
+  const geo: Geo = { rects: new Map(), height: 0, lines: [], leaves: [], leafOf: new Map() }
+  layoutTree(tree, layoutArea(section), gap, geo, [], [])
+  return geo.leaves
+}
+
+/** Where every block in a layout section goes. `byId` gives each block's own shape. */
+export function computeLayout(section: Rect, L: SectionLayout, byId: (id: string) => Frame | undefined): Geo {
+  const area = layoutArea(section)
+  const geo: Geo = { rects: new Map(), height: 0, lines: [], leaves: [], leafOf: new Map() }
+  const ids = L.order
+  if (!ids.length) return { ...geo, height: L.mode === 'grid' ? area.h : 120 }
+  const gap = L.gap
+  if (L.mode === 'grid') {
+    const tree = treeFor(L)!
+    layoutTree(tree, area, gap, geo, [], [])
+    for (const l of geo.leaves) {
+      const id = ids[l.slot]
+      if (!id) continue
+      geo.rects.set(id, { x: l.x, y: l.y, w: l.w, h: l.h })
+      geo.leafOf.set(id, l)
+    }
+    return { ...geo, height: area.h }
+  }
+  const aspect = (id: string) => {
+    const f = byId(id)
+    return f ? aspectOf(f) : 1
+  }
+  if (L.mode === 'columns') {
+    const k = Math.max(1, L.columns ?? 3)
+    const colW = (area.w - (k - 1) * gap) / k
+    const hs = Array(k).fill(0)
+    for (const id of ids) {
+      const span = Math.min(k, L.span?.[id] ?? 1)
+      const w = span * colW + (span - 1) * gap
+      let c = 0
+      let top = Infinity
+      for (let i = 0; i + span <= k; i++) {
+        const t = Math.max(...hs.slice(i, i + span))
+        if (t < top) {
+          top = t
+          c = i
+        }
+      }
+      const h = w / aspect(id)
+      geo.rects.set(id, { x: area.x + c * (colW + gap), y: area.y + top, w, h })
+      for (let i = c; i < c + span; i++) hs[i] = top + h + gap
+    }
+    return { ...geo, height: Math.max(...hs) - gap, colW, cols: k }
+  }
+  // rows: packed at the row height, full rows stretched to the width; a row given its own
+  // height keeps its blocks and gets shorter or taller, never wider than the area
+  const H = L.rowHeight ?? 240
+  const rows: { ids: string[]; full: boolean }[] = []
+  let cur: string[] = []
+  for (const id of ids) {
+    cur.push(id)
+    if (cur.reduce((s, i) => s + aspect(i) * H, 0) + (cur.length - 1) * gap >= area.w) {
+      rows.push({ ids: cur, full: true })
+      cur = []
+    }
+  }
+  if (cur.length) rows.push({ ids: cur, full: false })
+  let y = area.y
+  const rowOf = new Map<string, number>()
+  const info: { h: number; max: number }[] = []
+  rows.forEach((r, ri) => {
+    const sumA = r.ids.reduce((s, i) => s + aspect(i), 0)
+    const fit = (area.w - (r.ids.length - 1) * gap) / sumA
+    const own = L.rowH?.[ri]
+    const h = own ? Math.min(own, fit) : r.full ? fit : Math.min(H, fit)
+    let x = area.x
+    for (const id of r.ids) {
+      const w = aspect(id) * h
+      geo.rects.set(id, { x, y, w, h })
+      rowOf.set(id, ri)
+      x += w + gap
+    }
+    info.push({ h, max: fit })
+    y += h + gap
+  })
+  return { ...geo, height: y - gap - area.y, rowOf, rows: info }
+}
+
+// ── keeping sections and their blocks in step ──────────
+
+const centerIn = (f: Rect, s: Rect) => f.x + f.w / 2 > s.x && f.x + f.w / 2 < s.x + s.w && f.y + f.h / 2 > s.y && f.y + f.h / 2 < s.y + s.h
+
+/**
+ * Bring every layout section and its blocks in line: ids of deleted blocks leave the
+ * order, blocks put inside a layout section join it (splitting its biggest block), blocks
+ * moved out of one leave it (back at their own size), and every block gets the place its
+ * layout gives it. Only blocks in `joinable` (just moved, pasted or added) can join: one a
+ * section grew over stays out. Returns the same array when nothing changes.
+ */
+export function settleLayouts(frames: Frame[], joinable: (f: Frame) => boolean = () => false): Frame[] {
+  if (!frames.some((f) => f.layout)) return frames
+  const byId = new Map(frames.map((f) => [f.id, f]))
+  const patch = new Map<string, Partial<Frame>>()
+  const put = (id: string, p: Partial<Frame>) => patch.set(id, { ...patch.get(id), ...p })
+  const claimed = new Set<string>()
+  const sections = frames.filter((f) => isSection(f) && f.layout)
+  for (const s of sections) for (const id of s.layout!.order) if (byId.has(id)) claimed.add(id)
+
+  for (const s of sections) {
+    let L = s.layout!
+    const own = new Set<string>()
+    // Who stays: still here, a block, not taken by an earlier section, still inside.
+    const keep = (id: string) => {
+      const f = byId.get(id)
+      if (!f || isSection(f) || own.has(id)) return false
+      if (!centerIn(f, s)) {
+        if (f.natural) put(id, { w: f.natural.w, h: f.natural.h, crop: undefined })
+        return false
+      }
+      own.add(id)
+      return true
+    }
+    const kept = L.order.filter(keep)
+    // Who joins: inside the box, this is their innermost section, in no layout yet.
+    const joining = frames.filter((f) => !isSection(f) && !claimed.has(f.id) && joinable(f) && centerIn(f, s) && sectionOf(f, frames)?.id === s.id)
+    if (kept.length !== L.order.length || joining.length) {
+      let tree = L.mode === 'grid' && L.order.length ? treeFor(L) : undefined
+      if (tree) {
+        // Drop slots from the highest down, so the numbers still match while going.
+        for (let slot = L.order.length - 1; slot >= 0; slot--) {
+          if (own.has(L.order[slot])) continue
+          tree = tree && detachLeaf(tree, slot)
+          if (tree) tree = renumber(tree, slot)
+        }
+      }
+      L = { ...L, order: kept, tree, shape: tree ? undefined : L.shape }
+      for (const f of joining) {
+        claimed.add(f.id)
+        put(f.id, { natural: f.natural ?? { w: f.w, h: f.h }, fit: undefined })
+        if (L.mode === 'grid' && L.tree) {
+          const geo = computeLayout(s, L, (id) => byId.get(id))
+          const big = [...geo.leaves].sort((a, b) => b.w * b.h - a.w * a.h)[0]
+          L = { ...L, tree: splitLeaf(L.tree!, big.slot, L.order.length, big), order: [...L.order, f.id] }
+        } else L = { ...L, order: [...L.order, f.id] }
+      }
+      // Rows set by hand belong to the old packing.
+      if (L.mode === 'rows') L = { ...L, rowH: undefined }
+      put(s.id, { layout: L })
+    } else if (L.mode === 'grid' && L.order.length && !L.tree) {
+      // A picked shape: keep its tree, so lines dragged from here on have something to move.
+      L = { ...L, tree: treeFor(L) }
+      put(s.id, { layout: L })
+    }
+    const look = (id: string) => {
+      const f = byId.get(id)
+      return f && patch.get(id)?.natural ? { ...f, ...patch.get(id) } : f
+    }
+    const geo = computeLayout(s, L, look)
+    for (const [id, r] of geo.rects) {
+      const f = byId.get(id)!
+      const x = Math.round(r.x)
+      const y = Math.round(r.y)
+      const w = Math.round(r.w)
+      const h = Math.round(r.h)
+      if (f.x !== x || f.y !== y || f.w !== w || f.h !== h) put(id, { x, y, w, h })
+    }
+    if (L.mode !== 'grid') {
+      const h = Math.round(geo.height + LAYOUT_PAD * 2)
+      if (s.h !== h) put(s.id, { h })
+    }
+  }
+  if (!patch.size) return frames
+  return frames.map((f) => {
+    const p = patch.get(f.id)
+    return p ? { ...f, ...p } : f
+  })
+}
+
+/** Frames that are new or have moved since `before`: the ones that may join a layout. */
+export function movedSince(before: Frame[] | null) {
+  if (!before) return () => false
+  const was = new Map(before.map((f) => [f.id, f]))
+  return (f: Frame) => {
+    const p = was.get(f.id)
+    return !p || p.x !== f.x || p.y !== f.y
+  }
+}
+
+/** Block id → the layout section it's in. Cached per frames array. */
+const members = new WeakMap<Frame[], Map<string, string>>()
+export function layoutMembers(frames: Frame[]) {
+  let m = members.get(frames)
+  if (!m) {
+    m = new Map()
+    for (const f of frames) if (f.layout) for (const id of f.layout.order) m.set(id, f.id)
+    members.set(frames, m)
+  }
+  return m
 }

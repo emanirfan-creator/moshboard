@@ -91,7 +91,9 @@ Add `--out <folder>` to write somewhere else.
 | [ | Show / hide sidebar |
 | Drag on empty canvas | Select an area |
 | Shift + click | Add to selection |
-| ⌃⌥T | Tidy up selection into a grid |
+| ⌃⌥T | Arrange the selection the way you last did (again: next shape) |
+| ← ↑ → ↓ | Move a block inside a layout (it trades places) |
+| ↵ | Crop a picture in a layout |
 | ⌘Z / ⌘⇧Z | Undo / redo |
 | H / Space + drag | Pan |
 | Pinch / ⌘ + scroll | Zoom |
@@ -115,7 +117,7 @@ What shows up depends on what's selected.
 - **Site:** Capture motion, Copy /recreate command, Render at 375 / 768 / 1280px wide
 - **Code frame:** Replay, Save tuned values to code, Reset tuned values, Detect motion values, Add controls to code, Copy /recreate command
 - **Palette:** Generate new colors (from the board), Split into swatches, Merge into one palette
-- **Arrange:** Tidy up into a grid, Align left, Align top
+- **Arrange:** Arrange as grid, in columns or in rows
 - **Frame:** Link to reference, Add to link, Unlink, Duplicate, Delete
 - **Canvas:** Fit to screen, Control sounds on/off, Export spec, New canvas, Show / hide sidebar, Go to another canvas
 

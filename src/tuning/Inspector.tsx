@@ -46,6 +46,10 @@ import {
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
+import { SectionBody, TileBody } from './ArrangeInspector'
+import { isTile } from '../arrange'
+
+const MODE_KIND = { grid: 'Grid', columns: 'Columns', rows: 'Rows' } as const
 import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, TextCtl, Timeline } from './controls'
 import { ColorPicker } from '../ui/ColorPicker'
 import { nameColor } from '../../shared/color.ts'
@@ -111,11 +115,22 @@ export function Inspector() {
   )
 }
 
-const KIND: Record<string, string> = { code: 'Component', video: 'Video', text: 'Text', palette: 'Palette', swatch: 'Font' }
+const KIND: Record<string, string> = {
+  code: 'Component',
+  video: 'Video',
+  text: 'Text',
+  palette: 'Palette',
+  swatch: 'Font',
+  image: 'Image',
+  url: 'Website',
+  note: 'Note',
+  section: 'Section',
+}
 
 function Body({ frame }: { frame: Frame }) {
   const modified = useStore((s) => !!s.overrides[frame.id])
-  const kind = frame.type === 'swatch' && !frame.font ? 'Color' : KIND[frame.type]
+  const tile = useStore(() => isTile(frame.id))
+  const kind = frame.type === 'swatch' && !frame.font ? 'Color' : frame.layout ? MODE_KIND[frame.layout.mode] : KIND[frame.type]
   return (
     <>
       <header className="insp-head">
@@ -126,6 +141,8 @@ function Body({ frame }: { frame: Frame }) {
           <CloseIcon />
         </button>
       </header>
+      {frame.type === 'section' && <SectionBody frame={frame} />}
+      {tile && <TileBody frame={frame} />}
       {frame.type === 'code' && <CodeBody frame={frame} />}
       {frame.type === 'video' && <VideoBody frame={frame} />}
       {frame.type === 'text' && <TextBody frame={frame} />}

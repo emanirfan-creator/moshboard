@@ -125,6 +125,7 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
     <video
       ref={ref}
       className="content-media"
+      style={cropStyle(frame)}
       src={assetUrl(frame.src!)}
       muted
       autoPlay
@@ -331,6 +332,14 @@ function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
   )
 }
 
+/** A picture's crop in a layout: which part shows (it already covers its box) and how far it's zoomed. */
+function cropStyle(frame: Frame): React.CSSProperties | undefined {
+  const c = frame.crop
+  if (!c) return undefined
+  const at = `${(0.5 + c.x) * 100}% ${(0.5 + c.y) * 100}%`
+  return { objectPosition: at, transform: c.s !== 1 ? `scale(${c.s})` : undefined, transformOrigin: at }
+}
+
 /** Requests a resized copy matched to on-screen size; only ever steps up, so zooming in sharpens without flicker. */
 function ImageFrame({ frame, size }: { frame: Frame; size: Size }) {
   // Select the size step, not the zoom, so images only re-render when they need a bigger copy.
@@ -343,6 +352,7 @@ function ImageFrame({ frame, size }: { frame: Frame; size: Size }) {
   return (
     <img
       className="content-media"
+      style={cropStyle(frame)}
       src={`${assetUrl(frame.src!)}?w=${best.current}`}
       alt={frame.label ?? ''}
       draggable={false}

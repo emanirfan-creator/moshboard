@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { arrange, arrangeable, arrangeAgain, canCrop, freeLayout, isTile, startCrop, takeOut } from '../arrange'
 import { askClaude } from '../folder/ClaudeTask'
 import { chooseFolder, FOLDER_ONLY, folderSupported } from '../folder/folder'
 import { hasColors } from '../boardColors'
@@ -6,8 +7,6 @@ import { canCompare, exitCompare, startCompare } from '../canvas/compare'
 import {
   addNote,
   addPalette,
-  alignSelection,
-  tidySelection,
   combineSwatches,
   regeneratePalette,
   randomizePalette,
@@ -127,17 +126,30 @@ function Palette() {
     if (sel.filter((f) => f!.type === 'swatch' || f!.type === 'palette').length >= 2)
       add('Palette', 'Merge into one palette', combineSwatches)
     if (sel.length >= 2) {
-      add('Arrange', 'Tidy up into a grid', tidySelection, '⌃⌥T')
-      add('Arrange', 'Align left', () => alignSelection('left'))
-      add('Arrange', 'Align top', () => alignSelection('top'))
+      if (!arrangeable().why) {
+        add('Arrange', 'Arrange as grid', () => arrange(null, 'grid', 0), '⌃⌥T')
+        add('Arrange', 'Arrange in columns', () => arrange(null, 'columns', 3))
+        add('Arrange', 'Arrange in rows', () => arrange(null, 'rows', 240))
+      }
     }
     if (s.compare) add('Section', 'Stop comparing', exitCompare, 'Esc')
     else if (canCompare()) add('Section', sel.filter((f) => f!.type === 'section').length >= 2 ? 'Compare side by side' : 'Compare all sections side by side', startCompare, 'C')
     if (one?.type === 'section') {
-      add('Section', 'Tidy up inside', () => tidySelection(), '⌃⌥T')
+      if (one.layout) {
+        add('Section', 'Next layout shape', arrangeAgain, '⌃⌥T')
+        add('Section', 'Free layout (keep positions)', () => freeLayout(one.id))
+      } else {
+        add('Section', 'Arrange as grid', () => arrange(one.id, 'grid', 0), '⌃⌥T')
+        add('Section', 'Arrange in columns', () => arrange(one.id, 'columns', 3))
+        add('Section', 'Arrange in rows', () => arrange(one.id, 'rows', 240))
+      }
       add('Section', one.chosen ? 'Unapprove this section' : 'Approve this section', () => pickSection())
       add('Section', 'Fit to contents', () => fitSection())
       add('Section', 'Remove section, keep contents', () => ungroupSection())
+    }
+    if (one && isTile(one.id)) {
+      add('Layout', 'Take out of the layout', () => takeOut(one.id))
+      if (canCrop(one)) add('Layout', 'Crop', () => startCrop(one.id), '↵')
     }
     if (canLinkSelected()) add('Frame', sel.some((f) => isLinked(f!)) ? 'Add to link' : 'Link to reference', linkSelected)
     if (sel.some((f) => isLinked(f!))) add('Frame', 'Unlink', unlinkSelected)
