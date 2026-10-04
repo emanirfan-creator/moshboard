@@ -1020,9 +1020,11 @@ kbd {
 
 .toast {
   position: fixed;
-  left: 50%;
+  /* Centered over the visible canvas, under the toolbar: it moves with it as the side panels open. */
+  left: calc(var(--view-left, 0px) + (100vw - var(--view-left, 0px) - var(--view-right, 0px)) / 2);
   bottom: 84px;
   transform: translateX(-50%);
+  transition: left 240ms cubic-bezier(0.32, 0.72, 0, 1);
   color: var(--text-2);
   font-size: 12px;
   pointer-events: none;

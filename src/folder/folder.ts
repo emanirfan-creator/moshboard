@@ -9,7 +9,7 @@
 import skill from '../../.claude/skills/recreate/SKILL.md?raw'
 import { api } from '../api'
 import type { Segment } from '../../shared/types.ts'
-import { getState, setState, toast } from '../store'
+import { getState, setState, toast, toggleSidebar } from '../store'
 
 /** Website build (and `pnpm dev:web`): boards live in a folder the user picks. The local app never uses one. */
 export const FOLDER_ONLY = import.meta.env.VITE_FOLDER_ONLY === '1'
@@ -245,6 +245,9 @@ async function addAndOpen(dir: Dir, name: string, path?: string) {
   if (id === rootId) return setState({ onboarding: null })
   // The setup screens are for the first folder only; more folders just open.
   const firstEver = !known && saved.length === 1
+  // A first folder is a fresh start: the side nav stays closed through setup and onto the canvas,
+  // until it's opened (even if it was left open before, e.g. the last folder was removed).
+  if (firstEver) toggleSidebar(false)
   await openFolder(id, firstEver)
   if (!known && !firstEver) toast(`Added “${name}”`)
 }

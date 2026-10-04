@@ -23,6 +23,12 @@ export function Chrome() {
   const sidebar = useStore(sidebarShown)
   const left = sidebar ? viewLeft() : 0
   const right = useStore(inspectorOpen) ? INSPECTOR_W : 0
+  // The visible canvas, for anything else centered on it at the bottom (toasts follow the toolbar).
+  useEffect(() => {
+    const root = document.documentElement.style
+    root.setProperty('--view-left', `${left}px`)
+    root.setProperty('--view-right', `${right}px`)
+  }, [left, right])
   return (
     <>
       <Toolbar left={left} right={right} />
