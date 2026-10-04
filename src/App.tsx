@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   copySelection,
   pasteFrames,
@@ -30,6 +30,7 @@ import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
 import { FOLDER_ONLY, onFolderChange, startFolder } from './folder/folder'
 import { Onboarding } from './folder/Onboarding'
+import { Loader } from './ui/Loader'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
@@ -163,6 +164,17 @@ export function App() {
   // Center in the visible canvas, not the window (the sidebar covers the left).
   const emptyLeft = useStore((s) => (s.sidebar ? SIDEBAR_W : 0))
   const inFolder = useStore((s) => !!s.folder)
+  // Opening the first board (or finding the folder) takes a moment: the loader covers it if it's a real wait.
+  const waiting = useStore((s) => s.board === null && s.onboarding === null)
+  const hasBoard = useStore((s) => s.board !== null)
+  // The board fades in when it first arrives, instead of popping in.
+  const [boardIn, setBoardIn] = useState(false)
+  useEffect(() => {
+    if (!hasBoard) return
+    setBoardIn(true)
+    const t = setTimeout(() => setBoardIn(false), 400)
+    return () => clearTimeout(t)
+  }, [hasBoard])
 
   useEffect(() => {
     startFolder().then((ready) => {
@@ -181,7 +193,10 @@ export function App() {
 
   return (
     <>
-      <Canvas />
+      <div className="board-layer" data-in={boardIn || undefined}>
+        <Canvas />
+      </div>
+      {waiting && <Loader />}
       {empty && (
         <div className="empty" style={{ left: emptyLeft }}>
           <div>

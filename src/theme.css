@@ -4000,6 +4000,16 @@ textarea,
   margin-bottom: 24px;
   text-wrap: balance;
 }
+/* First visit: the card rises in; the logo's first hop (AppMark idle, 420ms) lands with it. */
+.onboarding[data-intro] {
+  animation: onboarding-intro 560ms var(--panel-in) 80ms both;
+}
+@keyframes onboarding-intro {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -44%) scale(0.97);
+  }
+}
 .onboarding-mark {
   margin-bottom: 20px;
   color: var(--text-1);
@@ -4097,4 +4107,14 @@ textarea,
   --edge: 6px;
   filter: blur(8px);
   opacity: calc(var(--active) * 0.35);
+}
+
+/* The board fades in when it first arrives (App.tsx). */
+.board-layer[data-in] {
+  animation: board-in 320ms var(--ease) both;
+}
+@keyframes board-in {
+  from {
+    opacity: 0;
+  }
 }

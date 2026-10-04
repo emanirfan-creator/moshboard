@@ -5,9 +5,114 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Moshboard</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* Before the app's own styles load: the canvas color, so there's no white flash. */
+      html,
+      body {
+        margin: 0;
+        background: #0f1012;
+      }
+
+      /* The loader: white dots that run along the Moshboard m and melt together (a goo filter).
+         It shows only on a real wait: it fades in after --mb-loader-delay, so a quick load never
+         shows it. Lives here so it can show before any script runs; src/ui/Loader.tsx reuses it. */
+      .mb-loader {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        pointer-events: none;
+        opacity: 0;
+        animation: mb-loader-in 260ms ease var(--mb-loader-delay, 300ms) forwards;
+      }
+      .mb-loader-box {
+        position: relative;
+        width: 72px;
+        height: 72px;
+      }
+      .mb-loader-base {
+        position: absolute;
+        inset: 0;
+        color: rgba(255, 255, 255, 0.07);
+      }
+      .mb-loader-goo {
+        position: absolute;
+        inset: 0;
+        filter: url(#mb-goo);
+      }
+      .mb-loader-goo i {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #f7f8f8;
+        /* The m on the 24-unit grid of src/ui/AppMark.tsx, three times as large, drawn in one stroke. */
+        offset-path: path('M13.5 55.8V33.3a11.25 11.25 0 0 1 22.5 0V21.3a11.25 11.25 0 0 1 22.5 0V45.3');
+        offset-anchor: center;
+        offset-rotate: 0deg;
+        animation: mb-trace 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite alternate;
+      }
+      .mb-loader-goo i:nth-child(2) {
+        animation-delay: 70ms;
+        scale: 0.92;
+      }
+      .mb-loader-goo i:nth-child(3) {
+        animation-delay: 140ms;
+        scale: 0.84;
+      }
+      .mb-loader-goo i:nth-child(4) {
+        animation-delay: 210ms;
+        scale: 0.76;
+      }
+      .mb-loader-goo i:nth-child(5) {
+        animation-delay: 280ms;
+        scale: 0.68;
+      }
+      @keyframes mb-trace {
+        from {
+          offset-distance: 0%;
+        }
+        to {
+          offset-distance: 100%;
+        }
+      }
+      @keyframes mb-loader-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .mb-loader-goo {
+          display: none;
+        }
+        .mb-loader-base {
+          color: rgba(255, 255, 255, 0.4);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="mb-loader" role="status" aria-label="Loading">
+        <div class="mb-loader-box">
+          <svg class="mb-loader-base" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <g transform="translate(0 -0.9)" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.5 19.5V12a3.75 3.75 0 0 1 7.5 0v7.5" />
+              <path d="M12 15.5V8a3.75 3.75 0 0 1 7.5 0V16" />
+            </g>
+          </svg>
+          <div class="mb-loader-goo"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+          <filter id="mb-goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" />
+          </filter>
+        </svg>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCanvas, switchBoard } from '../actions'
 import { setState, toggleSidebar, useStore } from '../store'
 import { AppMark } from './AppMark'
+import { FOLDER_ONLY } from '../folder/folder'
 import { KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
 
 export function Sidebar() {
-  // Closed behind the folder screens (website): there's nothing to list until a folder is picked.
-  const open = useStore((s) => s.sidebar && !(s.onboarding === 'welcome' || s.onboarding === 'reconnect' || s.onboarding === 'gone'))
+  // Website: closed until a folder is open (there's nothing to list before, and it sits behind the folder screens).
+  const open = useStore((s) => s.sidebar && !(FOLDER_ONLY && (!s.folder || s.onboarding === 'reconnect' || s.onboarding === 'gone')))
   const canvases = useStore((s) => s.canvases)
   const current = useStore((s) => s.boardName)
   const [creating, setCreating] = useState(false)

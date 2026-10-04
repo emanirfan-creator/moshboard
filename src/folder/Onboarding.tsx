@@ -7,6 +7,15 @@ import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './f
 
 const close = () => setState({ onboarding: null })
 
+// The first visit gets an entrance (the card rises in and the logo hops as it lands); later ones don't.
+let firstVisit = false
+try {
+  firstVisit = !localStorage.getItem('mb:seen')
+  localStorage.setItem('mb:seen', '1')
+} catch {
+  // storage blocked: no entrance
+}
+
 /** Setup screens for folder mode: pick a folder, reconnect it, and how to use Claude with it. */
 export function Onboarding() {
   const step = useStore((s) => s.onboarding)
@@ -30,6 +39,7 @@ export function Onboarding() {
       <div
         className="dialog dialog-small onboarding"
         data-center={step === 'welcome' || step === 'reconnect' || step === 'gone' || undefined}
+        data-intro={(firstVisit && step === 'welcome') || undefined}
         role="dialog"
         aria-label="Set up Moshboard"
       >
