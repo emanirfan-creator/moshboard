@@ -294,7 +294,7 @@ const INSPECTED = new Set(['code', 'video', 'text', 'palette'])
 export const inspectorOpen = (s: State) =>
   s.selected.length > 1 ||
   (s.selected.length === 1 && inspected(frameById(s.selected[0])))
-const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || (f.type === 'swatch' && !!f.font))
+const inspected = (f?: Frame) => !!f && (INSPECTED.has(f.type) || f.type === 'swatch')
 /** Left edge of the visible canvas (the sidebar sits on top of it). */
 /**
  * Whether the sidebar is on screen: the user's setting, except that the website keeps it closed

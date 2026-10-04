@@ -46,7 +46,9 @@ import {
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { SelectionBody } from './SelectionInspector'
-import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, Timeline } from './controls'
+import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, TextCtl, Timeline } from './controls'
+import { ColorPicker } from '../ui/ColorPicker'
+import { nameColor } from '../../shared/color.ts'
 import { useDetection } from './detection'
 import { PropsSections, useComponentProps } from './PropsInspector'
 import { runtimeGroups } from '../../shared/runtime-motion.ts'
@@ -113,12 +115,13 @@ const KIND: Record<string, string> = { code: 'Component', video: 'Video', text: 
 
 function Body({ frame }: { frame: Frame }) {
   const modified = useStore((s) => !!s.overrides[frame.id])
+  const kind = frame.type === 'swatch' && !frame.font ? 'Color' : KIND[frame.type]
   return (
     <>
       <header className="insp-head">
         <span className="block-dot" data-state={modified ? 'modified' : undefined} />
-        <span className="insp-title">{frame.label || KIND[frame.type]}</span>
-        <span className="insp-kind">{KIND[frame.type]}</span>
+        <span className="insp-title">{frame.label || kind}</span>
+        <span className="insp-kind">{kind}</span>
         <button className="icon-btn" onClick={() => setState({ selected: [] })} title="Close  Esc" aria-label="Close">
           <CloseIcon />
         </button>
@@ -128,6 +131,7 @@ function Body({ frame }: { frame: Frame }) {
       {frame.type === 'text' && <TextBody frame={frame} />}
       {frame.type === 'palette' && <PaletteBody frame={frame} />}
       {frame.type === 'swatch' && frame.font && <FontBody frame={frame} />}
+      {frame.type === 'swatch' && !frame.font && <ColorBody frame={frame} />}
     </>
   )
 }
@@ -612,6 +616,21 @@ const FONT_SIZE: Param = { name: 'fontSize', kind: 'number', value: 24, unit: 'p
 const SAMPLE_SIZE: Param = { ...FONT_SIZE, name: 'sampleSize', value: SWATCH_SIZE }
 
 /** Font blocks: the family's name set at a size and weight, as a type spec. */
+/** A color swatch: its name and its color. */
+function ColorBody({ frame }: { frame: Frame }) {
+  const hex = frame.color ?? '#d0d6e0'
+  // A name that's still the automatic one follows the color; one the user typed stays.
+  const automatic = !frame.label || frame.label === 'Color' || frame.label === nameColor(hex)
+  return (
+    <div className="insp-scroll">
+      <Section title="Color">
+        <TextCtl name="Name" value={frame.label ?? ''} modified={false} onChange={(label) => updateFrame(frame.id, { label: label.trim() || undefined })} />
+        <ColorPicker value={hex} onChange={(color) => updateFrame(frame.id, { color, ...(automatic ? { label: nameColor(color) } : {}) })} />
+      </Section>
+    </div>
+  )
+}
+
 function FontBody({ frame }: { frame: Frame }) {
   const size = frame.size ?? SWATCH_SIZE
   const weight = frame.weight ?? 400
