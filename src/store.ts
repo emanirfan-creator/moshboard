@@ -104,11 +104,12 @@ export type ExportScope = 'selection' | 'chosen' | 'all'
 
 export type AddKind = 'media' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text' | 'section'
 
-function storedFlag(key: string) {
+function storedFlag(key: string, fallback = true) {
   try {
-    return localStorage.getItem(key) !== '0'
+    const v = localStorage.getItem(key)
+    return v === null ? fallback : v !== '0'
   } catch {
-    return true
+    return fallback
   }
 }
 
@@ -128,7 +129,9 @@ let state: State = {
   gesture: null,
   toast: null,
   canvases: [],
-  sidebar: storedFlag('mb:sidebar'),
+  // The website starts with it closed (through the folder setup and onto the canvas) until the
+  // user opens it; after that it remembers. The local app starts with it open.
+  sidebar: storedFlag('mb:sidebar', import.meta.env.VITE_FOLDER_ONLY !== '1'),
   add: null,
   shortcuts: false,
   exported: null,
