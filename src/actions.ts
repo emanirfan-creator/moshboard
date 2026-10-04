@@ -728,7 +728,9 @@ export async function addCode(
   await api.writeFile(getState().boardName, file, body)
   setState((s) => ({ files: { ...s.files, [file]: body } }))
   // `fit`: sized to what it renders once it first loads (see CodeFrame).
-  return addFrame({ type: 'code', file, label: opts.label ?? 'Component', fit: opts.w === undefined, ...place(420, 300), ...opts, id })
+  // Looking for a free spot can pan the view, so only when the frame has no place yet (a paste or duplicate has one).
+  const spot = opts.x !== undefined && opts.y !== undefined ? { x: opts.x, y: opts.y, w: 420, h: 300 } : place(420, 300)
+  return addFrame({ type: 'code', file, label: opts.label ?? 'Component', fit: opts.w === undefined, ...spot, ...opts, id })
 }
 
 export const looksLikeCode = (t: string) =>
@@ -904,15 +906,8 @@ export async function duplicateSelected() {
     // Through copy/paste, so links inside the section follow the copies. The copy goes beside
     // the original, in clear space: overlapping sections would claim each other's blocks.
     await copySelection(false, true)
-    const fs = clip!.frames
-    const x0 = Math.min(...fs.map((f) => f.x))
-    const y0 = Math.min(...fs.map((f) => f.y))
-    const w = Math.max(...fs.map((f) => f.x + f.w)) - x0
-    const h = Math.max(...fs.map((f) => f.y + f.h)) - y0
-    let dx = w + 120
-    const clear = (d: number) => !frames.some((f) => x0 + d < f.x + f.w + 48 && x0 + d + w + 48 > f.x && y0 < f.y + f.h + 48 && y0 + h + 48 > f.y)
-    for (let i = 0; i < 200 && !clear(dx); i++) dx += 120
-    return pasteFrames(clip, { dx, dy: 0 })
+    const b = boundsOf(clip!.frames)
+    return pasteFrames(clip, { dx: clearRight(b, b.w + SECTION_GAP), dy: 0 })
   }
   for (const id of withContents(getState().selected, frames)) {
     const f = frameById(id)
@@ -978,6 +973,23 @@ export function readClip(text: string): Clip | null {
 }
 
 /** ⌘V: paste copied frames. Each paste steps further out so copies don't stack exactly. */
+const SECTION_GAP = 120
+const boundsOf = (fs: Pick<Frame, 'x' | 'y' | 'w' | 'h'>[]) => {
+  const x = Math.min(...fs.map((f) => f.x))
+  const y = Math.min(...fs.map((f) => f.y))
+  return { x, y, w: Math.max(...fs.map((f) => f.x + f.w)) - x, h: Math.max(...fs.map((f) => f.y + f.h)) - y }
+}
+/**
+ * How far right (from `dx`) a group of bounds `b` has to go to land in clear space, a
+ * section's width at a time. Sections can't overlap: they'd claim each other's blocks.
+ */
+function clearRight(b: { x: number; y: number; w: number; h: number }, dx: number) {
+  const frames = getState().board?.frames ?? []
+  const clear = (d: number) => !frames.some((f) => b.x + d < f.x + f.w + 48 && b.x + d + b.w + 48 > f.x && b.y < f.y + f.h + 48 && b.y + b.h + 48 > f.y)
+  for (let i = 0; i < 200 && !clear(dx); i++) dx += b.w + SECTION_GAP
+  return dx
+}
+
 export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; dy: number }) {
   if (!from?.frames.length) return
   if (from !== clip) {
@@ -996,8 +1008,15 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
   const { z } = s.camera
   const visible =
     from.board === s.boardName && Math.abs((x0 + x1) / 2 - cx) * z < window.innerWidth / 2 && Math.abs((y0 + y1) / 2 - cy) * z < window.innerHeight / 2
-  const dx = at ? at.dx : visible ? 32 * pasteCount : Math.round(cx - (x0 + x1) / 2) + 24 * (pasteCount - 1)
-  const dy = at ? at.dy : visible ? 32 * pasteCount : Math.round(cy - (y0 + y1) / 2) + 24 * (pasteCount - 1)
+  let dx = at ? at.dx : visible ? 32 * pasteCount : Math.round(cx - (x0 + x1) / 2) + 24 * (pasteCount - 1)
+  let dy = at ? at.dy : visible ? 32 * pasteCount : Math.round(cy - (y0 + y1) / 2) + 24 * (pasteCount - 1)
+  // A section never lands on top of anything: beside the original when it's in view, else in
+  // view, moved right until the spot is clear.
+  if (!at && fs.some(isSection)) {
+    const b = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+    if (visible) dy = 0
+    dx = clearRight({ ...b, y: b.y + dy }, visible ? b.w + SECTION_GAP : Math.round(cx - (x0 + x1) / 2))
+  }
 
   const ids = new Map(fs.map((f) => [f.id, newId()]))
   const made: string[] = []
