@@ -26,6 +26,9 @@ export function Onboarding() {
   const blocking = step === 'reconnect' || step === 'gone' || (step === 'welcome' && FOLDER_ONLY)
   // While a folder is being chosen and opened, the card shimmers like a loading block.
   const [connecting, setConnecting] = useState(false)
+  // Hover follows the cursor over the card, not just it coming in: the next step replaces the card
+  // under a cursor that's already there.
+  const [hover, setHover] = useState(false)
   const connect = (run: () => Promise<unknown>) => () => {
     setConnecting(true)
     run().finally(() => setConnecting(false))
@@ -49,9 +52,11 @@ export function Onboarding() {
         data-intro={(firstVisit && step === 'welcome') || undefined}
         role="dialog"
         aria-label="Set up Moshboard"
+        onPointerMove={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
       >
         {/* Every step is the same card: the mark, one message, one button. Pixels ripple in on hover and play while a folder opens. */}
-        <PixelCanvas className="onboarding-pixels" active={connecting} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />
+        <PixelCanvas className="onboarding-pixels" active={connecting || hover} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />
         <div className="dialog-body">
           <span className="onboarding-mark">
             <AppMark size={48} idle />

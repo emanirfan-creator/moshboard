@@ -37,6 +37,7 @@ export function ClaudeTask() {
   const [part, setPart] = useState('')
   const [trigger, setTrigger] = useState<(typeof TRIGGERS)[number]>('hover')
   const [copied, setCopied] = useState(false)
+  const [hover, setHover] = useState(false)
 
   useEffect(() => {
     setCopied(false)
@@ -57,8 +58,14 @@ export function ClaudeTask() {
   return (
     <>
       <div className="palette-scrim onboarding-scrim" onPointerDown={close} />
-      <div className="dialog dialog-small onboarding claude-task" role="dialog" aria-label="Ask Claude">
-        <PixelCanvas className="onboarding-pixels" gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />
+      <div
+        className="dialog dialog-small onboarding claude-task"
+        role="dialog"
+        aria-label="Ask Claude"
+        onPointerMove={() => setHover(true)}
+        onPointerLeave={() => setHover(false)}
+      >
+        <PixelCanvas className="onboarding-pixels" active={hover} gap={8} speed={30} colors={PIXELS} variant="icon" noFocus />
         <div className="dialog-body">
           <span className="onboarding-mark">
             <AppMark size={48} idle />

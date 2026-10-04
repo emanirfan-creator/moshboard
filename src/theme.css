@@ -4042,9 +4042,10 @@ textarea,
 }
 .onboarding-list,
 .onboarding-steps {
-  /* A left-aligned list, centered as a block under the heading. */
-  align-self: center;
-  text-align: left;
+  /* Each line centered, like the rest of the card. */
+  align-self: stretch;
+  align-items: center;
+  text-align: center;
   margin: 4px 0 24px;
   padding: 0;
   list-style: none;
@@ -4055,6 +4056,7 @@ textarea,
 }
 .onboarding-list li {
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: 10px;
 }
@@ -4068,6 +4070,7 @@ textarea,
 .onboarding-steps li {
   counter-increment: step;
   display: flex;
+  justify-content: center;
   gap: 10px;
   line-height: 1.5;
 }
