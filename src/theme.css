@@ -3981,7 +3981,11 @@ textarea,
 .onboarding .dialog-body {
   padding: 24px 24px 22px;
 }
-/* Picking, reconnecting, folder gone: one message and one button, centered. */
+/* Picking, reconnecting, folder gone: one message and one button, centered. The edge light
+   (GlowEdge) sits on the border, so the card doesn't clip. */
+.onboarding[data-center] {
+  overflow: visible;
+}
 .onboarding[data-center] .dialog-body {
   align-items: center;
   text-align: center;
@@ -4052,4 +4056,38 @@ textarea,
   color: var(--text-3);
   font-size: 11px;
   margin-top: 1px;
+}
+/* ── edge light (src/ui/GlowEdge.tsx) ─────────────────── */
+
+.glow-edge {
+  --start: 0;
+  --active: 0;
+  --spread: 40;
+  --edge: 1.5px;
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.glow-edge::after,
+.glow-edge::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * var(--edge));
+  border-radius: inherit;
+  border: var(--edge) solid transparent;
+  background: rgba(255, 255, 255, 0.85);
+  opacity: var(--active);
+  transition: opacity 300ms var(--ease);
+  /* Only an arc of the border shows, centered on --start (degrees, pointing at the cursor). */
+  mask-image: linear-gradient(#0000, #0000),
+    conic-gradient(from calc((var(--start) - var(--spread)) * 1deg), #0000 0deg, #fff, #0000 calc(var(--spread) * 2deg));
+  mask-clip: padding-box, border-box;
+  mask-composite: intersect;
+}
+/* A soft bloom under the line, so it reads as light rather than a stroke. */
+.glow-edge::before {
+  --edge: 6px;
+  filter: blur(8px);
+  opacity: calc(var(--active) * 0.35);
 }

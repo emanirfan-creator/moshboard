@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { setState, useStore } from '../store'
 import { AppMark } from '../ui/AppMark'
+import { GlowEdge } from '../ui/GlowEdge'
 import { CheckIcon, CloseIcon, FolderIcon } from '../ui/icons'
 import { chooseFolder, FOLDER_ONLY, folderSupported, reconnectFolder } from './folder'
 
@@ -37,6 +38,7 @@ export function Onboarding() {
             <CloseIcon />
           </button>
         )}
+        {(step === 'welcome' || step === 'reconnect' || step === 'gone') && <GlowEdge />}
         <div className="dialog-body">
           {(step === 'welcome' || step === 'reconnect' || step === 'gone') && (
             <span className="onboarding-mark">
