@@ -248,6 +248,14 @@ export function treeLeaves(tree: LayoutNode, section: Rect, gap: number): Leaf[]
   return geo.leaves
 }
 
+/** The smallest a layout section can be resized to: its blocks at their smallest, plus padding. */
+export function minLayoutSize(L: SectionLayout) {
+  const tree = L.mode === 'grid' ? treeFor(L) : undefined
+  const pad = LAYOUT_PAD * 2
+  if (!tree) return { w: 240, h: 160 }
+  return { w: minExtent(tree, 'x', L.gap) + pad, h: minExtent(tree, 'y', L.gap) + pad }
+}
+
 /** Where every block in a layout section goes. `byId` gives each block's own shape. */
 export function computeLayout(section: Rect, L: SectionLayout, byId: (id: string) => Frame | undefined): Geo {
   const area = layoutArea(section)
@@ -334,8 +342,8 @@ const centerIn = (f: Rect, s: Rect) => f.x + f.w / 2 > s.x && f.x + f.w / 2 < s.
  * Bring every layout section and its blocks in line: ids of deleted blocks leave the
  * order, blocks put inside a layout section join it (splitting its biggest block), blocks
  * moved out of one leave it (back at their own size), and every block gets the place its
- * layout gives it. Only blocks in `joinable` (just moved, pasted or added) can join: one a
- * section grew over stays out. Returns the same array when nothing changes.
+ * layout gives it. Only blocks in `joinable` (just moved, pasted or added) can join or leave:
+ * one a section grew over stays out, and one the layout moved stays in. Returns the same array when nothing changes.
  */
 export function settleLayouts(frames: Frame[], joinable: (f: Frame) => boolean = () => false): Frame[] {
   if (!frames.some((f) => f.layout)) return frames
@@ -349,11 +357,12 @@ export function settleLayouts(frames: Frame[], joinable: (f: Frame) => boolean =
   for (const s of sections) {
     let L = s.layout!
     const own = new Set<string>()
-    // Who stays: still here, a block, not taken by an earlier section, still inside.
+    // Who stays: still here, a block, not taken by an earlier section, and not moved out by
+    // hand (one the layout itself put outside, mid-resize, stays in).
     const keep = (id: string) => {
       const f = byId.get(id)
       if (!f || isSection(f) || own.has(id)) return false
-      if (!centerIn(f, s)) {
+      if (joinable(f) && !centerIn(f, s)) {
         if (f.natural) put(id, { w: f.natural.w, h: f.natural.h, crop: undefined })
         return false
       }

@@ -104,8 +104,10 @@ function plan(target: string | null, mode: LayoutMode, option: number): { box: R
     if (blocks.why) return null
     const order = s.layout ? s.layout.order : readingOrder(blocks.frames)
     const L = withOption({ mode, order, gap: s.layout?.gap ?? LAYOUT_GAP }, mode, option)
-    const width = s.w - LAYOUT_PAD * 2
-    const box = { x: s.x, y: s.y, w: s.w, h: mode === 'grid' ? shapeHeight(order.length, option, width) + LAYOUT_PAD * 2 : s.h }
+    // Never narrower than a layout can sit in (a section may have been made tiny).
+    const w = Math.max(s.w, 320)
+    const width = w - LAYOUT_PAD * 2
+    const box = { x: s.x, y: s.y, w, h: mode === 'grid' ? shapeHeight(order.length, option, width) + LAYOUT_PAD * 2 : s.h }
     return { box, L, members: blocks.frames }
   }
   const { frames, why } = arrangeable()

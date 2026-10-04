@@ -10,6 +10,7 @@ import {
   isLeaf,
   layoutMembers,
   minExtent,
+  minLayoutSize,
   nodeAt,
   PUSH,
   settleLayouts,
@@ -336,6 +337,8 @@ export function resizeFrame(e: RPE, f0: Frame, dir: Dir) {
   e.stopPropagation()
   const z = getState().camera.z
   const ratio = f0.w / f0.h
+  // A layout section stops at the size its blocks can shrink to.
+  const min = f0.layout ? minLayoutSize(f0.layout) : { w: MIN, h: MIN }
   drag(
     e,
     (sdx, sdy, ev) => {
@@ -355,8 +358,8 @@ export function resizeFrame(e: RPE, f0: Frame, dir: Dir) {
         if (dir.includes('n')) b -= dy
         if (dir.includes('s')) t -= dy
       }
-      let w = Math.max(MIN, r - l)
-      let h = Math.max(MIN, b - t)
+      let w = Math.max(min.w, r - l)
+      let h = Math.max(min.h, b - t)
       if (ev.shiftKey) {
         if (dir.length === 2) {
           if (w / h > ratio) w = h * ratio
