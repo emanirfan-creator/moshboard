@@ -5,7 +5,8 @@ import { AppMark } from './AppMark'
 import { KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
 
 export function Sidebar() {
-  const open = useStore((s) => s.sidebar)
+  // Closed behind the folder screens (website): there's nothing to list until a folder is picked.
+  const open = useStore((s) => s.sidebar && !(s.onboarding === 'welcome' || s.onboarding === 'reconnect' || s.onboarding === 'gone'))
   const canvases = useStore((s) => s.canvases)
   const current = useStore((s) => s.boardName)
   const [creating, setCreating] = useState(false)

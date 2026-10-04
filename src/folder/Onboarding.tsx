@@ -42,7 +42,7 @@ export function Onboarding() {
         <div className="dialog-body">
           {(step === 'welcome' || step === 'reconnect' || step === 'gone') && (
             <span className="onboarding-mark">
-              <AppMark size={28} />
+              <AppMark size={32} idle />
             </span>
           )}
           {step === 'welcome' && (
