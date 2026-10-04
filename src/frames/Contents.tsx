@@ -4,7 +4,7 @@ import type { Frame } from '../../shared/types.ts'
 import { fontStack, GLYPHS, SPECIMEN, styleName, SWATCH_SIZE } from '../../shared/fonts.ts'
 import { assetUrl } from '../actions'
 import { loadFont } from '../fonts'
-import { getState, mutateFrames, sameFrameExcept, setState, updateFrame, useCamera, useStore } from '../store'
+import { fitFrame, getState, mutateFrames, sameFrameExcept, setState, updateFrame, useCamera, useStore } from '../store'
 import { CodeFrame } from './CodeFrame'
 import { PaletteFrame } from './PaletteFrame'
 import { UrlFrame } from './UrlFrame'
@@ -28,14 +28,15 @@ interface ContentProps {
 }
 
 const POSITION = ['x', 'y'] as const
+const LIVE = new Set(['video', 'code', 'url'])
 
 /** Moving a frame changes only its position, which its content never reads: skip those renders. */
 export const FrameContent = memo(
   Content,
   (a: ContentProps, b: ContentProps) =>
     a.interact === b.interact &&
-    a.inView === b.inView &&
-    a.seen === b.seen &&
+    // Only videos, code and sites change when they scroll into or out of view.
+    ((a.inView === b.inView && a.seen === b.seen) || !LIVE.has(a.frame.type)) &&
     a.active === b.active &&
     a.size.w === b.size.w &&
     a.size.h === b.size.h &&
@@ -129,7 +130,10 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
       style={cropStyle(frame)}
       src={assetUrl(frame.src!)}
       muted
-      autoPlay
+      // Not autoPlay: that makes the browser download every clip on the board when it opens.
+      // The effect above plays it once it's on screen; one on screen but too small to play still
+      // loads enough to show its picture.
+      preload={inView ? 'auto' : 'metadata'}
       playsInline
       loop={!seg}
       controls={interact}
@@ -149,7 +153,7 @@ function NoteFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
   // Height follows the painted text (plus the note's padding), so it shrinks as well as grows.
   useLayoutEffect(() => {
     const h = Math.max(36, (paint.current?.offsetHeight ?? 0) + 16)
-    if (Math.abs(h - frame.h) > 1) updateFrame(frame.id, { h })
+    if (Math.abs(h - frame.h) > 1) fitFrame(frame.id, { h })
   })
   return (
     <div className="note">
@@ -201,7 +205,7 @@ function SwatchFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
     const fit = () => {
       const h = Math.ceil(el.offsetHeight)
       const f = getState().board?.frames.find((x) => x.id === frame.id)
-      if (f && Math.abs(h - f.h) > 1) updateFrame(frame.id, { h })
+      if (f && Math.abs(h - f.h) > 1) fitFrame(frame.id, { h })
     }
     fit()
     const ro = new ResizeObserver(fit)
@@ -301,7 +305,7 @@ function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
     if (!el) return
     const content = interact && ta.current ? fitTextarea(ta.current) + 12 : el.scrollHeight
     const h = Math.max(Math.ceil(size * 1.4) + 12, content)
-    if (Math.abs(h - frame.h) > 1) updateFrame(frame.id, { h })
+    if (Math.abs(h - frame.h) > 1) fitFrame(frame.id, { h })
   })
 
   if (interact) {

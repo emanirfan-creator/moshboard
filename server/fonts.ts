@@ -52,7 +52,7 @@ async function googleFonts(): Promise<FontFamily[]> {
   const cached = fs.existsSync(CACHE) ? fs.statSync(CACHE) : null
   if (cached && Date.now() - cached.mtimeMs < 7 * DAY) return JSON.parse(fs.readFileSync(CACHE, 'utf8'))
   try {
-    const r = await fetch('https://fonts.google.com/metadata/fonts')
+    const r = await fetch('https://fonts.google.com/metadata/fonts', { signal: AbortSignal.timeout(10000) })
     if (!r.ok) throw new Error(`${r.status}`)
     // The response may start with an anti-JSON-hijacking prefix.
     const text = (await r.text()).replace(/^\)\]\}'\s*/, '')

@@ -230,11 +230,15 @@ export function onFolderChange(f: (c: Change) => void) {
   return () => listeners.delete(f)
 }
 
-// What the app itself last wrote, so its own saves aren't reported back as outside edits.
-const own = new Map<string, string>()
-new BroadcastChannel('moshboard-folder').onmessage = (e) => {
-  if (e.data?.type === 'own') own.set(`${e.data.board}/${e.data.file}`, e.data.text)
-}
+// What this tab itself recently wrote (the worker tells only the tab that saved), so its own saves
+// aren't reported back as outside edits. A few per file: saves can land on disk after the next one
+// was already sent.
+const own = new Map<string, string[]>()
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  if (e.data?.type !== 'own') return
+  const key = `${e.data.board}/${e.data.file}`
+  own.set(key, [e.data.text, ...(own.get(key) ?? [])].slice(0, 3))
+})
 
 let stopWatching = () => {}
 const pending = new Map<string, ReturnType<typeof setTimeout>>()
@@ -270,9 +274,8 @@ function report(dir: Dir, change: Change) {
       } catch {
         // deleted
       }
-      if (text !== null && own.get(key) === text) return
+      if (text !== null && own.get(key)?.includes(text)) return
       if (text === null && (await isGone(dir))) return void folderGone()
-      own.delete(key)
       listeners.forEach((f) => f(change))
     }, 60),
   )
@@ -292,11 +295,17 @@ function watch(dir: Dir) {
         else if (r.type === 'errored' || r.type === 'unknown') report(dir, { board: getState().boardName, file: 'board.json' })
       }
     })
-    observer.observe(dir, { recursive: true }).catch(() => {})
+    // Watching can fail to start (e.g. a folder Chrome won't observe): check by polling instead.
+    observer.observe(dir, { recursive: true }).catch(() => watchByPolling(dir))
     stopWatching = () => observer.disconnect()
     return
   }
-  // No observer in this browser: check the open board's files every second or so.
+  watchByPolling(dir)
+}
+
+/** No observer in this browser: check the open board's files every second or so. */
+function watchByPolling(dir: Dir) {
+  stopWatching()
   const seen = new Map<string, number>()
   const timer = setInterval(async () => {
     const s = getState()

@@ -9,7 +9,6 @@ const NAME_RE = /^[\w-]+$/
 const TRASH = '.trash'
 const DB = 'moshboard'
 const STORE = 'kv'
-const changes = new BroadcastChannel('moshboard-folder')
 
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()))
@@ -66,7 +65,7 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     folder().then((dir) => {
       if (!dir) return fetch(e.request)
-      return route(dir, e.request, url).catch(async (err) => {
+      return route(dir, e.request, url, e.clientId).catch(async (err) => {
         // The folder itself was deleted or moved: the page goes back to "Pick a home for your boards".
         if (err?.name === 'NotFoundError' && (await gone(dir))) return json({ error: 'Your folder is gone', folderGone: true }, 410)
         const status = err instanceof HttpError ? err.status : 500
@@ -167,15 +166,31 @@ async function readText(dir, rel) {
   return (await (await fileHandle(dir, rel)).getFile()).text()
 }
 
-async function write(dir, rel, data) {
-  const w = await (await fileHandle(dir, rel, true)).createWritable()
-  await w.write(data)
-  await w.close()
+// Writes to one file finish in the order they were asked for: two saves of board.json close in
+// that order, so the newest one is what ends up on disk.
+const writing = new Map()
+function write(dir, rel, data) {
+  const key = `${dir.name}/${rel}`
+  const run = (writing.get(key) ?? Promise.resolve()).catch(() => {}).then(async () => {
+    const w = await (await fileHandle(dir, rel, true)).createWritable()
+    await w.write(data)
+    await w.close()
+  })
+  writing.set(key, run)
+  run.then(
+    () => writing.get(key) === run && writing.delete(key),
+    () => writing.get(key) === run && writing.delete(key),
+  )
+  return run
 }
 
-/** Writes a board's text file and tells the page, so its watcher doesn't echo the save back. */
-async function writeOwn(dir, board, rel, text) {
-  changes.postMessage({ type: 'own', board, file: rel, text })
+/**
+ * Writes a board's text file and tells the tab that saved it, so its watcher doesn't echo the
+ * save back. Only that tab: another tab with the board open should see the change and reload.
+ */
+async function writeOwn(dir, board, rel, text, clientId) {
+  const client = clientId && (await self.clients.get(clientId))
+  client?.postMessage({ type: 'own', board, file: rel, text })
   await write(dir, rel, text)
 }
 
@@ -237,12 +252,12 @@ async function freeBoardId(root, title) {
   return id
 }
 
-async function createBoard(root, title) {
+async function createBoard(root, title, clientId) {
   const id = await freeBoardId(root, title)
   const dir = await root.getDirectoryHandle(id, { create: true })
   await dir.getDirectoryHandle('frames', { create: true })
   await dir.getDirectoryHandle('assets', { create: true })
-  await writeOwn(dir, id, 'board.json', boardText({ name: title, frames: [] }))
+  await writeOwn(dir, id, 'board.json', boardText({ name: title, frames: [] }), clientId)
   return { id, name: title }
 }
 
@@ -304,6 +319,21 @@ async function saveMedia(dir, item, title) {
 
 const THUMB_SIZES = [320, 640, 1280, 2048]
 const thumbJobs = new Map()
+// Images already no wider than a size: served as they are without decoding them again.
+const smallEnough = new Map()
+// Decoding a big screenshot takes a lot of memory: a few at a time, not a whole board at once.
+let decoding = 0
+const decodeQueue = []
+async function decodeSlot(run) {
+  if (decoding >= 3) await new Promise((r) => decodeQueue.push(r))
+  decoding++
+  try {
+    return await run()
+  } finally {
+    decoding--
+    decodeQueue.shift()?.()
+  }
+}
 
 /** A resized copy in assets/.thumbs (JPEG, or PNG for PNGs to keep transparency), as the local server makes them. Falls back to the original. */
 function thumbnail(dir, rel, want) {
@@ -331,16 +361,23 @@ async function makeThumb(dir, rel, out, w, png) {
   } catch {
     // not made yet
   }
-  const bmp = await createImageBitmap(src)
-  if (bmp.width <= w) {
+  const small = `${dir.name}/${rel}:${src.lastModified}`
+  if (smallEnough.get(small) >= w) return rel
+  const blob = await decodeSlot(async () => {
+    const bmp = await createImageBitmap(src)
+    if (bmp.width <= w) {
+      smallEnough.set(small, bmp.width)
+      bmp.close()
+      return null
+    }
+    const h = Math.max(2, Math.round((bmp.height * w) / bmp.width / 2) * 2)
+    const canvas = new OffscreenCanvas(w, h)
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h)
     bmp.close()
-    return rel
-  }
-  const h = Math.max(2, Math.round((bmp.height * w) / bmp.width / 2) * 2)
-  const canvas = new OffscreenCanvas(w, h)
-  canvas.getContext('2d').drawImage(bmp, 0, 0, w, h)
-  bmp.close()
-  await write(dir, out, await canvas.convertToBlob(png ? { type: 'image/png' } : { type: 'image/jpeg', quality: 0.85 }))
+    return canvas.convertToBlob(png ? { type: 'image/png' } : { type: 'image/jpeg', quality: 0.85 })
+  })
+  if (!blob) return rel
+  await write(dir, out, blob)
   return out
 }
 
@@ -375,7 +412,7 @@ async function serveFile(request, dir, rel) {
   })
 }
 
-async function route(root, request, url) {
+async function route(root, request, url, clientId) {
   // Chrome can take access back between visits; the page shows "Reconnect" for this.
   if (root.queryPermission && (await root.queryPermission({ mode: 'readwrite' })) !== 'granted')
     throw new HttpError(409, 'Reconnect your Moshboard folder', { reconnect: true })
@@ -403,7 +440,7 @@ async function route(root, request, url) {
     let list = await listBoards(root)
     // First run in an empty folder: start with one canvas.
     if (!list.length) {
-      await createBoard(root, 'Moodboard')
+      await createBoard(root, 'Moodboard', clientId)
       list = await listBoards(root)
     }
     return json(list)
@@ -413,14 +450,14 @@ async function route(root, request, url) {
   if (kind === 'boards' && method === 'POST') {
     if (await singleBoard(root)) throw new HttpError(400, 'This folder holds a single board. Open its parent folder to keep several.')
     const { name } = await body()
-    return json(await createBoard(root, String(name ?? '').trim() || 'Untitled'))
+    return json(await createBoard(root, String(name ?? '').trim() || 'Untitled', clientId))
   }
   if (kind === 'board' && method === 'POST' && rest[0] === 'rename') {
     // The folder keeps its name; only the canvas name changes.
     const title = String((await body()).name ?? '').trim()
     if (!title) throw new HttpError(400, 'name required')
     const dir = await boardDir(root, board)
-    await writeOwn(dir, board, 'board.json', boardText({ ...(await readBoard(dir)), name: title }))
+    await writeOwn(dir, board, 'board.json', boardText({ ...(await readBoard(dir)), name: title }), clientId)
     return json({ id: board, name: title })
   }
   if (kind === 'board' && method === 'POST' && rest[0] === 'sweep') {
@@ -441,7 +478,7 @@ async function route(root, request, url) {
     const id = await freeBoardId(root, title)
     const dest = await root.getDirectoryHandle(id, { create: true })
     await copyDir(src, dest, (name) => name === 'export' || name === TRASH)
-    await writeOwn(dest, id, 'board.json', boardText({ ...b, name: title }))
+    await writeOwn(dest, id, 'board.json', boardText({ ...b, name: title }), clientId)
     return json({ id, name: title })
   }
   if (kind === 'board' && method === 'DELETE') {
@@ -449,8 +486,14 @@ async function route(root, request, url) {
     // Never hard-delete: move the folder to .trash so it can be recovered.
     const src = await boardDir(root, board)
     const trash = await root.getDirectoryHandle(TRASH, { create: true })
-    await copyDir(src, await trash.getDirectoryHandle(`${board}-${Date.now()}`, { create: true }))
-    await root.removeEntry(board, { recursive: true })
+    const name = `${board}-${Date.now()}`
+    try {
+      // A move is instant; copying a board full of videos isn't.
+      await src.move(trash, name)
+    } catch {
+      await copyDir(src, await trash.getDirectoryHandle(name, { create: true }))
+      await root.removeEntry(board, { recursive: true })
+    }
     return json({ ok: true })
   }
   if (kind === 'board' && method === 'GET') {
@@ -462,12 +505,12 @@ async function route(root, request, url) {
       // A board folder without a board.json opens as an empty canvas.
       if (dir && err instanceof HttpError && err.status === 404) {
         const b = { name: board, frames: [] }
-        await writeOwn(dir, board, 'board.json', boardText(b))
+        await writeOwn(dir, board, 'board.json', boardText(b), clientId)
         return json(b)
       }
       if (dir) throw err
       // No such canvas (`default` on first open, or a stale address): point at the first one.
-      const first = (await listBoards(root))[0]?.id ?? (await createBoard(root, 'Moodboard')).id
+      const first = (await listBoards(root))[0]?.id ?? (await createBoard(root, 'Moodboard', clientId)).id
       throw new HttpError(404, 'canvas not found', { moved: first })
     }
   }
@@ -475,7 +518,7 @@ async function route(root, request, url) {
     const dir = await boardDir(root, board)
     const text = await request.text()
     JSON.parse(text) // validate
-    await writeOwn(dir, board, 'board.json', text.endsWith('\n') ? text : text + '\n')
+    await writeOwn(dir, board, 'board.json', text.endsWith('\n') ? text : text + '\n', clientId)
     return json({ ok: true })
   }
   if (kind === 'file') {
@@ -486,7 +529,7 @@ async function route(root, request, url) {
         headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' },
       })
     if (method === 'PUT') {
-      await writeOwn(dir, board, rel, await request.text())
+      await writeOwn(dir, board, rel, await request.text(), clientId)
       return json({ ok: true })
     }
     if (method === 'DELETE') {

@@ -280,6 +280,17 @@ export function updateFrame(id: string, patch: Partial<Frame>, save = true) {
   mutateFrames((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)), save)
 }
 
+/**
+ * A size a block measures for itself (text wrapping, a font loading). Saved, but not an undo step
+ * of its own: undoing to a state with an old size would re-measure, push a new step and wipe redo.
+ * Folds into a pending edit when there is one.
+ */
+export function fitFrame(id: string, patch: Partial<Frame>) {
+  const clean = saveTimer === undefined && state.board?.frames === committed
+  updateFrame(id, patch)
+  if (clean && state.board) committed = state.board.frames
+}
+
 // id → frame, rebuilt only when the frames array changes (blocks look each other up on every store change).
 const indexes = new WeakMap<Frame[], Map<string, Frame>>()
 function frameIndex(frames: Frame[]) {

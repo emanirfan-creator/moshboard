@@ -5,15 +5,14 @@ import { compile } from '@tailwindcss/node'
 import { Scanner } from '@tailwindcss/oxide'
 import { TW_THEME } from '../shared/twTheme.ts'
 
-let compiler: ReturnType<typeof compile> | null = null
 const cache = new Map<string, string>()
 
 export async function buildFrameCss(sources: string[]): Promise<string> {
   const key = createHash('sha1').update(sources.join('\0')).digest('hex')
   const hit = cache.get(key)
   if (hit !== undefined) return hit
-  compiler ??= compile(`@import "tailwindcss";\n${TW_THEME}`, { base: process.cwd(), onDependency() {} })
-  const c = await compiler
+  // A fresh compiler each time: build() adds to every class a compiler has seen before.
+  const c = await compile(`@import "tailwindcss";\n${TW_THEME}`, { base: process.cwd(), onDependency() {} })
   const candidates = new Scanner({}).scanFiles(sources.map((content) => ({ content, extension: 'tsx' })))
   const css = c.build(candidates)
   if (cache.size > 200) cache.clear()
