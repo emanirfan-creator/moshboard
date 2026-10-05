@@ -1418,6 +1418,15 @@ kbd {
   min-width: 48px;
   justify-content: center;
 }
+.viewctl .zoom-step {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+.viewctl .zoom-step svg {
+  width: 14px;
+  height: 14px;
+}
 .viewctl .sep {
   width: 1px;
   height: 14px;
@@ -2526,7 +2535,7 @@ body:has(.sidebar[data-open]) .hint {
 }
 .cp-area {
   position: relative;
-  height: 148px;
+  height: 104px;
   border-radius: 8px;
   cursor: crosshair;
   touch-action: none;
@@ -2578,30 +2587,138 @@ body:has(.sidebar[data-open]) .hint {
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px var(--line-2);
 }
-.cp-hex {
+.cp-value {
   flex: 1;
   min-width: 0;
   height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--line-2);
-  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  padding: 0 3px 0 8px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.cp-value:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.cp-hex {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
   background: transparent;
   outline: 0;
   color: var(--text-1);
   font: 12px var(--mono);
+  text-overflow: ellipsis;
   user-select: text;
 }
-.cp-hex:focus {
-  border-color: var(--accent);
+.cp-format {
+  flex: none;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font: 600 10px var(--mono);
+  letter-spacing: 0.06em;
+  cursor: pointer;
 }
-.cp-presets {
+.cp-format:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+}
+/* Once changed: the color it opened with | the new one. The before half goes back to it. */
+.cp-was {
+  width: 34px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line-2);
+  cursor: pointer;
+}
+.cp-was > span {
+  flex: 1;
+}
+.cp-was-before {
+  display: grid;
+  place-items: center;
+}
+.cp-was-before svg {
+  width: 11px;
+  height: 11px;
+  color: #fff;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.cp-was:hover .cp-was-before svg {
+  opacity: 1;
+}
+.cp-error {
+  margin-top: -4px;
+  color: var(--danger);
+  font-size: 11px;
+}
+/* How text reads on the color: white and dark, with the ratio and grade. */
+.cp-contrast {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+}
+.cp-chip {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12px;
+}
+.cp-chip b {
+  font-weight: 500;
+  font-size: 13px;
+}
+.cp-chip-r {
+  font: 11px var(--mono);
+  opacity: 0.8;
+}
+.cp-chip-g {
+  margin-left: auto;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font: 600 9.5px var(--mono);
+  opacity: 0.85;
+}
+.cp-board {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cp-label {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 560;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cp-presets {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
 }
 .cp-preset {
-  width: 20px;
-  height: 20px;
+  width: 100%;
+  height: 22px;
   padding: 0;
   border: 0;
   border-radius: 5px;
@@ -3110,12 +3227,13 @@ body:has(.sidebar[data-open]) .hint {
 }
 .palette-col {
   position: relative;
-  flex: 1;
+  /* --g: the color's share of the palette (1 = even), set in the palette's panel */
+  flex: var(--g, 1) 1 0;
   min-width: 0;
   transition: flex-grow 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 .pal-block[data-active] .palette-col:hover {
-  flex-grow: 1.2;
+  flex-grow: calc(var(--g, 1) * 1.2);
 }
 /* Reordering (PaletteFrame startReorder): columns hold equal widths so slots stay put,
    and the moving one rides on top, lifted while held and settling as it lands. */
@@ -4139,6 +4257,10 @@ textarea,
   font-family: var(--mono);
   text-overflow: ellipsis;
 }
+.ctl-text[data-plain] {
+  font-family: var(--font);
+  font-size: 13px;
+}
 .ctl-select:focus-visible,
 .ctl-text:focus {
   box-shadow: inset 0 0 0 1px var(--accent);
@@ -4776,4 +4898,803 @@ textarea,
   flex: none;
   height: 24px;
   padding: 0 8px;
+}
+
+/* ── comments ─────────────────────────────────────────── */
+/* Pins are small keycaps: pressed with a click, latched down once resolved. They sit in the
+   world at their spot and scale by --inv, so they keep their screen size at any zoom. */
+
+.canvas[data-commenting],
+.canvas[data-commenting] .frame,
+.canvas[data-commenting] .frame * {
+  cursor: crosshair;
+}
+.canvas[data-commenting] iframe {
+  pointer-events: none;
+}
+.comment-anchor {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform: scale(var(--inv, 1));
+  transform-origin: 0 0;
+  z-index: 40;
+  cursor: default;
+}
+.comment-anchor[data-raised] {
+  z-index: 41;
+}
+.comment-anchor * {
+  cursor: inherit;
+}
+.pin-key {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: #ececec;
+  color: #111214;
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.02em;
+  box-shadow: 0 3px 0 #8c8e92, 0 5px 9px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 80ms var(--ease),
+    box-shadow 80ms var(--ease),
+    background-color 200ms var(--ease),
+    color 200ms var(--ease);
+  cursor: pointer;
+}
+.pin-key[data-resolved],
+.pin[data-resolved] .pin-key {
+  transform: translateY(3px);
+  background: #36373b;
+  color: var(--text-3);
+  box-shadow: 0 0 0 #8c8e92, 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.pin-key:active,
+.pin:active .pin-key {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 #8c8e92, 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.pin-key[data-on],
+.pin[data-on] .pin-key {
+  outline: 1.5px solid var(--text-1);
+  outline-offset: 3px;
+}
+.pin {
+  position: absolute;
+  left: -12px;
+  top: -12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.pin:focus-visible {
+  outline: none;
+}
+.pin:focus-visible .pin-key {
+  outline: 1.5px solid var(--text-1);
+  outline-offset: 3px;
+}
+.pin[data-new] {
+  animation: pin-drop 320ms var(--spring);
+}
+@keyframes pin-drop {
+  from {
+    transform: translateY(-14px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+/* The thread: a card beside its pin, a spine down its messages, the reply box at the bottom. */
+.cmt-card {
+  position: absolute;
+  left: 22px;
+  /* The header (or a new pin's box) centers on the key. */
+  top: -22px;
+  width: 272px;
+  background: var(--overlay);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 13px;
+  user-select: text;
+  animation: cmt-in 220ms var(--glide);
+  transform-origin: 0 21px;
+}
+.cmt-card[data-left] {
+  left: auto;
+  right: 22px;
+  transform-origin: 100% 21px;
+}
+@keyframes cmt-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px) scale(0.96);
+  }
+}
+.cmt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 4px 10px;
+}
+.pin-key-sm {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 9px;
+  box-shadow: none;
+  cursor: default;
+}
+.cmt-card[data-resolved] .pin-key-sm {
+  background: #36373b;
+  color: var(--text-3);
+}
+.cmt-where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-4);
+  font-size: 12px;
+}
+/* Resolve is a key too: it presses down, and stays down while resolved. */
+.cmt-resolve {
+  width: 26px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 120ms var(--ease), color 120ms var(--ease);
+}
+.cmt-resolve svg {
+  width: 14px;
+  height: 14px;
+}
+.cmt-resolve:hover {
+  background: #ececec;
+  color: #111214;
+}
+.cmt-resolve[data-down] {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-1);
+}
+.cmt-resolve + .cmt-resolve {
+  margin-left: -4px;
+}
+.cmt-msgs {
+  list-style: none;
+  margin: 0;
+  padding: 2px 10px 4px 12px;
+}
+/* A long thread scrolls; a short one doesn't, so a message's menu can open past it. */
+.cmt-msgs[data-long] {
+  max-height: 320px;
+  overflow: auto;
+}
+.cmt-card button:focus {
+  outline: none;
+}
+.cmt-card button:focus-visible {
+  outline: 1.5px solid var(--text-1);
+  outline-offset: 1px;
+}
+.cmt-msg {
+  position: relative;
+  padding: 5px 24px 8px 15px;
+}
+.cmt-msg::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 11px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.cmt-msg[data-first]::before {
+  background: var(--text-1);
+}
+.cmt-msg:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 20px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--line-2);
+}
+.cmt-text {
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cmt-meta {
+  margin-top: 1px;
+  color: var(--text-4);
+  font-size: 11px;
+}
+.cmt-more {
+  position: absolute;
+  right: -4px;
+  top: 2px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.cmt-msg:hover .cmt-more,
+.cmt-more[data-open],
+.cmt-more:focus-within {
+  opacity: 1;
+}
+.cmt-icon {
+  width: 24px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.cmt-icon:hover,
+.cmt-more[data-open] .cmt-icon {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-1);
+}
+.cmt-menu {
+  position: absolute;
+  right: 0;
+  top: 24px;
+  z-index: 3;
+  min-width: 132px;
+  padding: 4px;
+  background: #1d1e21;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+}
+.cmt-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cmt-menu button:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-1);
+}
+.cmt-compose {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 6px 6px;
+  padding: 5px 5px 5px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  transition: background-color var(--dur) var(--ease);
+}
+.cmt-compose:focus-within {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* A new pin's card is just its box. */
+.cmt-card > .cmt-compose:first-child {
+  margin: 6px;
+}
+.cmt-msg .cmt-compose {
+  margin: 0 0 2px;
+}
+/* Editing: the box runs to the card's right edge, like the reply box (the ··· room isn't needed). */
+.cmt-msg[data-editing] {
+  padding-right: 0;
+}
+.cmt-msg[data-editing] .cmt-compose {
+  margin-right: -4px;
+}
+.cmt-compose textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 21px;
+  padding: 1px 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: text;
+}
+.cmt-compose textarea::placeholder {
+  color: var(--text-4);
+}
+.cmt-send {
+  width: 24px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-4);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmt-send svg {
+  width: 14px;
+  height: 14px;
+}
+.cmt-send[data-ready] {
+  background: var(--text-1);
+  color: var(--bg);
+}
+.cmt-send:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-1);
+}
+.cmt-send[data-ready]:hover {
+  background: #fff;
+  color: var(--bg);
+}
+.cmt-error {
+  padding: 0 12px 8px;
+  color: var(--danger);
+  font-size: 11px;
+}
+.cmt-done {
+  padding: 2px 12px 10px 27px;
+  color: var(--text-4);
+  font-size: 11px;
+}
+/* In the toolbar while commenting: the flip bar, or every comment as a key. */
+.toolbar-comments {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cmt-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  animation: cmt-bar-in 260ms var(--glide);
+}
+@keyframes cmt-bar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+.cmt-step,
+.cmt-count {
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmt-step {
+  width: 26px;
+  font-size: 16px;
+  font-family: var(--font);
+}
+.cmt-count {
+  padding: 0 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cmt-step:hover,
+.cmt-count:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+}
+.cmt-word {
+  font: 500 12px/1 var(--font);
+  letter-spacing: 0;
+}
+.cmt-seg .cmt-roll {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.cmt-keys {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 420px;
+  padding: 0 4px 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.cmt-none {
+  padding: 0 6px;
+  color: var(--text-4);
+  font: 12px var(--font);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+.cmt-seg {
+  display: flex;
+  margin-left: 4px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.cmt-seg button {
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-4);
+  font: 500 12px/1 var(--font);
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cmt-seg button:hover {
+  color: var(--text-2);
+}
+.cmt-seg button[aria-selected='true'] {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin[data-new],
+  .cmt-card,
+  .cmt-bar,
+  .cmt-card[data-folding],
+  .cmt-roll[data-roll] {
+    animation-duration: 1ms;
+  }
+}
+
+/* A pin stands just off its block's nearest border on a short stem (never over the block);
+   the exact spot shows as a dot with a faint trace while it's hovered or open. */
+.cmt-group {
+  display: contents;
+}
+.pin-stem {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: #ececec;
+  transform-origin: 0 50%;
+}
+.pin-foot {
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ececec;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.cmt-group:has(.pin[data-resolved]) .pin-stem,
+.cmt-group:has(.pin[data-resolved]) .pin-foot {
+  background: #6b6e75;
+}
+.pin-head {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.pin-spot,
+.pin-trace {
+  position: absolute;
+  z-index: 39;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+.pin-spot {
+  width: calc(7px * var(--inv, 1));
+  height: calc(7px * var(--inv, 1));
+  margin: calc(-3.5px * var(--inv, 1)) 0 0 calc(-3.5px * var(--inv, 1));
+  border-radius: 50%;
+  background: var(--text-1);
+  box-shadow: 0 0 0 calc(2px * var(--inv, 1)) rgba(0, 0, 0, 0.4);
+}
+.pin-trace {
+  height: calc(1px * var(--inv, 1));
+  background: rgba(255, 255, 255, 0.55);
+  transform-origin: 0 50%;
+}
+.cmt-group:has(.comment-anchor:hover) .pin-spot,
+.cmt-group:has(.comment-anchor:hover) .pin-trace,
+.cmt-group[data-open] .pin-spot,
+.cmt-group[data-open] .pin-trace {
+  opacity: 1;
+}
+.pin-head[data-side='left'] .cmt-card {
+  left: auto;
+  right: 22px;
+  transform-origin: 100% 21px;
+}
+.pin-head[data-side='left'] .cmt-card[data-left] {
+  left: 22px;
+  right: auto;
+  transform-origin: 0 21px;
+}
+
+/* Resolving: the card folds into its key, the key flies into the toolbar's Done count (see
+   flyToTray), which rolls up. */
+.cmt-card[data-folding] {
+  pointer-events: none;
+  animation: cmt-fold 300ms cubic-bezier(0.5, 0, 0.75, 0) forwards;
+}
+@keyframes cmt-fold {
+  to {
+    opacity: 0;
+    transform: translateX(-14px) scale(0.12, 0.08);
+  }
+}
+.pin-key {
+  position: relative;
+}
+.cmt-roll {
+  display: inline-block;
+}
+.cmt-roll[data-roll] {
+  animation: cmt-roll 460ms var(--spring);
+}
+@keyframes cmt-roll {
+  from {
+    transform: translateY(110%);
+    opacity: 0;
+  }
+}
+.pin-flying {
+  transform-origin: 50% 50%;
+}
+
+/* ── split: a whole shared between named parts (SplitCtl) ── */
+/* Thin at rest with the shares above it; grabbed, it grows into labeled blocks. */
+.split-bar {
+  --h: 4px;
+  --r: 2px;
+  position: relative;
+  height: 28px;
+  outline: none;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.split-bar[data-big] {
+  --h: 26px;
+  --r: 6px;
+}
+.split-part {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--a) * 100% + 1.5px);
+  width: calc(var(--w) * 100% - 3px);
+  height: var(--h);
+  transform: translateY(-50%);
+  border-radius: var(--r);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.4);
+  color: #111214;
+  font: 600 10.5px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    height 320ms var(--glide),
+    border-radius 320ms var(--glide),
+    background-color 200ms var(--ease);
+}
+.split-part[data-first] {
+  left: 0;
+  width: calc(var(--w) * 100% - 1.5px);
+  background: rgba(255, 255, 255, 0.82);
+}
+.split-part[data-last] {
+  width: calc(var(--w) * 100% - 1.5px);
+  justify-content: flex-end;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-3);
+}
+.split-part[data-first][data-last] {
+  width: 100%;
+}
+/* On a block in a layout: its own part is the bright one. */
+.split-bar:has([data-mine]) .split-part {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-3);
+}
+.split-bar:has([data-mine]) .split-part[data-mine] {
+  background: rgba(255, 255, 255, 0.82);
+  color: #111214;
+}
+.split-part-label {
+  padding: 0 9px;
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
+}
+.split-part-label b {
+  font-weight: 600;
+}
+.split-part[data-last] .split-part-label b {
+  color: var(--text-1);
+}
+.split-bar:has([data-mine]) .split-part[data-mine] .split-part-label b {
+  color: #111214;
+}
+.split-bar[data-big] .split-part-label {
+  opacity: 1;
+}
+.split-line {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--a) * 100%);
+  width: 2px;
+  height: calc(var(--h) + 6px);
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  background: var(--text-1);
+  transition: height 320ms var(--glide), width 160ms var(--ease);
+  pointer-events: none;
+}
+.split-bar[data-big] .split-line {
+  width: 3px;
+}
+/* Focused from the keyboard: the lines stand a little taller, no ring. */
+.split-bar:focus-visible .split-line {
+  height: calc(var(--h) + 12px);
+}
+.split-mid {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: calc(var(--h) + 2px);
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.18);
+  transition: height 320ms var(--glide);
+  pointer-events: none;
+}
+.split-above {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  height: 12px;
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-4);
+  font: 600 10.5px/1 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 180ms var(--ease);
+}
+.split-above b {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.split-above-at {
+  position: absolute;
+  left: calc(var(--m) * 100%);
+  transform: translateX(-50%);
+}
+.split-part-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.split-part[data-swatch] .split-part-label b,
+.split-part[data-last][data-swatch] .split-part-label b {
+  color: inherit;
+}
+.split-bar[data-big] .split-above {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .split-part,
+  .split-line,
+  .split-mid {
+    transition: none;
+  }
+}
+.export-prompt-text {
+  white-space: pre-line;
+}
+.export-switch {
+  margin-top: 10px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+/* Add color: a row like the colors above it, with a dashed swatch holding a + */
+.pal-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.pal-add-plus {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--line-2);
+  border-radius: 7px;
+  font-size: 15px;
+  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pal-add:hover {
+  color: var(--text-1);
+}
+.pal-add:hover .pal-add-plus {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+/* The original line positions, once changed: a small tick under the bar. */
+.split-was {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--a) * 100%);
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border: 3.5px solid transparent;
+  border-bottom-color: var(--text-3);
+  opacity: 1;
+  transition: opacity 160ms var(--ease);
+}
+.split-bar[data-big] .split-was {
+  opacity: 0;
+}
+.split-reset {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.split-reset:hover {
+  color: var(--text-1);
 }

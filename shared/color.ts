@@ -4,6 +4,21 @@
 export interface PaletteColor {
   hex: string
   locked?: boolean
+  /** how much of the palette this color is (a weight; see paletteShares) */
+  share?: number
+}
+
+/**
+ * Each color's share of the palette (summing to 1), or null when none is set and the colors
+ * are even. A color added later without one gets the average of the others.
+ */
+export function paletteShares(colors: PaletteColor[]): number[] | null {
+  const set = colors.map((c) => c.share).filter((s): s is number => typeof s === 'number' && s > 0)
+  if (!set.length) return null
+  const avg = set.reduce((a, b) => a + b, 0) / set.length
+  const w = colors.map((c) => (typeof c.share === 'number' && c.share > 0 ? c.share : avg))
+  const total = w.reduce((a, b) => a + b, 0)
+  return w.map((x) => x / total)
 }
 
 type RGB = [number, number, number] // 0–1

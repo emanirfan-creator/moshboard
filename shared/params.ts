@@ -4,6 +4,7 @@
 //   /* @param ease cubic-bezier(0.16, 1, 0.3, 1) */
 //   /* @param spring stiffness=380 damping=26 */
 //   /* @param tint #5e6ad2 */
+//   /* @param mix 0.3 0..1 blur|sharp */   (a share between two named parts: a split control)
 //
 // Each becomes a live control on the canvas, a CSS var (`--p-<name>`) and a
 // value returned by `useParams()` inside the frame.
@@ -30,6 +31,8 @@ export interface Param {
   step?: number
   /** min/max only span the slider; a typed value can go past them */
   soft?: boolean
+  /** a share between two named parts (`blur|sharp`): the value is the first part's share */
+  parts?: [string, string]
   /** offsets of the value text inside the source, for writing locked values back */
   start: number
   end: number
@@ -64,6 +67,8 @@ export function parseParams(source: string): Param[] {
         p.min = +e[3]
         p.max = +e[4]
       }
+      const parts = /([A-Za-z][\w-]*)\s*\|\s*([A-Za-z][\w-]*)/.exec(raw.slice(e[0].length))
+      if (parts) p.parts = [parts[1], parts[2]]
       out.push(p)
     }
   }
@@ -94,7 +99,8 @@ export function formatParam(p: Param, v: ParamValue): string {
       return String(v)
     case 'number': {
       const range = p.min !== undefined ? ` ${p.min}..${p.max}` : ''
-      return `${roundFor(p, v as number)}${p.unit}${range}`
+      const parts = p.parts ? ` ${p.parts.join('|')}` : ''
+      return `${roundFor(p, v as number)}${p.unit}${range}${parts}`
     }
   }
 }
@@ -227,3 +233,17 @@ export const humanize = (name: string) =>
     .trim()
     .toLowerCase()
     .replace(/^./, (c) => c.toUpperCase())
+
+const SHARE_NAME = /^(mix|blend|crossfade|ratio|split|share|balance)$/i
+
+/**
+ * A number that's a share between two parts gets a split control: one with named parts
+ * (`blur|sharp`), or a mix/ratio/balance… from 0 to 1 (or 0 to 100). The value is the first part's share.
+ */
+export function shareParts(p: Param): [string, string] | null {
+  if (p.kind !== 'number') return null
+  const whole = p.min === 0 && (p.max === 1 || p.max === 100)
+  if (p.parts && whole) return p.parts
+  if (!whole || !SHARE_NAME.test(p.name)) return null
+  return /balance/i.test(p.name) ? ['Left', 'Right'] : [humanize(p.name), 'Rest']
+}

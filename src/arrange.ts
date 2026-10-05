@@ -5,12 +5,17 @@ import {
   currentOption,
   detachLeaf,
   evenTree,
+  isLeaf,
   LAYOUT_GAP,
   LAYOUT_PAD,
   layoutMembers,
   optionsFor,
   shapeHeight,
+  shapesFor,
+  nodeAt,
+  slotsOf,
   splitLeaf,
+  trailTo,
   treeFor,
   withOption,
   type Geo,
@@ -253,6 +258,70 @@ export function evenOut(id: string) {
     const t = treeFor(s.layout)
     setLayout(id, { tree: t && evenTree(t) })
   } else setLayout(id, { span: undefined, rowH: undefined })
+}
+
+/**
+ * A grid's split as shares, for the side panel's split control: the top split of a section, or
+ * the one a block sits in. Its parts are named for their blocks ("3 blocks" for a group).
+ */
+export function gridSplit(sid: string, blockId?: string) {
+  const s = frameById(sid)
+  const L = s?.layout
+  if (!L || L.mode !== 'grid') return null
+  const tree = treeFor(L)
+  if (!tree || isLeaf(tree)) return null
+  let path: number[] = []
+  let mine: number | undefined
+  if (blockId) {
+    const trail = trailTo(tree, L.order.indexOf(blockId))
+    if (!trail?.length) return null
+    path = trail.slice(0, -1)
+    mine = trail[trail.length - 1]
+  }
+  const node = nodeAt(tree, path)
+  if (isLeaf(node)) return null
+  const total = node.kids.reduce((a, k) => a + k.w, 0) || 1
+  const name = (n: (typeof node.kids)[number]['n']) => {
+    if (!isLeaf(n)) return `${slotsOf(n).length} blocks`
+    const f = frameById(L.order[n.slot])
+    const t = (f?.label || f?.type || 'Block').trim()
+    return t.length > 14 ? `${t.slice(0, 13)}…` : t
+  }
+  // What it started as: the picked shape's own proportions (equal parts once reshaped by hand).
+  const even = node.kids.map(() => 1 / node.kids.length)
+  let original = even
+  const shapes = shapesFor(L.order.length)
+  const shape = L.shape !== undefined ? shapes[Math.min(L.shape, shapes.length - 1)]?.t : undefined
+  try {
+    const o = shape && nodeAt(shape, path)
+    if (o && !isLeaf(o) && o.kids.length === node.kids.length) {
+      const ot = o.kids.reduce((a, k) => a + k.w, 0) || 1
+      original = o.kids.map((k) => k.w / ot)
+    }
+  } catch {
+    // the shape has no split there
+  }
+  return {
+    dir: node.dir,
+    parts: node.kids.map((k) => name(k.n)),
+    shares: node.kids.map((k) => k.w / total),
+    original,
+    mine,
+    path,
+  }
+}
+
+/** Set a grid split's parts to these shares (the side panel's split control). */
+export function setGridSplit(sid: string, path: number[], shares: number[]) {
+  const s = frameById(sid)
+  const tree = s?.layout && treeFor(s.layout)
+  if (!tree) return
+  const next = structuredClone(tree)
+  const node = nodeAt(next, path)
+  if (isLeaf(node)) return
+  const total = node.kids.reduce((a, k) => a + k.w, 0) || 1
+  node.kids.forEach((k, i) => (k.w = (shares[i] ?? 0) * total))
+  setLayout(sid, { tree: next })
 }
 
 // ── blocks in a layout ──

@@ -10,7 +10,7 @@ const trail: { selected: string[]; camera: Camera }[] = []
 
 let glide = 0
 /** Ease the view to a camera instead of cutting to it. */
-function glideTo(to: Camera) {
+export function glideTo(to: Camera) {
   cancelAnimationFrame(glide)
   const from = getState().camera
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return setCamera(to)

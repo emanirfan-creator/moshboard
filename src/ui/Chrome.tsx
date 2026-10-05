@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { addNote, addSection, addText, exportBoard, fitBoard } from '../actions'
-import { getState, INSPECTOR_W, MAX_ZOOM, MIN_ZOOM, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, useStore, viewLeft } from '../store'
+import { getState, INSPECTOR_W, MAX_ZOOM, MIN_ZOOM, useCamera, inspectorOpen, setCamera, setState, sidebarShown, toggleLoop, togglePins, useStore, viewLeft } from '../store'
+import { CommentBar } from '../comments/CommentBar'
+import { setCommenting } from '../comments/comments'
 import {
   CaretIcon,
   CloseIcon,
   CodeIcon,
+  CommentIcon,
   CommandIcon,
   ExportIcon,
   FontIcon,
   LinkIcon,
   HandIcon,
   MediaIcon,
+  MinusIcon,
   NoteIcon,
+  PlusIcon,
   PointerIcon,
   SectionIcon,
   SwatchIcon,
@@ -50,10 +55,11 @@ interface Tool {
 function Toolbar({ left, right }: { left: number; right: number }) {
   const idle = useStore((s) => !s.interact && !s.add)
   const hand = useStore((s) => s.hand)
+  const commenting = useStore((s) => s.commenting)
   const selectedCount = useStore((s) => s.selected.length)
   const tools: Tool[] = [
-    { id: 'select', label: 'Select', key: 'V', icon: <PointerIcon />, run: () => setState({ interact: null, hand: false }) },
-    { id: 'hand', label: 'Hand (pan)', key: 'H', icon: <HandIcon />, run: () => setState({ hand: true, interact: null }) },
+    { id: 'select', label: 'Select', key: 'V', icon: <PointerIcon />, run: () => (setCommenting(false), setState({ interact: null, hand: false })) },
+    { id: 'hand', label: 'Hand (pan)', key: 'H', icon: <HandIcon />, run: () => (setCommenting(false), setState({ hand: true, interact: null })) },
     { id: 'text', label: 'Text', key: 'T', icon: <TextIcon />, run: () => addText() },
     {
       id: 'organize',
@@ -87,7 +93,7 @@ function Toolbar({ left, right }: { left: number; right: number }) {
             <button
               key={t.id}
               className="tool"
-              data-active={(t.id === 'select' && idle && !hand) || (t.id === 'hand' && hand) || undefined}
+              data-active={(t.id === 'select' && idle && !hand && !commenting) || (t.id === 'hand' && hand) || undefined}
               onClick={t.run}
               aria-label={t.label}
               data-tip={t.key ? `${t.label}  ${t.key}` : t.label}
@@ -96,6 +102,20 @@ function Toolbar({ left, right }: { left: number; right: number }) {
             </button>
           ),
         )}
+        <span className="toolbar-sep" />
+        <div className="toolbar-comments" data-on={commenting || undefined}>
+          <button
+            className="tool"
+            data-active={commenting || undefined}
+            onClick={() => setCommenting()}
+            aria-label="Comment"
+            aria-pressed={commenting}
+            data-tip={commenting ? 'Stop commenting  C' : 'Comment  C'}
+          >
+            <CommentIcon />
+          </button>
+          {commenting && <CommentBar />}
+        </div>
         <span className="toolbar-sep" />
         <div className="toolbar-group">
           <button className="tool" onClick={() => exportBoard()} aria-label="Export spec"
@@ -187,6 +207,7 @@ function ViewControls({ right }: { right: number }) {
   // The rounded percent, so zooming only re-renders this when the label changes.
   const pct = useCamera((c) => Math.round(c.z * 100))
   const loop = useStore((s) => s.loop)
+  const pins = useStore((s) => s.pins)
   const zoom = (k: number) => {
     const c = getState().camera
     const cx = (viewLeft() + window.innerWidth) / 2
@@ -196,19 +217,24 @@ function ViewControls({ right }: { right: number }) {
   }
   return (
     <div className="viewctl" style={{ right: right + 12 }}>
+      <button onClick={() => togglePins()} title="Show comments on the canvas  ⇧C">
+        <span className="dot" data-on={pins || undefined} />
+        Comments {pins ? 'on' : 'off'}
+      </button>
+      <span className="sep" />
       <button onClick={() => toggleLoop()} title="Replay animations on a loop">
         <span className="dot" data-on={loop || undefined} />
         Loop {loop ? 'on' : 'off'}
       </button>
       <span className="sep" />
-      <button onClick={() => zoom(1 / 1.25)} title="Zoom out">
-        −
+      <button onClick={() => zoom(1 / 1.25)} title="Zoom out" className="zoom-step">
+        <MinusIcon />
       </button>
       <button onClick={fitBoard} title="Fit to screen  ⌘0" className="zoom">
         {pct}%
       </button>
-      <button onClick={() => zoom(1.25)} title="Zoom in">
-        +
+      <button onClick={() => zoom(1.25)} title="Zoom in" className="zoom-step">
+        <PlusIcon />
       </button>
     </div>
   )
@@ -220,7 +246,10 @@ const SHORTCUTS: [string, string][] = [
   ['T  /  double-click', 'Write text on the canvas'],
   ['N', 'Add a note'],
   ['S', 'Section (around the selection)'],
-  ['C', 'Compare sections side by side'],
+  ['C', 'Comment (click to drop a pin)'],
+  ['Tab  /  ⇧Tab', 'Next / previous comment'],
+  ['⇧C', 'Show / hide comments'],
+  ['X', 'Compare sections side by side'],
   ['⌘K', 'Command menu'],
   ['[', 'Show / hide sidebar'],
   ['Drag on empty canvas', 'Select an area'],

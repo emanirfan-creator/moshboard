@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
-import { defaults, humanize, paramUse, parseParams, type Bezier, type Param, type Spring } from '../../shared/params.ts'
+import { defaults, humanize, paramUse, parseParams, roundFor, shareParts, type Bezier, type Param, type Spring } from '../../shared/params.ts'
 import type { Frame } from '../../shared/types.ts'
 import {
   analyzeSelected,
@@ -51,7 +51,7 @@ import { LinksBody } from './LinksInspector'
 import { isTile } from '../arrange'
 
 const MODE_KIND = { grid: 'Grid', columns: 'Columns', rows: 'Rows' } as const
-import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, TextCtl, Timeline } from './controls'
+import { BezierCtl, ColorCtl, NameLabel, NumberCtl, SpringCtl, SplitCtl, TextCtl, Timeline } from './controls'
 import { ColorPicker } from '../ui/ColorPicker'
 import { nameColor } from '../../shared/color.ts'
 import { useDetection } from './detection'
@@ -401,7 +401,10 @@ function CodeBody({ frame }: { frame: Frame }) {
         {[...numberGroups].map(([element, list]) => (
           <Section key={element || 'values'} title={element ? humanize(element) : 'Values'}>
             <div className="insp-stack">
-              {list.map((p) => (
+              {list.map((p) => {
+                const parts = shareParts(p)
+                if (parts) return <ShareCtl key={p.name} p={named(p)} parts={parts} value={values[p.name] as number} modified={mod(p.name)} onChange={change(p.name)} onReset={() => reset(p.name)} onRename={(l) => rename(p.name, l)} />
+                return (
                 <NumberCtl
                   key={p.name}
                   p={named(p)}
@@ -411,7 +414,8 @@ function CodeBody({ frame }: { frame: Frame }) {
                   onReset={() => reset(p.name)}
                   onRename={(l) => rename(p.name, l)}
                 />
-              ))}
+                )
+              })}
             </div>
           </Section>
         ))}
@@ -652,8 +656,8 @@ function ColorBody({ frame }: { frame: Frame }) {
   return (
     <div className="insp-scroll">
       <Section title="Color">
-        <TextCtl name="Name" value={frame.label ?? ''} modified={false} onChange={(label) => updateFrame(frame.id, { label: label.trim() || undefined })} />
-        <ColorPicker value={hex} onChange={(color) => updateFrame(frame.id, { color, ...(automatic ? { label: nameColor(color) } : {}) })} />
+        <TextCtl name="Name" plain value={frame.label ?? ''} modified={false} onChange={(label) => updateFrame(frame.id, { label: label.trim() || undefined })} />
+        <ColorPicker key={frame.id} value={hex} onChange={(color) => updateFrame(frame.id, { color, ...(automatic ? { label: nameColor(color) } : {}) })} />
       </Section>
     </div>
   )
@@ -777,5 +781,41 @@ function StyleSection({
         </button>
       </div>
     </Section>
+  )
+}
+
+/** A value that's a share between two parts (a mix, a ratio): the split control, in the value's own units. */
+function ShareCtl({
+  p,
+  parts,
+  value,
+  modified,
+  onChange,
+  onReset,
+  onRename,
+}: {
+  p: Param
+  parts: [string, string]
+  value: number
+  modified: boolean
+  onChange: (n: number) => void
+  onReset: () => void
+  onRename: (label: string) => void
+}) {
+  const max = p.max ?? 1
+  const t = Math.min(1, Math.max(0, value / max))
+  const o = Math.min(1, Math.max(0, (p.value as number) / max))
+  return (
+    <SplitCtl
+      name={p.label ?? humanize(p.name)}
+      parts={parts}
+      value={[t, 1 - t]}
+      original={[o, 1 - o]}
+      min={0}
+      modified={modified}
+      onChange={(v) => onChange(roundFor(p, v[0] * max))}
+      onReset={onReset}
+      onRename={onRename}
+    />
   )
 }

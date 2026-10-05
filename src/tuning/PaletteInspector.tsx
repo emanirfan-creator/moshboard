@@ -1,12 +1,14 @@
 import { useEffect, useState, type PointerEvent as RPE } from 'react'
-import { adjustHex, NO_ADJUST, nameColor, type Adjust, type PaletteColor } from '../../shared/color.ts'
+import { adjustHex, generatePalette, inkFor, NO_ADJUST, nameColor, paletteShares, type Adjust, type PaletteColor } from '../../shared/color.ts'
 import type { Frame } from '../../shared/types.ts'
 import { randomizePalette, regeneratePalette, setPaletteColors, splitPalette } from '../actions'
 import { clamp, drag } from '../drag'
-import { setState, useStore } from '../store'
+import { setState, toast, useStore } from '../store'
 import { ColorPicker } from '../ui/ColorPicker'
 import { useGlide } from '../ui/glide'
 import { cue, detent } from '../ui/sound'
+import { SplitCtl } from './controls'
+import { TrashIcon } from '../ui/icons'
 
 const SLIDERS: { key: keyof Adjust; label: string; min: number; max: number; track: string }[] = [
   {
@@ -107,16 +109,36 @@ export function PaletteBody({ frame }: { frame: Frame }) {
                       {c.locked ? <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" /> : <path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7" />}
                     </svg>
                   </button>
+                  {colors.length > 2 && (
+                    <button
+                      className="icon-btn pal-remove"
+                      title="Remove"
+                      aria-label={`Remove ${nameColor(c.hex)}`}
+                      onClick={() => {
+                        cue('remove')
+                        if (open === i) setOpen(null)
+                        set(colors.filter((_, j) => j !== i))
+                      }}
+                    >
+                      <TrashIcon />
+                    </button>
+                  )}
                 </div>
                 {open === i && (
                   <ColorPicker value={c.hex} onChange={(hex) => set(colors.map((x, j) => (j === i ? { ...x, hex } : x)))} />
                 )}
               </div>
             ))}
+            <button className="pal-add" onClick={() => addColor(colors, set)}>
+              <span className="pal-add-plus" aria-hidden>
+                +
+              </span>
+              Add color
+            </button>
           </div>
-          <p className="ctl-help">
-            Generate picks another combination from the board; Random tries any harmony. Both keep locked colors. Hover a column for its tools; + between columns adds a blend.
-          </p>
+        </section>
+        <section className="insp-section">
+          <Shares colors={colors} onChange={set} />
         </section>
         <section className="insp-section">
           <h3>Adjust palette</h3>
@@ -154,4 +176,41 @@ export function PaletteBody({ frame }: { frame: Frame }) {
       </footer>
     </>
   )
+}
+
+/** How much of the palette each color is: one split, a line between each pair of colors. */
+function Shares({ colors, onChange }: { colors: PaletteColor[]; onChange: (c: PaletteColor[]) => void }) {
+  if (colors.length < 2) return null
+  const set = paletteShares(colors)
+  const even = colors.map(() => 1 / colors.length)
+  const value = set ?? even
+  const name = (hex: string) => {
+    const n = nameColor(hex)
+    return n.length > 10 ? `${n.slice(0, 9)}…` : n
+  }
+  const modified = !!set && set.some((x, i) => Math.abs(x - even[i]) > 0.005)
+  const evenOut = () => onChange(colors.map(({ share: _, ...c }) => c))
+  return (
+    <>
+    <SplitCtl
+      name="Shares"
+      parts={colors.map((c) => name(c.hex))}
+      value={value}
+      original={even}
+      min={0.04}
+      swatches={colors.map((c) => ({ bg: c.hex, ink: inkFor(c.hex) }))}
+      modified={modified}
+      onChange={(v) => onChange(colors.map((c, i) => ({ ...c, share: Math.round(v[i] * 1000) / 1000 })))}
+      onReset={evenOut}
+    />
+    </>
+  )
+}
+
+/** One more color that fits the palette: generated around the colors there, all of which stay. */
+function addColor(colors: PaletteColor[], set: (c: PaletteColor[]) => void) {
+  if (colors.length >= 10) return toast('A palette holds up to 10 colors')
+  const next = generatePalette(colors.map((c) => ({ ...c, locked: true })), colors.length + 1)
+  cue('droplet')
+  set([...colors, next[next.length - 1]])
 }

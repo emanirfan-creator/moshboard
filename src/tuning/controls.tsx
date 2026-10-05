@@ -909,11 +909,14 @@ export function TextCtl({
   value,
   modified,
   onChange,
+  plain,
 }: {
   name: string
   value: string
   modified: boolean
   onChange: (s: string) => void
+  /** words (a name), in the app font; otherwise mono, for code-ish values */
+  plain?: boolean
 }) {
   // Typing is kept local and sent on a pause, so a URL isn't fetched for every keystroke.
   const [draft, setDraft] = useState(value)
@@ -929,6 +932,7 @@ export function TextCtl({
       <span className="num-name">{name}</span>
       <input
         className="ctl-text"
+        data-plain={plain || undefined}
         value={draft}
         spellCheck={false}
         placeholder="Empty"
@@ -946,5 +950,205 @@ export function TextCtl({
         }}
       />
     </label>
+  )
+}
+
+// ── split: one whole shared between named parts ─────────
+
+/**
+ * A whole split between two or more named parts (a grid's line between blocks, a mix value): a
+ * thin bar at rest with the shares above it; grabbed, it grows into labeled blocks. Detents
+ * every 5% (⇧ for 1%), and a firmer one where two parts are even.
+ */
+export function SplitCtl({
+  name,
+  parts,
+  value,
+  original,
+  min = 0.05,
+  modified,
+  onChange,
+  onReset,
+  onRename,
+  mine,
+  swatches,
+}: {
+  name: string
+  /** each part's name, left to right */
+  parts: string[]
+  /** each part's share, summing to 1 */
+  value: number[]
+  original: number[]
+  /** the smallest share a part can have */
+  min?: number
+  modified: boolean
+  onChange: (shares: number[]) => void
+  onReset: () => void
+  onRename?: (label: string) => void
+  /** the part that is the selected block, drawn brightest */
+  mine?: number
+  /** paint each part in its own color (a palette's colors), with readable text on it */
+  swatches?: { bg: string; ink: string }[]
+}) {
+  const [active, setActive] = useState<number | null>(null)
+  const [keyed, setKeyed] = useState(false)
+  const bar = useRef<HTMLDivElement>(null)
+  const keyTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const cuts = value.slice(0, -1).reduce<number[]>((a, v) => [...a, (a[a.length - 1] ?? 0) + v], [])
+  const last = useRef(cuts.map((c) => Math.round(c * 20)))
+  const pct = (x: number) => Math.round(x * 100)
+  const even = (shares: number[], i: number) => Math.abs(shares[i] - shares[i + 1]) < 0.005
+
+  /** Move divider i to `at` (0–1 along the bar), keeping its neighbors' total. */
+  const move = (i: number, at: number, fine: boolean) => {
+    const lo = (i ? cuts[i - 1] : 0) + min
+    const hi = (i < cuts.length - 1 ? cuts[i + 1] : 1) - min
+    let p = clamp(at, lo, hi)
+    p = clamp(fine ? Math.round(p * 100) / 100 : Math.round(p * 20) / 20, lo, hi)
+    const before = i ? cuts[i - 1] : 0
+    const pair = value[i] + value[i + 1]
+    // Two parts snap to even when close.
+    const half = before + pair / 2
+    if (Math.abs(p - half) < 0.025) p = half
+    const next = [...value]
+    next[i] = p - before
+    next[i + 1] = pair - next[i]
+    const b = Math.round(p * (fine ? 100 : 20))
+    if (b !== last.current[i]) {
+      last.current[i] = b
+      tick(p, even(next, i))
+    }
+    onChange(next)
+  }
+
+  const press = (e: RPE<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    e.currentTarget.focus()
+    const r = e.currentTarget.getBoundingClientRect()
+    const at = (x: number) => (x - r.left) / r.width
+    const x0 = at(e.clientX)
+    const i = cuts.reduce((best, c, k) => (Math.abs(c - x0) < Math.abs(cuts[best] - x0) ? k : best), 0)
+    setActive(i)
+    move(i, x0, e.shiftKey)
+    drag(e, (_dx, _dy, ev) => move(i, at(ev.clientX), ev.shiftKey), () => setActive(null), 0, 'tune')
+  }
+  const key = (e: RKE) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    e.stopPropagation()
+    // Arrows move the first line; it grows while you're on it.
+    setKeyed(true)
+    clearTimeout(keyTimer.current)
+    keyTimer.current = setTimeout(() => setKeyed(false), 700)
+    move(0, cuts[0] + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.01 : 0.05), e.shiftKey)
+  }
+  useEffect(() => () => clearTimeout(keyTimer.current), [])
+
+  const big = active !== null || keyed
+  const label = (i: number) => (
+    <span className="split-part-label">
+      {i === parts.length - 1 && parts.length === 2 ? (
+        <>
+          <b>{pct(value[i])}%</b> {parts[i]}
+        </>
+      ) : (
+        <>
+          {parts[i]} <b>{pct(value[i])}%</b>
+        </>
+      )}
+    </span>
+  )
+  let from = 0
+  return (
+    <div className="num split" data-mod={modified || undefined} data-active={big || undefined}>
+      <div className="num-head">
+        <span className="num-label">
+          <NameLabel className="num-name" text={name} onRename={onRename} />
+          {modified && <ResetDot onReset={onReset} />}
+        </span>
+        {modified && (
+          <button
+            className="split-reset"
+            onClick={() => {
+              tick(0.35)
+              onReset()
+            }}
+          >
+            {original.every((o) => Math.abs(o - original[0]) < 0.005) ? 'Even out' : 'Reset'}
+          </button>
+        )}
+      </div>
+      <div
+        ref={bar}
+        className="split-bar"
+        data-big={big || undefined}
+        role="slider"
+        tabIndex={0}
+        aria-label={name}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct(cuts[0])}
+        aria-valuetext={parts.map((p, i) => `${p} ${pct(value[i])}%`).join(', ')}
+        onPointerDown={press}
+        onDoubleClick={onReset}
+        onKeyDown={key}
+        title="Drag the line · double-click to reset"
+      >
+        <div className="split-above" aria-hidden>
+          {parts.length === 2 ? (
+            <>
+              <span>
+                {parts[0]} <b>{pct(value[0])}%</b>
+              </span>
+              <span>
+                <b>{pct(value[1])}%</b> {parts[1]}
+              </span>
+            </>
+          ) : (
+            // More parts than fit by name: each one's share, over the middle of its part.
+            // (a part too thin to hold one shows it once grabbed)
+            value.map((v, i) => v < 0.08 ? null : (
+              <b key={i} className="split-above-at" style={{ '--m': (i ? cuts[i - 1] : 0) + v / 2 } as React.CSSProperties}>
+                {pct(v)}%
+              </b>
+            ))
+          )}
+        </div>
+        {parts.length === 2 && <span className="split-mid" />}
+        {value.map((v, i) => {
+          const left = from
+          from += v
+          return (
+            <div
+              key={i}
+              className="split-part"
+              data-first={i === 0 || undefined}
+              data-mine={mine === i || undefined}
+              data-last={i === value.length - 1 || undefined}
+              data-swatch={swatches ? '' : undefined}
+              style={{ '--a': left, '--w': v, ...(swatches ? { background: swatches[i].bg, color: swatches[i].ink } : {}) } as React.CSSProperties}
+            >
+              {label(i)}
+            </div>
+          )
+        })}
+        {/* Where the lines were, like the original mark on a number's ruler. */}
+        {modified &&
+          original.slice(0, -1).map((_, i) => {
+            const at = original.slice(0, i + 1).reduce((a, b) => a + b, 0)
+            return (
+              <span
+                key={`o${i}`}
+                className="split-was"
+                style={{ '--a': at } as React.CSSProperties}
+                title={`Original ${original.map((o) => `${pct(o)}%`).join(' · ')}`}
+              />
+            )
+          })}
+        {cuts.map((c, i) => (
+          <span key={i} className="split-line" data-on={active === i || undefined} style={{ '--a': c } as React.CSSProperties} />
+        ))}
+      </div>
+    </div>
   )
 }

@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
+import { contrast, hexToLch, lchToHex, paletteFromSamples } from '../../shared/color.ts'
+import { boardSamples, hasColors } from '../boardColors'
 import { clamp, drag } from '../drag'
+import { getState, useStore } from '../store'
+import { CheckIcon, CopyIcon, ReopenIcon } from './icons'
+import { tick } from './sound'
 
 type HSV = [number, number, number] // h 0–360, s 0–1, v 0–1
-
-const PRESETS = ['#f7f8f8', '#d0d6e0', '#8a8f98', '#62666d', '#2a2b30', '#0f1012', '#5e6ad2', '#4cb782', '#f2c94c', '#eb5757']
 
 function parseHex(input: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(input.trim())
@@ -44,10 +47,85 @@ interface EyeDropperCtor {
 }
 const EyeDropper = (globalThis as { EyeDropper?: EyeDropperCtor }).EyeDropper
 
-/** Monochrome-styled HSV picker: saturation/brightness area, hue strip, hex field, presets. */
+// ── formats: the value shows as hex, rgb() or oklch(), and any of them can be typed ──
+
+type Format = 'HEX' | 'RGB' | 'OKLCH'
+const FORMATS: Format[] = ['HEX', 'RGB', 'OKLCH']
+const FORMAT_KEY = 'mb:color-format'
+const storedFormat = (): Format => {
+  try {
+    const f = localStorage.getItem(FORMAT_KEY) as Format | null
+    return f && FORMATS.includes(f) ? f : 'HEX'
+  } catch {
+    return 'HEX'
+  }
+}
+
+function formatColor(hex: string, f: Format) {
+  if (f === 'HEX') return hex
+  if (f === 'RGB') return `rgb(${(parseHex(hex) ?? [0, 0, 0]).join(', ')})`
+  const [L, C, H] = hexToLch(hex)
+  return `oklch(${(L * 100).toFixed(1)}% ${C.toFixed(3)} ${Math.round(H)})`
+}
+
+/** A typed color in any of the formats → hex, or null. */
+function readColor(input: string): string | null {
+  const t = input.trim()
+  if (parseHex(t)) return hsvToHex(toHsv(t)!)
+  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(t)
+  if (rgb) return `#${[rgb[1], rgb[2], rgb[3]].map((n) => Math.min(255, +n).toString(16).padStart(2, '0')).join('')}`
+  const ok = /^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)/i.exec(t)
+  if (ok) return lchToHex([ok[2] ? +ok[1] / 100 : +ok[1], +ok[3], +ok[4]])
+  return null
+}
+
+const grade = (r: number) => (r >= 7 ? 'AAA' : r >= 4.5 ? 'AA' : r >= 3 ? 'Large' : 'Low')
+
+/**
+ * Colors already on this canvas, for the picker's row: palettes and swatches first, then
+ * colors read from the references (images, clips, site snapshots) to fill up to eight.
+ */
+function useBoardColors() {
+  const defined = useStore((s) => {
+    const out: string[] = []
+    for (const f of s.board?.frames ?? []) {
+      if (f.type === 'palette') out.push(...(f.colors ?? []).map((c) => c.hex.toLowerCase()))
+      if (f.type === 'swatch' && f.color) out.push(f.color.toLowerCase())
+    }
+    return [...new Set(out)].slice(0, 8).join()
+  })
+  const [read, setRead] = useState<string[]>([])
+  const need = 8 - (defined ? defined.split(',').length : 0)
+  useEffect(() => {
+    if (need <= 0) return
+    let live = true
+    const s = getState()
+    const refs = (s.board?.frames ?? []).filter((f) => hasColors(f, false) && f.type !== 'swatch')
+    if (!refs.length) return
+    boardSamples(s.boardName, refs).then((samples) => {
+      if (live) setRead(paletteFromSamples(samples, [], need).map((c) => c.hex.toLowerCase()))
+    })
+    return () => {
+      live = false
+    }
+  }, [need])
+  const list = [...(defined ? defined.split(',') : []), ...read]
+  return [...new Set(list)].slice(0, 8)
+}
+
+/**
+ * Saturation/brightness area and hue strip; the value in hex, rgb or oklch (copy, eyedropper);
+ * how text reads on it; and the colors already on the board. Once changed, a before | after
+ * swatch shows the color it opened with (click it to go back).
+ */
 export function ColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
   const [hsv, setHsv] = useState<HSV>(() => toHsv(value) ?? [0, 0, 1])
-  const [text, setText] = useState(value)
+  const [original] = useState(() => (toHsv(value) ? hsvToHex(toHsv(value)!) : value))
+  const [format, setFormat] = useState<Format>(storedFormat)
+  const [text, setText] = useState(() => formatColor(hsvToHex(hsv), format))
+  const [editing, setEditing] = useState(false)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
   const area = useRef<HTMLDivElement>(null)
   const hue = useRef<HTMLDivElement>(null)
 
@@ -56,14 +134,20 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
     if (value.toLowerCase() === hsvToHex(hsv)) return
     const next = toHsv(value)
     if (next) setHsv(next)
-    setText(value)
   }, [value])
+
+  const current = hsvToHex(hsv)
+  const shown = editing ? text : formatColor(current, format)
+  const board = useBoardColors()
 
   const commit = (next: HSV) => {
     setHsv(next)
-    const hex = hsvToHex(next)
-    setText(hex)
-    onChange(hex)
+    setError('')
+    onChange(hsvToHex(next))
+  }
+  const pick = (hex: string) => {
+    const next = toHsv(hex)
+    if (next) commit(next)
   }
 
   const onArea = (e: RPE<HTMLDivElement>) => {
@@ -80,9 +164,21 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
     at(e.clientX)
     drag(e, (_dx, _dy, ev) => at(ev.clientX), undefined, 0, 'tune')
   }
+  const nextFormat = () => {
+    const f = FORMATS[(FORMATS.indexOf(format) + 1) % FORMATS.length]
+    setFormat(f)
+    tick(0.6)
+    try {
+      localStorage.setItem(FORMAT_KEY, f)
+    } catch {
+      // storage unavailable
+    }
+  }
 
   const pure = hsvToHex([hsv[0], 1, 1])
-  const current = hsvToHex(hsv)
+  const changed = current !== original.toLowerCase()
+  const onWhite = contrast(current, '#ffffff')
+  const onBlack = contrast(current, '#111111')
 
   return (
     <div className="cp" onPointerDown={(e) => e.stopPropagation()}>
@@ -95,36 +191,74 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
         <div className="cp-knob cp-knob-hue" style={{ left: `${(hsv[0] / 360) * 100}%`, background: pure }} />
       </div>
       <div className="cp-row">
-        <span className="cp-current" style={{ background: current }} />
-        <input
-          className="cp-hex"
-          value={text}
-          spellCheck={false}
-          onChange={(e) => {
-            setText(e.target.value)
-            const next = toHsv(e.target.value)
-            if (next) {
-              setHsv(next)
-              onChange(hsvToHex(next))
-            }
-          }}
-          onBlur={() => setText(current)}
-          onKeyDown={(e) => {
-            e.stopPropagation()
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-          }}
-        />
+        {changed ? (
+          <button className="cp-was" onClick={() => (tick(0.35), pick(original))} title={`Back to ${original}`} aria-label={`Back to ${original}`}>
+            <span className="cp-was-before" style={{ background: original }}>
+              <ReopenIcon />
+            </span>
+            <span style={{ background: current }} />
+          </button>
+        ) : (
+          <span className="cp-current" style={{ background: current }} />
+        )}
+        <div className="cp-value">
+          <input
+            className="cp-hex"
+            value={shown}
+            spellCheck={false}
+            aria-label="Color"
+            onFocus={() => {
+              setText(formatColor(current, format))
+              setEditing(true)
+            }}
+            onChange={(e) => {
+              setText(e.target.value)
+              setError('')
+              const hex = readColor(e.target.value)
+              if (hex) {
+                const next = toHsv(hex)!
+                setHsv(next)
+                onChange(hex)
+              }
+            }}
+            onBlur={() => {
+              if (!readColor(text)) setError('Enter a color like #c46a3b')
+              setEditing(false)
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
+            }}
+          />
+          <button className="cp-format" onClick={nextFormat} title="Switch format">
+            {format}
+          </button>
+        </div>
+        <button
+          className="icon-btn"
+          title="Copy"
+          aria-label="Copy"
+          onClick={() =>
+            navigator.clipboard.writeText(formatColor(current, format)).then(
+              () => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1200)
+              },
+              () => {},
+            )
+          }
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </button>
         {EyeDropper && (
           <button
             className="icon-btn"
             title="Pick a color from the screen"
+            aria-label="Pick a color from the screen"
             onClick={() =>
               new EyeDropper()
                 .open()
-                .then((r) => {
-                  const next = toHsv(r.sRGBHex)
-                  if (next) commit(next)
-                })
+                .then((r) => pick(r.sRGBHex))
                 .catch(() => {})
             }
           >
@@ -134,21 +268,29 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
           </button>
         )}
       </div>
-      <div className="cp-presets">
-        {PRESETS.map((c) => (
-          <button
-            key={c}
-            className="cp-preset"
-            data-active={c === current || undefined}
-            style={{ background: c }}
-            title={c}
-            onClick={() => {
-              const next = toHsv(c)
-              if (next) commit(next)
-            }}
-          />
+      {error && <div className="cp-error">{error}</div>}
+      <div className="cp-contrast">
+        {[
+          { ink: '#ffffff', r: onWhite },
+          { ink: '#111111', r: onBlack },
+        ].map(({ ink, r }) => (
+          <div key={ink} className="cp-chip" style={{ background: current, color: ink }} title={`${ink === '#ffffff' ? 'White' : 'Dark'} text: ${r.toFixed(1)}:1`}>
+            <b>Aa</b>
+            <span className="cp-chip-r">{r.toFixed(1)}</span>
+            <span className="cp-chip-g">{grade(r)}</span>
+          </div>
         ))}
       </div>
+      {board.length > 0 && (
+        <div className="cp-board">
+          <span className="cp-label">Board colors</span>
+          <div className="cp-presets">
+            {board.map((c) => (
+              <button key={c} className="cp-preset" data-active={c === current || undefined} style={{ background: c }} title={c} onClick={() => (tick(0.5), pick(c))} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { askClaude } from '../folder/ClaudeTask'
 import { chooseFolder, FOLDER_ONLY, folderSupported, switchFolder } from '../folder/folder'
 import { hasColors } from '../boardColors'
 import { canCompare, exitCompare, startCompare } from '../canvas/compare'
+import { setCommenting, stepComment } from '../comments/comments'
 import {
   addNote,
   addPalette,
@@ -49,7 +50,7 @@ import { isTunable } from '../../shared/autoParams.ts'
 import { linkNumbers } from '../../shared/frame-links.ts'
 import { shareBoard } from '../share'
 import { setSounds, soundsOn } from '../ui/sound'
-import { frameById, getState, setState, toggleSidebar, updateFrame, useStore } from '../store'
+import { frameById, getState, setState, togglePins, toggleSidebar, updateFrame, useStore } from '../store'
 
 interface Command {
   id: string
@@ -138,7 +139,7 @@ function Palette() {
       }
     }
     if (s.compare) add('Section', 'Stop comparing', exitCompare, 'Esc')
-    else if (canCompare()) add('Section', sel.filter((f) => f!.type === 'section').length >= 2 ? 'Compare side by side' : 'Compare all sections side by side', startCompare, 'C')
+    else if (canCompare()) add('Section', sel.filter((f) => f!.type === 'section').length >= 2 ? 'Compare side by side' : 'Compare all sections side by side', startCompare, 'X')
     if (one?.type === 'section') {
       if (one.layout) {
         add('Section', 'Next layout shape', arrangeAgain, '⌃⌥T')
@@ -193,10 +194,17 @@ function Palette() {
     add('Add', 'Color swatch', () => addSwatch('color'))
     add('Add', 'Font swatch', () => addSwatch('font'))
 
+    add('Comments', s.commenting ? 'Stop commenting' : 'Comment', () => setCommenting(), 'C')
+    add('Comments', s.pins ? 'Hide comments' : 'Show comments', () => togglePins(), '⇧C')
+    if (s.commenting) {
+      add('Comments', 'Next comment', () => stepComment(1), 'Tab')
+      add('Comments', 'Previous comment', () => stepComment(-1), '⇧Tab')
+    }
+
     add('Canvas', 'Fit to screen', fitBoard, '⌘0')
     add('Canvas', soundsOn() ? 'Turn control sounds off' : 'Turn control sounds on', () => setSounds(!soundsOn()))
     add('Canvas', 'Export spec (design.md, motion.md)', exportBoard)
-    add('Canvas', 'Share as a page (one HTML file)', shareBoard)
+    add('Canvas', 'Share as a page (one HTML file)', () => shareBoard())
     add('Canvas', 'New canvas…', ask({ placeholder: 'Canvas name', submit: (v) => createCanvas(v) }))
     add(
       'Canvas',

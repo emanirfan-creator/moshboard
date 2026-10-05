@@ -6,6 +6,8 @@ import { shareBoard } from '../share'
 import { getState, setState, toast, useStore } from '../store'
 import { CloseIcon } from './icons'
 import { FOLDER_ONLY } from '../folder/folder'
+import { openCommentsText } from '../comments/comments'
+import { tick } from './sound'
 
 const DESCRIBE: Record<string, string> = {
   'design.md': 'Colors, type, notes and references',
@@ -20,6 +22,11 @@ const close = () => setState({ exported: null })
 export function ExportDialog() {
   const result = useStore((s) => s.exported)
   const [copied, setCopied] = useState<string | null>(null)
+  // Off by default: comments are notes to yourself until you choose to hand them over.
+  const [withComments, setWithComments] = useState(false)
+  const [shareComments, setShareComments] = useState(false)
+  const notes = useStore((s) => (s.exported ? openCommentsText(s) : ''))
+  const openCount = notes ? notes.split('\n').length : 0
 
   useEffect(() => {
     if (!result) return
@@ -37,7 +44,8 @@ export function ExportDialog() {
   const top = result.files.filter((f) => !f.includes('/')).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
   const snippets = result.files.filter((f) => f.startsWith('snippets/'))
   const refs = result.files.filter((f) => f.startsWith('refs/'))
-  const prompt = `Build this UI from the spec in ${result.absDir}. Read design.md and motion.md first. Use tokens.css for timing, easing and color. Treat snippets/ as exact references: their values were tuned by hand.`
+  const base = `Build this UI from the spec in ${result.absDir}. Read design.md and motion.md first. Use tokens.css for timing, easing and color. Treat snippets/ as exact references: their values were tuned by hand.`
+  const prompt = withComments && notes ? `${base}\n\nAlso address these open comments from the board:\n${notes}` : base
 
   const copy = (what: string, text: string) =>
     navigator.clipboard.writeText(text).then(
@@ -114,17 +122,21 @@ export function ExportDialog() {
                 {copied === 'prompt' ? 'Copied' : 'Copy prompt'}
               </button>
             </div>
-            <p>{prompt}</p>
+            <p className="export-prompt-text">{prompt}</p>
+            {openCount > 0 && (
+              <Switch label={`Include open comments (${openCount})`} on={withComments} onChange={setWithComments} />
+            )}
           </div>
 
           <div className="export-prompt">
             <div className="label-row">
               <span>Share with someone without Moshboard</span>
-              <button className="link" onClick={() => (close(), shareBoard())}>
+              <button className="link" onClick={() => (close(), shareBoard({ comments: shareComments }))}>
                 Share as a page
               </button>
             </div>
             <p>One HTML file with the whole canvas: clips play, components run, live sites stay live. Opens in any browser.</p>
+            {openCount > 0 && <Switch label="Show comments on the page" on={shareComments} onChange={setShareComments} />}
           </div>
 
           <div className="dialog-foot">
@@ -162,5 +174,24 @@ export function ExportDialog() {
         </div>
       </div>
     </>
+  )
+}
+
+function Switch({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      className="tgl export-switch"
+      role="switch"
+      aria-checked={on}
+      onClick={() => {
+        tick(on ? 0.2 : 0.8, true)
+        onChange(!on)
+      }}
+    >
+      <span className="num-name">{label}</span>
+      <span className="tgl-track" data-on={on || undefined}>
+        <span className="tgl-knob" />
+      </span>
+    </button>
   )
 }

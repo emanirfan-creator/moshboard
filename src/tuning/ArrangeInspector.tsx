@@ -8,9 +8,11 @@ import {
   evenOut,
   freeLayout,
   geoOf,
+  gridSplit,
   lastArrange,
   previewArrange,
   resetCrop,
+  setGridSplit,
   setLayout,
   startCrop,
   takeOut,
@@ -19,7 +21,7 @@ import {
 import { computeLayout, currentOption, LAYOUT_GAP, LAYOUT_PAD, optionsFor, ROW_OPTIONS, shapesFor, withOption, type LayoutMode } from '../layout'
 import { frameById, useStore } from '../store'
 import { Segmented } from '../ui/Segmented'
-import { NumberCtl } from './controls'
+import { NumberCtl, SplitCtl } from './controls'
 
 const MODES: { id: LayoutMode; label: string }[] = [
   { id: 'grid', label: 'Grid' },
@@ -115,9 +117,9 @@ export function ArrangeChoices({
 const GAP_PARAM: Param = { name: 'gap', label: 'Gap', kind: 'number', value: LAYOUT_GAP, unit: 'px', min: 0, max: 48, step: 1, start: 0, end: 0 }
 
 const HELP: Record<LayoutMode, string> = {
-  grid: 'Drag a block’s edges or the lines between blocks to resize. Push past a block and it moves to make room.',
-  columns: 'Drag a block’s side to span more columns. Heights follow each block’s shape.',
-  rows: 'Drag a block’s bottom edge to change its row. Widths follow each block’s shape.',
+  grid: 'Drag edges or lines to resize.',
+  columns: 'Drag a side to span columns.',
+  rows: 'Drag the bottom edge to resize.',
 }
 
 /** A selected section: lay out what's in it, or change its layout. */
@@ -137,7 +139,7 @@ export function SectionBody({ frame }: { frame: Frame }) {
           active={L ? currentOption(L) : null}
           onMode={(m) => (L ? m !== L.mode && arrange(frame.id, m, firstOption(m)) : setMode(m))}
         />
-        <p className="ctl-help">{L ? HELP[L.mode] : 'Lays out the blocks in this section. Blocks dropped in later join it.'}</p>
+        <p className="ctl-help">{L ? HELP[L.mode] : 'Blocks dropped in later join it.'}</p>
       </section>
       {L && (
         <section className="insp-section">
@@ -148,6 +150,7 @@ export function SectionBody({ frame }: { frame: Frame }) {
             onChange={(gap) => setLayout(frame.id, { gap })}
             onReset={() => setLayout(frame.id, { gap: LAYOUT_GAP })}
           />
+          <GridSplit sid={frame.id} />
           <div className="insp-buttons">
             <button className="btn" onClick={() => evenOut(frame.id)} title="Every part back to the same size">
               Even out
@@ -179,8 +182,9 @@ export function TileBody({ frame }: { frame: Frame }) {
         In {s.label ? `“${s.label}”` : 'a layout'}
         <small className="insp-size">{size}</small>
       </h3>
+      <GridSplit sid={s.id} blockId={frame.id} />
       <p className="ctl-help">
-        <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> trade places. {HELP[s.layout.mode]}
+        <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> to move. {HELP[s.layout.mode]}
       </p>
       <div className="insp-buttons">
         {canCrop(frame) && (
@@ -212,5 +216,30 @@ export function SelectionArrange({ ids }: { ids: string[] }) {
         Hover to preview.
       </p>
     </section>
+  )
+}
+
+/** A grid's split as one control: the section's top split, or the one this block sits in. */
+function GridSplit({ sid, blockId }: { sid: string; blockId?: string }) {
+  // Keyed on the shares so it follows a line dragged on the canvas.
+  const key = useStore(() => {
+    const g = gridSplit(sid, blockId)
+    return g ? `${g.dir}|${g.parts.join('/')}|${g.shares.map((x) => x.toFixed(4)).join()}|${g.path.join('.')}|${g.mine ?? ''}` : ''
+  })
+  if (!key) return null
+  const g = gridSplit(sid, blockId)!
+  const modified = g.shares.some((x, i) => Math.abs(x - g.original[i]) > 0.005)
+  return (
+    <SplitCtl
+      name={g.dir === 'row' ? 'Widths' : 'Heights'}
+      parts={g.parts}
+      value={g.shares}
+      original={g.original}
+      min={0.08}
+      mine={g.mine}
+      modified={modified}
+      onChange={(v) => setGridSplit(sid, g.path, v)}
+      onReset={() => setGridSplit(sid, g.path, g.original)}
+    />
   )
 }

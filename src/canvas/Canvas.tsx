@@ -10,6 +10,8 @@ import { layoutMembers } from '../layout'
 import { canCrop, startCrop } from '../arrange'
 import { SectionView } from './SectionView'
 import { CompareSummaries } from './CompareSummaries'
+import { CommentLayer } from '../comments/CommentLayer'
+import { pressCanvas } from '../comments/comments'
 import { clamp, drag } from '../drag'
 import { FrameContent } from '../frames/Contents'
 import { BlockLoader } from '../frames/BlockLoader'
@@ -44,6 +46,7 @@ export function Canvas() {
   const marquee = useRef<HTMLDivElement>(null)
   const hand = useStore((s) => s.hand)
   const comparing = useStore((s) => !!s.compare)
+  const commenting = useStore((s) => s.commenting)
   // Leaving Compare, frames glide back before the canvas goes back to instant moves.
   const [settling, setSettling] = useState(false)
   const wasComparing = useRef(false)
@@ -202,10 +205,25 @@ export function Canvas() {
       data-panning={(gesture && panning.current) || undefined}
       data-gesture={gesture || undefined}
       data-comparing={comparing || settling || undefined}
+      data-commenting={commenting || undefined}
+      onPointerDownCapture={(e) => {
+        // Comment mode: a click anywhere but the comments themselves drops a pin (Space or the
+        // middle button still pan).
+        const s = getState()
+        if (!s.commenting || s.compare || s.space || e.button !== 0) return
+        if ((e.target as Element).closest('.comment-ui, .toolbar-wrap')) return
+        e.stopPropagation()
+        e.preventDefault()
+        pressCanvas(screenToWorld(e.clientX, e.clientY))
+      }}
+      onMouseDownCapture={(e) => {
+        // …and the mousedown after it doesn't take focus from the new pin's comment box.
+        if (getState().commenting && !(e.target as Element).closest('.comment-ui, .toolbar-wrap')) e.preventDefault()
+      }}
       onPointerDown={onBackgroundDown}
       onDoubleClick={(e) => {
         // Double-click empty canvas to write there.
-        if (getState().compare) return
+        if (getState().compare || getState().commenting) return
         if (e.target === ref.current || (e.target as HTMLElement).classList.contains('world'))
           addText(screenToWorld(e.clientX, e.clientY), false)
       }}
@@ -222,6 +240,7 @@ export function Canvas() {
         <Links />
         <CompareSummaries />
         {frames?.map((f) => !isSection(f) && <FrameView key={f.id} frame={f} />)}
+        <CommentLayer />
         {pending.map((p) => (
           <div key={p.id} className="frame pending" data-block style={{ left: p.x, top: p.y, width: p.w, height: p.h }}>
             <div className="block-head">

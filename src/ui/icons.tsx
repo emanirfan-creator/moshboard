@@ -23,6 +23,11 @@ export const PlusIcon = () => (
     <path d="M8 3.5v9M3.5 8h9" />
   </Icon>
 )
+export const MinusIcon = () => (
+  <Icon>
+    <path d="M3.5 8h9" />
+  </Icon>
+)
 export const MediaIcon = () => (
   <Icon>
     <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
@@ -77,10 +82,13 @@ export const FontIcon = () => (
     <path d="M13.75 7.5v5" />
   </Icon>
 )
-export const SidebarIcon = () => (
+/** `open`: the sidebar is showing (the button hides it), so the side column is filled and the arrow points in. */
+export const SidebarIcon = ({ open }: { open?: boolean }) => (
   <Icon>
     <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
     <path d="M6.5 3v10" />
+    {open && <path d="M6.5 3H4a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 0 4 13h2.5z" fill="currentColor" />}
+    <path d={open ? 'M10.75 6.25 9 8l1.75 1.75' : 'M9.25 6.25 11 8l-1.75 1.75'} />
   </Icon>
 )
 export const ExportIcon = () => (
@@ -148,5 +156,31 @@ export const FolderIcon = () => (
 export const CheckIcon = () => (
   <Icon>
     <path d="m3.5 8.5 3 3 6-7" />
+  </Icon>
+)
+export const CommentIcon = () => (
+  <Icon>
+    <path d="M8 2.75c3.04 0 5.5 2.13 5.5 4.75S11.04 12.25 8 12.25c-.6 0-1.17-.08-1.7-.23L3 13.25l.86-2.58C3.02 9.84 2.5 8.72 2.5 7.5c0-2.62 2.46-4.75 5.5-4.75Z" />
+  </Icon>
+)
+export const ReopenIcon = () => (
+  <Icon>
+    <path d="M4.5 6.5h5.25a3 3 0 0 1 0 6H7M4.5 6.5 7 4M4.5 6.5 7 9" />
+  </Icon>
+)
+export const TrashIcon = () => (
+  <Icon>
+    <path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" />
+  </Icon>
+)
+export const SendIcon = () => (
+  <Icon>
+    <path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7" />
+  </Icon>
+)
+export const CopyIcon = () => (
+  <Icon>
+    <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+    <path d="M10.5 5.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
   </Icon>
 )

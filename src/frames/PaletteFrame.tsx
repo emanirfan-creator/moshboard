@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as RPE } from 'react'
-import { contrast, inkFor, mixHex, nameColor, shadesOf, type PaletteColor } from '../../shared/color.ts'
+import { contrast, inkFor, mixHex, nameColor, paletteShares, shadesOf, type PaletteColor } from '../../shared/color.ts'
 import type { Frame } from '../../shared/types.ts'
 import { setPaletteColors } from '../actions'
 import { copyText } from '../clipboard'
@@ -41,6 +41,8 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
   const [copied, setCopied] = useState<number | null>(null)
   const cols = useRef(new Map<number, HTMLDivElement>())
   const landed = useRef(false)
+  // Set shares widen columns by how much of the palette each color is (reordering holds them even).
+  const shares = paletteShares(colors)
   const order = colors.map((_, i) => i)
   if (drag) order.splice(drag.to, 0, ...order.splice(drag.from, 1))
 
@@ -198,7 +200,7 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
             className="palette-col"
             data-lifted={(drag?.held && drag.from === i) || undefined}
             data-moving={drag?.from === i || undefined}
-            style={{ background: c.hex, color: ink }}
+            style={{ background: c.hex, color: ink, ...(shares ? { '--g': shares[i] * colors.length } : {}) } as React.CSSProperties}
             onDoubleClick={(e) => {
               e.stopPropagation()
               setState({ selected: [frame.id], paletteFocus: i })
@@ -327,10 +329,15 @@ export function PaletteFrame({ frame, active }: { frame: Frame; active: boolean 
 }
 
 function Row({ colors, small }: { colors: PaletteColor[]; small?: boolean }) {
+  const shares = paletteShares(colors)
   return (
     <div className="palette-row">
       {colors.map((c, i) => (
-        <div key={i} className="palette-col" style={{ background: c.hex, color: inkFor(c.hex) }}>
+        <div
+          key={i}
+          className="palette-col"
+          style={{ background: c.hex, color: inkFor(c.hex), ...(shares ? { '--g': shares[i] * colors.length } : {}) } as React.CSSProperties}
+        >
           <div className="palette-label" data-small={small || undefined}>
             <span className="palette-hex">#{c.hex.slice(1).toUpperCase()}</span>
           </div>

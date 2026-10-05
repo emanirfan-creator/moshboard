@@ -6,7 +6,8 @@
 import { cssVars, defaults, parseParams, runtimeValues } from '../shared/params.ts'
 import { fontStack } from '../shared/fonts.ts'
 import { presetFor } from '../shared/providers.ts'
-import type { Frame } from '../shared/types.ts'
+import type { BoardComment, Frame } from '../shared/types.ts'
+import { pinAt, placed } from './comments/comments'
 import { api, mediaUrl } from './api'
 import { boardLabel } from './folder/folder'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './canvas/blocks'
@@ -126,6 +127,18 @@ async function frameHtml(f: Frame, board: string) {
   return `<div class="frame block" style="${style}"><header><span class="dot"></span><span class="title">${esc(f.label || kind)}</span>${link}<span class="kind">${kind}</span></header><div class="body">${body}</div></div>`
 }
 
+/** Open comments as keycap pins; hovering one shows its thread. */
+function commentsHtml(comments: BoardComment[], frames: Frame[]) {
+  return comments
+    .map((c) => {
+      const at = pinAt(c, frames)
+      if (!at) return ''
+      const msgs = c.messages.map((m) => `<p>${esc(m.text)}</p>`).join('')
+      return `<div class="pin" style="left:${at.x}px;top:${at.y}px"><span class="key">${String(c.n).padStart(2, '0')}</span><div class="thread">${msgs}</div></div>`
+    })
+    .join('\n')
+}
+
 function page(title: string, frames: string[], fontLinks: string[], bounds: { x0: number; y0: number; x1: number; y1: number }) {
   return `<!doctype html>
 <html lang="en">
@@ -171,6 +184,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1012; col
 .palette { height: 100%; display: flex; border-radius: 12px; overflow: hidden; }
 .palette div { flex: 1; display: flex; align-items: flex-end; padding: 10px; }
 .missing { height: 100%; display: grid; place-items: center; color: #62666d; }
+.pin { position: absolute; width: 0; height: 0; z-index: 10; transform: scale(var(--inv, 1)); transform-origin: 0 0; }
+.pin .key { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 6px; background: #ececec; color: #111214; font: 600 10px ui-monospace, Menlo, monospace; box-shadow: 0 3px 0 #8c8e92, 0 5px 9px rgba(0,0,0,.5); cursor: default; }
+.pin .thread { position: absolute; left: 22px; top: -18px; width: 240px; padding: 8px 12px; border-radius: 12px; background: #151618; border: 1px solid rgba(255,255,255,.1); box-shadow: 0 16px 40px rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.pin .thread p { margin: 4px 0; color: #f7f8f8; white-space: pre-wrap; }
+.pin .thread p + p { color: #d0d6e0; padding-left: 10px; border-left: 1px solid rgba(255,255,255,.1); }
+.pin:hover .thread { opacity: 1; }
 #bar { position: fixed; left: 50%; bottom: 16px; translate: -50% 0; display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-radius: 12px; background: #0a0a0b; border: 1px solid rgba(255,255,255,.1); color: #8a8f98; font-size: 12px; }
 #bar b { color: #f7f8f8; font-weight: 500; }
 #bar button { background: none; border: 0; color: #d0d6e0; font: inherit; cursor: pointer; padding: 0; }
@@ -186,7 +205,10 @@ ${frames.join('\n')}
 const view = document.getElementById("view"), world = document.getElementById("world");
 const B = ${JSON.stringify(bounds)};
 let cam = { x: 0, y: 0, z: 1 };
-const apply = () => (world.style.transform = "translate(" + cam.x + "px," + cam.y + "px) scale(" + cam.z + ")");
+const apply = () => {
+  world.style.transform = "translate(" + cam.x + "px," + cam.y + "px) scale(" + cam.z + ")";
+  world.style.setProperty("--inv", String(1 / cam.z));
+};
 const fit = () => {
   const pad = 64, w = B.x1 - B.x0, h = B.y1 - B.y0;
   const z = Math.min(1, (innerWidth - pad * 2) / w, (innerHeight - pad * 2) / h);
@@ -215,7 +237,7 @@ fit();
 }
 
 /** Builds the share page, saves it to the board's export folder and downloads it. */
-export async function shareBoard() {
+export async function shareBoard({ comments = false }: { comments?: boolean } = {}) {
   const s = getState()
   const frames = s.board?.frames ?? []
   if (!s.board || !frames.length) return toast('Nothing on this canvas to share yet', true)
@@ -224,6 +246,7 @@ export async function shareBoard() {
     // Sections first (biggest at the back), so they sit behind their blocks.
     const ordered = [...frames.filter(isSection).sort(bySize), ...frames.filter((f) => !isSection(f))]
     const parts = await Promise.all(ordered.map((f) => frameHtml(f, s.boardName)))
+    if (comments) parts.push(commentsHtml(placed(s).filter((c) => !c.resolved), frames))
     const fontLinks = [...new Set(frames.map((f) => f.fontHref).filter((h): h is string => !!h))]
     const bounds = {
       x0: Math.min(...frames.map((f) => f.x)),

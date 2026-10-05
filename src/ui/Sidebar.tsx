@@ -56,7 +56,7 @@ export function Sidebar() {
           Moshboard
         </span>
           <button className="icon-btn" onClick={() => toggleSidebar(false)} title="Hide sidebar  [">
-            <SidebarIcon />
+            <SidebarIcon open />
           </button>
         </div>
 

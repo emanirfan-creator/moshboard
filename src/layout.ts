@@ -113,7 +113,7 @@ export function nodeAt(tree: LayoutNode, path: number[]): LayoutNode {
   for (const i of path) n = (n as Exclude<LayoutNode, { slot: number }>).kids[i].n
   return n
 }
-function trailTo(n: LayoutNode, slot: number, trail: number[] = []): number[] | null {
+export function trailTo(n: LayoutNode, slot: number, trail: number[] = []): number[] | null {
   if (isLeaf(n)) return n.slot === slot ? trail : null
   for (let i = 0; i < n.kids.length; i++) {
     const t = trailTo(n.kids[i].n, slot, [...trail, i])

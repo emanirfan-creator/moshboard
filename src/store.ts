@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
-import type { Board, Frame } from '../shared/types.ts'
+import type { Board, BoardComment, Frame } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
 import type { ClaudeTaskKind } from './folder/ClaudeTask'
 import type { FolderEntry, FolderInfo, OnboardingStep } from './folder/folder'
@@ -86,6 +86,20 @@ export interface State {
   dropTile: string | null
   /** image/video whose crop is being moved (drag to pan, scroll to zoom) */
   crop: string | null
+  /** Comment mode (C): clicks drop pins, the toolbar flips through comments */
+  commenting: boolean
+  /** whether open pins show outside comment mode (⇧C, remembered per board) */
+  pins: boolean
+  /** the comment whose thread is open */
+  thread: string | null
+  /** a pin being placed, before its first message */
+  draft: { on?: string; x: number; y: number } | null
+  /** which comments the toolbar flips through */
+  commentView: 'open' | 'done'
+  /** the toolbar shows every comment as a key instead of the counter */
+  commentTray: boolean
+  /** the comment last opened: the counter stays on it after its thread closes */
+  commentCursor: string | null
 }
 
 export interface Compare {
@@ -163,6 +177,13 @@ let state: State = {
   arrange: null,
   dropTile: null,
   crop: null,
+  commenting: false,
+  pins: true,
+  thread: null,
+  draft: null,
+  commentView: 'open',
+  commentTray: false,
+  commentCursor: null,
 }
 
 const subs = new Set<() => void>()
@@ -189,15 +210,21 @@ let saveTimer: ReturnType<typeof setTimeout> | undefined
 // ── undo / redo ──
 // Each save is one step: changes within the save debounce (a drag, a tidy, a burst
 // of typing) undo together. History is per canvas and resets when you switch.
-let committed: Frame[] | null = null
-const undoStack: Frame[][] = []
-const redoStack: Frame[][] = []
+interface Snap {
+  frames: Frame[]
+  comments?: BoardComment[]
+}
+let committed: Snap | null = null
+const undoStack: Snap[] = []
+const redoStack: Snap[] = []
 const HISTORY = 100
+const snap = (b: Board): Snap => ({ frames: b.frames, comments: b.comments })
+const isCommitted = (b: Board) => !!committed && b.frames === committed.frames && b.comments === committed.comments
 
 /** Call when a board is (re)loaded from disk: that's the new baseline, not an undoable change. */
-export function resetHistory(frames: Frame[], keep = false) {
-  committed = frames
-  settled = frames
+export function resetHistory(board: Board, keep = false) {
+  committed = snap(board)
+  settled = board.frames
   if (!keep) {
     undoStack.length = 0
     redoStack.length = 0
@@ -205,14 +232,14 @@ export function resetHistory(frames: Frame[], keep = false) {
 }
 
 function commit() {
-  const frames = state.board?.frames
-  if (!frames || frames === committed) return
+  const board = state.board
+  if (!board || isCommitted(board)) return
   if (committed) {
     undoStack.push(committed)
     if (undoStack.length > HISTORY) undoStack.shift()
     redoStack.length = 0
   }
-  committed = frames
+  committed = snap(board)
 }
 
 function persist() {
@@ -239,16 +266,21 @@ export function saveSoon() {
   }, 250)
 }
 
-function travel(from: Frame[][], to: Frame[][]) {
+function travel(from: Snap[], to: Snap[]) {
   clearTimeout(saveTimer)
   commit() // fold any pending change in first
   const prev = from.pop()
   if (!prev || !state.board) return false
-  to.push(state.board.frames)
+  to.push(snap(state.board))
   committed = prev
-  settled = prev
-  const ids = new Set(prev.map((f) => f.id))
-  setState({ board: { ...state.board, frames: prev }, selected: state.selected.filter((id) => ids.has(id)) })
+  settled = prev.frames
+  const ids = new Set(prev.frames.map((f) => f.id))
+  const threads = new Set((prev.comments ?? []).map((c) => c.id))
+  setState({
+    board: { ...state.board, frames: prev.frames, comments: prev.comments },
+    selected: state.selected.filter((id) => ids.has(id)),
+    thread: state.thread && threads.has(state.thread) ? state.thread : null,
+  })
   persist()
   return true
 }
@@ -291,9 +323,16 @@ export function updateFrame(id: string, patch: Partial<Frame>, save = true) {
  * Folds into a pending edit when there is one.
  */
 export function fitFrame(id: string, patch: Partial<Frame>) {
-  const clean = saveTimer === undefined && state.board?.frames === committed
+  const clean = saveTimer === undefined && !!state.board && isCommitted(state.board)
   updateFrame(id, patch)
-  if (clean && state.board) committed = state.board.frames
+  if (clean && state.board) committed = snap(state.board)
+}
+
+/** Comments change like frames do: saved, and one undo step per save. */
+export function mutateComments(fn: (comments: BoardComment[]) => BoardComment[]) {
+  if (!state.board) return
+  setState({ board: { ...state.board, comments: fn(state.board.comments ?? []) } })
+  saveSoon()
 }
 
 // id → frame, rebuilt only when the frames array changes (blocks look each other up on every store change).
@@ -465,6 +504,18 @@ export function toggleSidebar(open = !state.sidebar) {
     // storage unavailable
   }
 }
+
+/** ⇧C: open pins on or off outside comment mode, remembered per canvas. */
+export function togglePins(on = !state.pins) {
+  if (on !== state.pins) cue(on ? 'toggle-on' : 'toggle-off')
+  setState({ pins: on })
+  try {
+    localStorage.setItem(`mb:pins:${state.boardName}`, on ? '1' : '0')
+  } catch {
+    // storage unavailable
+  }
+}
+export const storedPins = (board: string) => storedFlag(`mb:pins:${board}`)
 
 export function toggleLoop(on = !state.loop) {
   if (on !== state.loop) cue(on ? 'toggle-on' : 'toggle-off')

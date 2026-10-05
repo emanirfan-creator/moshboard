@@ -50,7 +50,7 @@ export function SelectionBody() {
             <h3>Directions</h3>
             <div className="insp-buttons">
               <button className="btn btn-primary" onClick={startCompare}>
-                Compare side by side <kbd>C</kbd>
+                Compare side by side <kbd>X</kbd>
               </button>
             </div>
           </section>

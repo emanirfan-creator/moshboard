@@ -29,7 +29,7 @@ export interface Frame {
   /** text: font size in px; font swatch: sample size */
   size?: number
   /** palette: ordered colors (locked ones survive regeneration) */
-  colors?: { hex: string; locked?: boolean }[]
+  colors?: { hex: string; locked?: boolean; share?: number }[]
   /** swatch */
   color?: string
   /** font swatch: the family shown; text: a family picked for it (else the app font) */
@@ -119,6 +119,33 @@ export interface RuntimeTune {
 export interface Board {
   name: string
   frames: Frame[]
+  /** comments left on the board for yourself (src/comments/) */
+  comments?: BoardComment[]
+}
+
+/**
+ * A pin with a thread. On a block, `x`/`y` are where on it (0–1 across its width and height,
+ * so the pin stays put when the block moves or a layout resizes it); on the canvas they're
+ * world coordinates. Comments on a deleted block stay in the file and show again on undo.
+ */
+export interface BoardComment {
+  id: string
+  /** shown on its pin; comments count 1, 2, 3… and are renumbered when one is deleted */
+  n: number
+  /** the block it's on */
+  on?: string
+  x: number
+  y: number
+  messages: CommentMessage[]
+  resolved?: boolean
+}
+
+export interface CommentMessage {
+  id: string
+  text: string
+  /** ISO time it was written */
+  at: string
+  edited?: boolean
 }
 
 export interface Burst {

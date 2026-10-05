@@ -34,6 +34,7 @@ import {
   startJob,
   startPending,
   storedCamera,
+  storedPins,
   toast,
   updateFrame,
   viewLeft,
@@ -83,12 +84,14 @@ async function readBoard(name: string): Promise<void> {
   setState((s) => ({
     boardName: name,
     board,
+    pins: sameBoardReload ? s.pins : storedPins(name),
+    ...(sameBoardReload ? {} : { commenting: false, thread: null, draft: null, commentView: 'open' as const, commentTray: false }),
     selected: s.boardName === name ? s.selected.filter((id) => board.frames.some((f) => f.id === id)) : [],
     interact: s.boardName === name ? s.interact : null,
     files: s.boardName === name ? s.files : {},
     overrides: s.boardName === name ? s.overrides : {},
   }))
-  resetHistory(board.frames, getState().boardName === name && sameBoardReload)
+  resetHistory(board, getState().boardName === name && sameBoardReload)
   // Undo history starts fresh here, so files no block uses can't come back: they go to the canvas's trash.
   if (!sameBoardReload) api.sweep(name).catch(() => {})
   if (location.hash !== `#${name}`) history.replaceState(null, '', `#${name}`)

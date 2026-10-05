@@ -21,7 +21,7 @@ import {
 } from './actions'
 import { Canvas } from './canvas/Canvas'
 import { CommandPalette } from './palette/CommandPalette'
-import { frameById, getState, redo, setState, SIDEBAR_W, sidebarShown, toast, toggleSidebar, undo, useStore } from './store'
+import { frameById, getState, redo, setState, SIDEBAR_W, sidebarShown, toast, togglePins, toggleSidebar, undo, useStore } from './store'
 import { arrangeAgain, canCrop, moveTile, startCrop } from './arrange'
 import { jumpAlongLinks, jumpBack } from './canvas/follow'
 import { Inspector } from './tuning/Inspector'
@@ -36,6 +36,7 @@ import { Onboarding } from './folder/Onboarding'
 import { Loader } from './ui/Loader'
 import { CompareBar } from './ui/CompareBar'
 import { exitCompare, startCompare } from './canvas/compare'
+import { setCommenting, stepComment } from './comments/comments'
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
@@ -68,7 +69,9 @@ function useHotkeys() {
         e.preventDefault()
         if (!s.space) setState({ space: true })
       } else if (e.key === 'Escape') {
-        if (s.crop) setState({ crop: null })
+        if (s.thread || s.draft) setState({ thread: null, draft: null })
+        else if (s.commenting) setCommenting(false)
+        else if (s.crop) setState({ crop: null })
         else if (s.interact) setState({ interact: null })
         else if (s.selected.length) setState({ selected: [] })
         else exitCompare()
@@ -98,7 +101,10 @@ function useHotkeys() {
         e.preventDefault()
         jumpBack()
       } else if (e.code === 'KeyL') jumpAlongLinks()
-      else if (e.key.startsWith('Arrow') && !s.crop) {
+      else if (e.key === 'Tab' && s.commenting) {
+        e.preventDefault()
+        stepComment(e.shiftKey ? -1 : 1)
+      } else if (e.key.startsWith('Arrow') && !s.crop) {
         // A block in a layout trades places with its neighbor.
         const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft']
         if (dir && moveTile(dir)) e.preventDefault()
@@ -109,15 +115,21 @@ function useHotkeys() {
       else if (e.key === 'r') replay()
       else if (e.key === 'i') markSegment('in')
       else if (e.key === 'o') markSegment('out')
-      else if (e.key === 'v') setState({ interact: null, hand: false })
-      else if (e.key === 'h') setState({ hand: !s.hand })
+      else if (e.key === 'v') {
+        setCommenting(false)
+        setState({ interact: null, hand: false })
+      } else if (e.key === 'h') {
+        setCommenting(false)
+        setState({ hand: !s.hand })
+      }
       else if (e.key === 'a') setState({ add: 'media' })
       else if (e.key === 'n') {
         // Without this the key also lands in the new note's focused editor.
         e.preventDefault()
         addNote()
       }
-      else if (e.key === 'c') (s.compare ? exitCompare() : startCompare())
+      else if (e.code === 'KeyC') (e.shiftKey ? togglePins() : setCommenting())
+      else if (e.key === 'x') (s.compare ? exitCompare() : startCompare())
       else if (e.key === 's') {
         e.preventDefault()
         addSection()

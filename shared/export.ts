@@ -2,7 +2,7 @@
 // logic: it reads the board's files through `ExportFiles` and returns what to write. The local
 // server writes it to disk (server/export.ts); the website writes it into the user's folder
 // (src/folder/export.ts).
-import { contrast, inkFor, nameColor } from './color.ts'
+import { contrast, inkFor, nameColor, paletteShares } from './color.ts'
 import { describeValue, detectMotion } from './detect-motion.ts'
 import { NAMED_EASES } from './ease.ts'
 import { fontStack, styleName, SWATCH_SIZE } from './fonts.ts'
@@ -456,10 +456,11 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     const vw = Math.max(...rows.map(([, v]) => v.length))
     return rows.map(([k, v, note]) => `${(k + sep).padEnd(kw)}  ${note ? `${v.padEnd(vw)}   ${note}` : v}`)
   }
-  const colorRow = (n: string, locked?: boolean): [string, string, string] => {
+  const colorRow = (n: string, locked?: boolean, share?: number): [string, string, string] => {
     const hex = colors.get(n)!.value
     const ink = inkFor(hex)
-    return [n, hex.toUpperCase(), `text: ${ink === '#ffffff' ? 'white' : 'dark'} ${contrast(hex, ink).toFixed(1)}:1${locked ? '   locked' : ''}`]
+    const amount = share !== undefined ? `${Math.round(share * 100)}% of the palette   ` : ''
+    return [n, hex.toUpperCase(), `${amount}text: ${ink === '#ffffff' ? 'white' : 'dark'} ${contrast(hex, ink).toFixed(1)}:1${locked ? '   locked' : ''}`]
   }
   const groupNames = new Map<string, number>()
   const group = (label: string) => {
@@ -469,7 +470,11 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   }
   const swatchColors = [...colors.values()].filter((t) => swatches.some((s) => name(s) === t.uses[0]))
   const colorLines = [
-    ...palettes.flatMap((p) => [`# ${group(name(p))}`, ...block(p.colors!.map((c, i) => colorRow(paletteTokens.get(p)![i], c.locked)))]),
+    ...palettes.flatMap((p) => {
+      // Shares set in the palette's panel: how much of the design each color takes.
+      const shares = paletteShares(p.colors!)
+      return [`# ${group(name(p))}`, ...block(p.colors!.map((c, i) => colorRow(paletteTokens.get(p)![i], c.locked, shares?.[i])))]
+    }),
     ...(swatchColors.length ? ['# Swatches', ...block(swatchColors.map((t) => colorRow(t.name)))] : []),
   ]
   const typeLines = fonts.length ? block([...fontTokens].map(([k, v]) => [k, v])) : []
