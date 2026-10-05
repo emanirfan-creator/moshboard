@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
 import { defaults, humanize, paramUse, parseParams, roundFor, shareParts, type Bezier, type Param, type Spring } from '../../shared/params.ts'
-import type { Frame } from '../../shared/types.ts'
+import type { Frame, MotionKind, Move, VideoAnalysis } from '../../shared/types.ts'
 import {
   analyzeSelected,
   copyRecreate,
@@ -31,7 +31,7 @@ import {
   useStore,
   viewLeft,
 } from '../store'
-import { CloseIcon } from '../ui/icons'
+import { CaretIcon, ChevronIcon, CloseIcon } from '../ui/icons'
 import { FontPicker } from '../ui/FontPicker'
 import {
   FONT_LAYOUTS,
@@ -46,6 +46,7 @@ import {
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { Fold } from './Fold'
+import { friendlyGroup, words } from './friendly'
 import { SelectionBody } from './SelectionInspector'
 import { SectionBody, TileBody } from './ArrangeInspector'
 import { LinksBody } from './LinksInspector'
@@ -59,6 +60,7 @@ import { useDetection } from './detection'
 import { PropsSections, useComponentProps } from './PropsInspector'
 import { runtimeGroups } from '../../shared/runtime-motion.ts'
 import { Segmented } from '../ui/Segmented'
+import { feelOf, mainMove } from '../../shared/read-motion.ts'
 import { scanChirp } from '../ui/sound'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
 
@@ -184,13 +186,13 @@ function Section({
 }) {
   return (
     <Fold
-      title={title}
+      // The file and line are for whoever opens the code: a tooltip, not a label.
+      title={where ? <span title={where}>{title}</span> : title}
       // A detected animation by its place in the code: several can share a title.
       id={where ?? (typeof title === 'string' ? title : undefined)}
       reveal={reveal}
       scan={index !== undefined}
       style={index !== undefined ? ({ '--i': index } as React.CSSProperties) : undefined}
-      after={where && <span className="insp-where">{where}</span>}
       sub={
         note && (
           <span className="insp-src" title={note}>
@@ -207,6 +209,8 @@ function Section({
 /** One detected animation: its timing on a timeline, then easing / spring / other values. */
 function DetectedSection({
   group,
+  name,
+  place,
   index,
   values,
   mod,
@@ -216,6 +220,8 @@ function DetectedSection({
   labels,
   reference,
 }: {
+  name: string
+  place: string
   group: DetectedGroup
   index: number
   values: Record<string, unknown>
@@ -233,7 +239,7 @@ function DetectedSection({
   const onTimeline = new Set([duration, delay, stagger].filter(Boolean))
   const rest = group.params.filter((p) => !onTimeline.has(p))
   return (
-    <Section title={group.title} note={group.context} where={group.line ? `${group.file}:${group.line}` : group.file} index={index}>
+    <Section title={name} note={place || undefined} where={group.line ? `${group.file}:${group.line}` : group.file} index={index}>
       {duration && (
         <Timeline
           width={INNER_W}
@@ -403,7 +409,7 @@ function CodeBody({ frame }: { frame: Frame }) {
           </Section>
         ))}
         {[...numberGroups].map(([element, list]) => (
-          <Section key={element || 'values'} title={element ? humanize(element) : 'Values'}>
+          <Section key={element || 'values'} title={element ? words(element) : 'Values'}>
             <div className="insp-stack">
               {list.map((p) => {
                 const parts = shareParts(p)
@@ -439,10 +445,12 @@ function CodeBody({ frame }: { frame: Frame }) {
             </div>
           </Section>
         )}
-        {[...detection.groups, ...running].map((g, i) => (
+        {nameGroups([...detection.groups, ...running]).map(({ g, name, place }, i) => (
           <DetectedSection
             key={g.id}
             group={g}
+            name={name}
+            place={place}
             index={i}
             values={values}
             mod={mod}
@@ -560,20 +568,26 @@ function VideoBody({ frame }: { frame: Frame }) {
   return (
     <>
       <div className="insp-scroll">
-        <Section title="Motion segment">
+        <Section title="Motion" reveal={measuring ?? raw}>
+          <Measured frame={frame} analysis={analysis} />
+        </Section>
+        <Section title="Segment">
           <div className="ctl">
             <div className="ctl-head">
               <span className="ctl-val">{t2(time)}</span>
               <span className="ctl-name">{t2(duration)}</span>
             </div>
             <div className="timeline" onPointerDown={seek} style={{ cursor: 'pointer', width: W }}>
-              {analysis?.bursts.map((b, i) => (
+              {(analysis?.read?.moves ?? analysis?.bursts)?.map((b, i) => (
                 <div
                   key={i}
                   className="tl-burst"
                   style={{ left: x(b.startMs / 1000), width: x(b.durationMs / 1000) }}
                   title={`motion ${b.startMs}–${b.endMs}ms`}
                 />
+              ))}
+              {analysis?.read?.cuts.map((ms) => (
+                <div key={ms} className="tl-cut" style={{ left: x(ms / 1000) }} title={`cut at ${t2(ms / 1000)}`} />
               ))}
               {seg && (
                 <>
@@ -602,40 +616,12 @@ function VideoBody({ frame }: { frame: Frame }) {
             </button>
           </div>
         </Section>
-        <Section title="Measured" reveal={measuring ?? raw}>
-          {analysis?.primary ? (
-            <dl className="insp-facts">
-              <div>
-                <dt>Starts at</dt>
-                <dd>{analysis.primary.startMs}ms</dd>
-              </div>
-              <div>
-                <dt>Duration</dt>
-                <dd>≈ {analysis.primary.durationMs}ms</dd>
-              </div>
-              <div>
-                <dt>Curve</dt>
-                <dd>{analysis.primary.ease.nearest}</dd>
-              </div>
-              <div>
-                <dt>Bezier</dt>
-                <dd className="mono">{analysis.primary.ease.bezier.join(', ')}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="ctl-help">
-              {analysis ? 'No clear motion in this segment.' : 'Analyze to measure timing and easing.'}
-            </p>
-          )}
-        </Section>
       </div>
       <footer className="insp-foot">
+        {/* The next step sits on the right, like Save, Apply and Export in the other panels. */}
+        <span className="grow" />
         <button className="btn" onClick={copyRecreate} title="Paste in Claude Code">
           Copy /recreate
-        </button>
-        <span className="grow" />
-        <button className="btn btn-primary" onClick={analyzeSelected}>
-          Analyze motion
         </button>
       </footer>
     </>
@@ -824,4 +810,176 @@ function ShareCtl({
       onRename={onRename}
     />
   )
+}
+
+const KINDS: { id: MotionKind; label: string; about: string }[] = [
+  { id: 'interface', label: 'Interface', about: 'An app or website recording' },
+  { id: 'graphic', label: 'Motion graphic', about: 'A brand post, carousel or animated type' },
+  { id: 'footage', label: 'Footage', about: 'Film or live action' },
+]
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`
+/** "a full width" when it's about one frame across, else the share. */
+const howFar = (d = 0) => (Math.abs(d - 1) < 0.08 ? 'a full width' : `${Math.round(d * 100)}%`)
+/**
+ * The video's motion, for anyone: one button to analyze, then a sentence saying what moves and
+ * how ("A new slide every 2.4s…"), what kind of video it reads as (a chip you can change), and
+ * the exact numbers under Details. Reading just part of the video is a quiet option.
+ */
+function Measured({ frame, analysis }: { frame: Frame; analysis: VideoAnalysis | null }) {
+  const picking = useStore((s) => s.regionPick === frame.id)
+  const busy = useStore((s) => !!s.jobs[frame.id])
+  const r = analysis?.read
+  const kind = frame.motionKind ?? r?.kind
+  const staleArea = !!analysis && JSON.stringify(analysis.region ?? null) !== JSON.stringify(frame.region ?? null)
+  const pick = () => setState({ regionPick: picking ? null : frame.id, selected: [frame.id] })
+  const area = picking ? (
+    <>
+      Drag over the part to read on the video ·{' '}
+      <button className="link" onClick={pick}>
+        Cancel
+      </button>
+    </>
+  ) : frame.region ? (
+    <>
+      Reading the picked part ·{' '}
+      <button className="link" onClick={() => updateFrame(frame.id, { region: undefined })}>
+        Whole video
+      </button>
+    </>
+  ) : (
+    <button className="link" onClick={pick}>
+      Read just part of the video
+    </button>
+  )
+  const analyze = (
+    <div className="insp-buttons">
+      <button className="btn" onClick={analyzeSelected} disabled={busy}>
+        {busy ? 'Watching the video…' : 'Analyze motion'}
+      </button>
+    </div>
+  )
+
+  if (!analysis || !r || !kind) {
+    return (
+      <>
+        <p className="ctl-help">
+          {analysis ? 'Analyze again to read this video the new way.' : 'Find how things move in this video: timing, rhythm and pace.'}
+        </p>
+        {analyze}
+        <p className="ctl-help measure-links">{area}</p>
+      </>
+    )
+  }
+
+  const main = mainMove(r)
+  const where = (m: Move) => (m.dir ? `${DIR_WORD[m.dir]}, ${howFar(m.distance)}` : m.type === 'fade' ? 'fades' : 'changes in place')
+  const curve = (m: Move) => (m.spring ? `stiffness ${m.spring.stiffness} · damping ${m.spring.damping}` : m.ease.bezier.join(', '))
+  // Plain names for the measured values, per kind (the export has the same numbers).
+  const rows: [string, string, boolean?][] =
+    kind === 'footage'
+      ? [
+          // One continuous shot: nothing to time between cuts.
+          ...(r.cuts.length && r.pacing
+            ? ([['Shots', `${r.pacing.shots}`], ['New shot every', secs(r.pacing.shotMs)]] as [string, string][])
+            : ([['Shots', '1, no cuts']] as [string, string][])),
+          ['Pace', r.pacing?.feel ?? 'steady'],
+          ...(r.pacing?.camera.length ? ([['Camera', r.pacing.camera.map((c) => c.kind).join(', ')]] as [string, string][]) : []),
+        ]
+      : kind === 'graphic' && r.rhythm
+        ? [
+            ['Changes', `${r.rhythm.beats}`],
+            ['Each change takes', secs(r.rhythm.moveMs)],
+            ['Stays for', secs(r.rhythm.holdMs)],
+            ['New one every', secs(r.rhythm.everyMs)],
+            ...(main ? ([['Moves', where(main)], ['Feel', feelOf(main)], ['Curve', curve(main), true]] as [string, string, boolean][]) : []),
+          ]
+        : main
+          ? [
+              ['Starts at', secs(main.startMs)],
+              ['Takes', secs(main.durationMs)],
+              ['Moves', where(main)],
+              ['Feel', feelOf(main)],
+              ...(r.moves.length > 1 ? ([['Other moves', r.moves.filter((m) => m !== main).map((m) => secs(m.durationMs)).join(', ')]] as [string, string][]) : []),
+              ['Curve', curve(main), true],
+            ]
+          : []
+
+  return (
+    <>
+      <KindChip value={kind} guessed={r.kind} set={!!frame.motionKind} onChange={(k) => updateFrame(frame.id, { motionKind: k === r.kind ? undefined : k })} />
+      {rows.length ? <Facts rows={rows} /> : <p className="ctl-help">No clear motion in this part of the video.</p>}
+      {staleArea && <p className="ctl-help">Analyze again to read {frame.region ? 'just the picked part' : 'the whole video'}.</p>}
+      <p className="ctl-help measure-links">
+        <button className="link" onClick={analyzeSelected} disabled={busy}>
+          {busy ? 'Watching…' : 'Analyze again'}
+        </button>
+        <span className="grow" />
+        {area}
+      </p>
+    </>
+  )
+}
+
+const DIR_WORD: Record<NonNullable<Move['dir']>, string> = { '←': 'left', '→': 'right', '↑': 'up', '↓': 'down' }
+
+/** What kind of video it reads as: a chip that opens the three kinds, each said in everyday words. */
+function KindChip({ value, guessed, set, onChange }: { value: MotionKind; guessed: MotionKind; set: boolean; onChange: (k: MotionKind) => void }) {
+  const [open, setOpen] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => !root.current?.contains(e.target as Node) && setOpen(false)
+    window.addEventListener('pointerdown', away, true)
+    return () => window.removeEventListener('pointerdown', away, true)
+  }, [open])
+  const k = KINDS.find((x) => x.id === value)!
+  return (
+    <div className="kind-chip" ref={root}>
+      <button className="kind-chip-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="What kind of video this is">
+        {k.label}
+        <CaretIcon />
+      </button>
+      {set && <span className="kind-chip-note">set by you</span>}
+      {open && (
+        <div className="kind-menu" role="menu">
+          {KINDS.map((x) => (
+            <button key={x.id} role="menuitemradio" aria-checked={x.id === value} onClick={() => (onChange(x.id), setOpen(false))}>
+              <span>
+                {x.label}
+                {x.id === guessed && <small> · its guess</small>}
+              </span>
+              <small>{x.about}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Facts({ rows }: { rows: [string, string, boolean?][] }) {
+  return (
+    <dl className="insp-facts">
+      {rows.map(([k, v, mono]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd className={mono ? 'mono' : undefined}>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/** Each detected animation with its name in words; repeats get a number ("Title fades in 2"). */
+function nameGroups<G extends { id: string; title: string; what?: string; context: string }>(groups: G[]) {
+  const seen = new Map<string, number>()
+  const total = new Map<string, number>()
+  const all = groups.map((g) => ({ g, ...friendlyGroup(g) }))
+  for (const x of all) total.set(x.name, (total.get(x.name) ?? 0) + 1)
+  return all.map((x) => {
+    if ((total.get(x.name) ?? 0) < 2) return x
+    const n = (seen.get(x.name) ?? 0) + 1
+    seen.set(x.name, n)
+    return { ...x, name: `${x.name} ${n}` }
+  })
 }

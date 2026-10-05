@@ -62,6 +62,8 @@ export interface DetectedGroup {
   id: string
   /** what it is, in plain words: "Scale spring", "Hover transition", "GSAP tween" */
   title: string
+  /** what it animates, in words anyone reads: "Title fades in", "Card slides" (when the code says) */
+  what?: string
   /** where it lives: "GithubGraph · <motion.div>" */
   context: string
   /** title · context, for export */
@@ -200,6 +202,8 @@ interface Raw {
 }
 interface RawGroup {
   title: string
+  /** what it animates, in words: "Title fades in" (when the code says) */
+  what?: string
   context: string
   file: string
   at: number
@@ -560,6 +564,7 @@ function scanJs(src: string, base: number, file: string, fallbackComponent: stri
     const out: RawGroup[] = []
     const values: Raw[] = []
     let title = ''
+    let what = ''
     let context = component
 
     // CSS-in-JS: `style={{ transition: "transform 240ms ease" }}`
@@ -602,6 +607,12 @@ function scanJs(src: string, base: number, file: string, fallbackComponent: stri
     } else if (isGsap) {
       title = callee ? 'GSAP tween' : 'GSAP timeline defaults'
       context = join(component, callee && `${callee}()`)
+      // The tween's target (its first argument) and what it changes, in words.
+      if (callee && e.argOf) {
+        const first = tokens[e.argOf.open + 1]
+        const target = first && (first.type === tt.name || first.type === tt.string) ? text(first).replace(/^['"`.#]+|['"`]$/g, '') : ''
+        what = tweenWords(target, e.props)
+      }
       time('duration', 'duration', 's')
       time('delay', 'delay', 's')
       const ease = lit('ease')
@@ -661,7 +672,7 @@ function scanJs(src: string, base: number, file: string, fallbackComponent: stri
         title = `${callee}() ${kind}`
       } else title = cap(kind)
     }
-    if (values.length) out.push({ title: title || 'Motion', context, file, at, live: e.live, values })
+    if (values.length) out.push({ title: title || 'Motion', ...(what ? { what } : {}), context, file, at, live: e.live, values })
     return out
   }
 
@@ -809,7 +820,7 @@ export function detectMotion(
         })
       }
       params.push(...gp)
-      groups.push({ id, title: g.title, context: g.context, label, file: where, line, params: gp })
+      groups.push({ id, title: g.title, ...(g.what ? { what: g.what } : {}), context: g.context, label, file: where, line, params: gp })
     }
   }
   const out = { params, groups }
@@ -934,4 +945,37 @@ export function describeValue(p: DetectedParam, v: ParamValue = p.value): string
     return `stiffness=${round(s.stiffness, 1)} damping=${round(s.damping, 1)}${s.mass !== undefined ? ` mass=${round(s.mass, 2)}` : ''}`
   }
   return p.unit === 'ms' ? `${round(v as number, 1)}ms` : String(round(v as number))
+}
+
+/** "Title fades in", "Card slides and fades", "Focus state: lens fx": a GSAP tween's target and what it changes. */
+function tweenWords(target: string, props: Prop[]) {
+  const name = target ? spaced(target) : ''
+  const val = (k: string) => props.find((p) => p.key === k)?.lit
+  const has = (...ks: string[]) => ks.some((k) => props.some((p) => p.key === k))
+  const acts: string[] = []
+  if (has('autoAlpha', 'opacity')) {
+    const v = val('autoAlpha') ?? val('opacity')
+    acts.push(v?.kind === 'num' ? (v.num! >= 0.5 ? 'fades in' : 'fades out') : 'fades')
+  }
+  if (has('x', 'xPercent', 'left', 'right')) acts.push('slides')
+  if (has('y', 'yPercent', 'top', 'bottom')) acts.push('moves')
+  if (has('scale', 'scaleX', 'scaleY')) acts.push('scales')
+  if (has('rotation', 'rotate', 'rotationX', 'rotationY')) acts.push('turns')
+  if (has('width', 'height')) acts.push('resizes')
+  if (has('filter', 'blur')) acts.push('blurs')
+  if (has('color', 'backgroundColor', 'background')) acts.push('changes color')
+  const SKIP = /^(duration|delay|ease|stagger|repeat|yoyo|overwrite|immediateRender|paused|on[A-Z]\w*|v)$/
+  const other = props.map((p) => p.key).filter((k) => !SKIP.test(k) && !/^(autoAlpha|opacity|x|xPercent|y|yPercent|left|right|top|bottom|scale|scaleX|scaleY|rotation|rotate|rotationX|rotationY|width|height|filter|blur|color|backgroundColor|background)$/.test(k))
+  if (acts.length) {
+    const said = acts.length > 1 ? `${acts.slice(0, -1).join(', ')} and ${acts[acts.length - 1]}` : acts[0]
+    return name ? `${name} ${said}` : cap(said)
+  }
+  if (other.length) return name ? `${name}: ${other.map((k) => spaced(k).toLowerCase()).join(', ')}` : cap(other.map((k) => spaced(k).toLowerCase()).join(', '))
+  return name ? `${name} animates` : ''
+}
+
+/** "scaleProxy" → "Scale proxy", "cursor-element" → "Cursor element". */
+function spaced(s: string) {
+  const w = s.replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z0-9])/g, '$1 $2').trim().toLowerCase()
+  return w ? w[0].toUpperCase() + w.slice(1) : w
 }

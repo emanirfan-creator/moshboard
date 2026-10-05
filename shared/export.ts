@@ -17,7 +17,7 @@ import {
   type Param,
   type Spring,
 } from './params.ts'
-import type { Board, Frame, MotionCapture, VideoAnalysis } from './types.ts'
+import type { Board, Frame, MotionCapture, MotionKind, Move, VideoAnalysis } from './types.ts'
 import { isSection, sectionOf, withContents } from './sections.ts'
 import { normalizeLinks, refsOf } from './frame-links.ts'
 
@@ -561,6 +561,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
           '',
         ]
       : []),
+    ...pacingSection(board.frames, readJson, name),
     ...(codeFrames.length
       ? ['## Interactions', '', 'Recreated as code. Timing and easing are in [`motion.md`](motion.md); how each was measured is in [`interactions.md`](interactions.md).', '', ...codeFrames.map((f) => `- ${name(f)}`), '']
       : []),
@@ -575,6 +576,42 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   }
 }
 
+/** What a video's analysis says, for its kind: values for an interface, rhythm for a motion graphic, pacing for footage. */
+function measuredLines(a: VideoAnalysis, set?: MotionKind): string[] {
+  const r = a.read
+  const kind = set ?? r?.kind
+  const area = a.region ? ' (in the picked area)' : ''
+  const curve = (m: Move) =>
+    m.spring ? `a spring (stiffness ${m.spring.stiffness}, damping ${m.spring.damping})` : `\`cubic-bezier(${m.ease.bezier.join(', ')})\` (closest named: ${m.ease.nearest})`
+  const move = (m: Move) =>
+    m.dir ? `${m.type === 'slide' ? 'slides' : 'moves'} ${m.dir} ${Math.abs((m.distance ?? 0) - 1) < 0.08 ? 'a full frame' : `${Math.round((m.distance ?? 0) * 100)}% of the frame`}` : m.type === 'fade' ? 'fades' : m.type === 'move' ? 'something moves' : 'changes'
+  if (!r || !kind) {
+    return a.primary
+      ? [`- **Measured from the video (estimate):** motion starts at ${a.primary.startMs}ms and lasts about ${a.primary.durationMs}ms; the curve fits \`cubic-bezier(${a.primary.ease.bezier.join(', ')})\` (closest named: ${a.primary.ease.nearest})`]
+      : []
+  }
+  const main = r.moves.reduce<Move | null>((x, m) => (!x || m.durationMs * m.area > x.durationMs * x.area ? m : x), null)
+  if (kind === 'footage' && r.pacing) {
+    const p = r.pacing
+    return [
+      `- **Read as footage${area}:** pacing, not UI timing. ${p.shots} shot${p.shots > 1 ? 's' : ''}, a cut every ${(p.shotMs / 1000).toFixed(1)}s on average; feels ${p.feel}.`,
+      ...(p.camera.length ? [`- **Camera:** ${p.camera.map((c) => `${c.kind} (${(c.startMs / 1000).toFixed(1)}–${(c.endMs / 1000).toFixed(1)}s)`).join(', ')}`] : []),
+    ]
+  }
+  if (kind === 'graphic' && r.rhythm) {
+    const h = r.rhythm
+    return [
+      `- **Read as a motion graphic${area}:** ${h.beats} changes; each move takes ${h.moveMs}ms${h.spreadMs > 20 ? ` (± ${h.spreadMs})` : ''}, holds ${(h.holdMs / 1000).toFixed(1)}s, and repeats every ${(h.everyMs / 1000).toFixed(1)}s.`,
+      ...(main ? [`- **The move:** ${move(main)}, on ${curve(main)}`] : []),
+    ]
+  }
+  if (!main) return []
+  return [
+    `- **Measured from the video (estimate)${area}:** the main move starts at ${main.startMs}ms and lasts about ${main.durationMs}ms; it ${move(main)}, on ${curve(main)}`,
+    ...(r.moves.length > 1 ? [`- **Other moves:** ${r.moves.filter((m) => m !== main).map((m) => `${m.durationMs}ms at ${m.startMs}ms`).join(', ')}`] : []),
+  ]
+}
+
 function describeReference(
   ref: Frame,
   label: string,
@@ -585,11 +622,10 @@ function describeReference(
   if (ref.type === 'video' && ref.src) {
     lines.push(`- **Reference:** video "${label}"${ref.segment ? `, ${ref.segment.in.toFixed(2)}s–${ref.segment.out.toFixed(2)}s` : ''}${ref.origin ? ` (from ${ref.origin})` : ''}`)
     const a = readJson<VideoAnalysis>(ref.analysis)
-    if (a?.primary) {
-      lines.push(
-        `- **Measured from the video (estimate):** motion starts at ${a.primary.startMs}ms and lasts about ${a.primary.durationMs}ms; the curve fits \`cubic-bezier(${a.primary.ease.bezier.join(', ')})\` (closest named: ${a.primary.ease.nearest})`,
-      )
-      const sheet = copyRef(a.contactSheet)
+    const measured = a ? measuredLines(a, ref.motionKind) : []
+    if (measured.length) {
+      lines.push(...measured)
+      const sheet = copyRef(a!.contactSheet)
       if (sheet) lines.push(`- **Keyframes:** [\`${sheet}\`](${sheet})`)
     }
   } else if (ref.type === 'url' && ref.src) {
@@ -702,4 +738,20 @@ function gsapPresets(presets: Preset[]) {
     ...body,
     '',
   ].join('\n')
+}
+
+/** design.md: videos read as footage or motion graphics give the board's pacing and rhythm (no UI tokens). */
+function pacingSection(frames: Frame[], readJson: <T>(rel?: string) => T | null, name: (f: Frame) => string): string[] {
+  const lines = frames.flatMap((f) => {
+    if (f.type !== 'video') return []
+    const a = readJson<VideoAnalysis>(f.analysis)
+    const kind = f.motionKind ?? a?.read?.kind
+    const r = a?.read
+    if (kind === 'footage' && r?.pacing)
+      return [`- **${name(f)}** (footage): a cut every ${(r.pacing.shotMs / 1000).toFixed(1)}s, ${r.pacing.feel}${r.pacing.camera.length ? `; ${r.pacing.camera.map((c) => c.kind).join(', ')}` : ''}`]
+    if (kind === 'graphic' && r?.rhythm)
+      return [`- **${name(f)}** (motion graphic): moves of ${r.rhythm.moveMs}ms, holds of ${(r.rhythm.holdMs / 1000).toFixed(1)}s, a beat every ${(r.rhythm.everyMs / 1000).toFixed(1)}s`]
+    return []
+  })
+  return lines.length ? ['## Pacing', '', 'From the videos: how fast things cut and change. Mood, not exact timing.', '', ...lines, ''] : []
 }

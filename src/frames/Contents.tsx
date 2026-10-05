@@ -1,10 +1,12 @@
-import { memo, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { refsOf } from '../../shared/frame-links.ts'
-import type { Frame } from '../../shared/types.ts'
+import type { Frame, Region } from '../../shared/types.ts'
 import { fontStack, GLYPHS, SPECIMEN, styleName, SWATCH_SIZE } from '../../shared/fonts.ts'
 import { assetUrl } from '../actions'
 import { loadFont } from '../fonts'
-import { fitFrame, getState, mutateFrames, sameFrameExcept, setState, updateFrame, useCamera, useStore } from '../store'
+import { fitFrame, getState, mutateFrames, sameFrameExcept, setState, toast, updateFrame, useCamera, useStore } from '../store'
+import { drag } from '../drag'
+import { cue } from '../ui/sound'
 import { CodeFrame } from './CodeFrame'
 import { PaletteFrame } from './PaletteFrame'
 import { UrlFrame } from './UrlFrame'
@@ -124,6 +126,8 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
   }, [frame.id, seg?.in, seg?.out, inView])
 
   return (
+    <>
+    <RegionPicker frame={frame} />
     <video
       ref={ref}
       className="content-media"
@@ -142,6 +146,7 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
         e.currentTarget.play().catch(() => {})
       }}
     />
+    </>
   )
 }
 
@@ -383,4 +388,77 @@ function fitTextarea(ta: HTMLTextAreaElement) {
   const h = ta.scrollHeight
   ta.style.height = `${h}px`
   return h
+}
+
+/**
+ * A video's analysis area. Shown as a box on the selected video; while picking (the panel's
+ * "Pick area"), drag across the picture to draw it. Stored as 0–1 of the video's own frame, so
+ * a picture cropped to fit its block still maps to the right pixels.
+ */
+function RegionPicker({ frame }: { frame: Frame }) {
+  const picking = useStore((s) => s.regionPick === frame.id)
+  const selected = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
+  const [draft, setDraft] = useState<Region | null>(null)
+  const box = useRef<HTMLDivElement>(null)
+  // The box is drawn from the overlay's measured size, so draw again once it's on screen.
+  const [, measured] = useState(0)
+  const on = picking || (selected && !!frame.region)
+  useLayoutEffect(() => void (on && measured((n) => n + 1)), [on, frame.region])
+  if (!on) return null
+
+  // The box ↔ the video's own frame, through object-fit: cover.
+  const map = () => {
+    const el = box.current!
+    const r = el.getBoundingClientRect()
+    const v = videos.get(frame.id)
+    const vw = v?.videoWidth || r.width
+    const vh = v?.videoHeight || r.height
+    const s = Math.max(r.width / vw, r.height / vh)
+    const dw = vw * s
+    const dh = vh * s
+    const ox = (r.width - dw) / 2
+    const oy = (r.height - dh) / 2
+    return {
+      toVideo: (cx: number, cy: number) => ({
+        x: Math.min(1, Math.max(0, (cx - r.left - ox) / dw)),
+        y: Math.min(1, Math.max(0, (cy - r.top - oy) / dh)),
+      }),
+      toBox: (g: Region) => ({
+        left: `${((ox + g.x * dw) / r.width) * 100}%`,
+        top: `${((oy + g.y * dh) / r.height) * 100}%`,
+        width: `${((g.w * dw) / r.width) * 100}%`,
+        height: `${((g.h * dh) / r.height) * 100}%`,
+      }),
+    }
+  }
+  const down = (e: React.PointerEvent) => {
+    if (!picking || e.button !== 0) return
+    e.stopPropagation()
+    const m = map()
+    const a = m.toVideo(e.clientX, e.clientY)
+    const rect = (b: { x: number; y: number }): Region => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) })
+    drag(
+      e,
+      (_dx, _dy, ev) => setDraft(rect(m.toVideo(ev.clientX, ev.clientY))),
+      (moved, ev) => {
+        setDraft(null)
+        if (!moved) return
+        const g = rect(m.toVideo(ev.clientX, ev.clientY))
+        if (g.w < 0.04 || g.h < 0.04) return toast('Drag a bigger box')
+        const round = (n: number) => Math.round(n * 1000) / 1000
+        updateFrame(frame.id, { region: { x: round(g.x), y: round(g.y), w: round(g.w), h: round(g.h) } })
+        setState({ regionPick: null })
+        cue('confirm')
+      },
+      2,
+    )
+  }
+  const shown = draft ?? frame.region
+  return (
+    <div ref={box} className="region-pick" data-picking={picking || undefined} onPointerDown={down}>
+      {/* Too small on screen to hold it: the panel says the same. */}
+      {picking && !draft && (box.current?.getBoundingClientRect().width ?? 0) >= 200 && <span className="region-hint">Drag over the part to read</span>}
+      {shown && box.current && <div className="region-box" style={map().toBox(shown)} />}
+    </div>
+  )
 }

@@ -1346,12 +1346,22 @@ export async function analyzeSelected() {
   if (!f || f.type !== 'video' || !f.src) return toast('Select a video to analyze', true)
   const done = startJob(f.id, 'Measuring motion')
   try {
-    const a = await api.analyze(getState().boardName, f.id, f.src, f.segment)
+    const a = await api.analyze(getState().boardName, f.id, f.src, f.segment, f.region)
     const rel = `assets/${f.id}.analysis.json`
     setState((s) => ({ files: { ...s.files, [rel]: JSON.stringify(a) } }))
     updateFrame(f.id, { analysis: rel })
-    toast(a.primary ? `Motion ≈ ${a.primary.durationMs}ms, ${a.primary.ease.nearest}` : 'No clear motion found in this segment')
-    cue(a.primary ? 'ready' : 'deny')
+    const kind = f.motionKind ?? a.read?.kind
+    const r = a.read
+    toast(
+      kind === 'footage' && r?.pacing
+        ? `Footage · a cut every ${(r.pacing.shotMs / 1000).toFixed(1)}s`
+        : kind === 'graphic' && r?.rhythm
+          ? `${r.rhythm.beats} beats · ${r.rhythm.moveMs}ms, every ${(r.rhythm.everyMs / 1000).toFixed(1)}s`
+          : a.primary
+            ? `Motion ≈ ${a.primary.durationMs}ms, ${a.primary.ease.nearest}`
+            : 'No clear motion found in this segment',
+    )
+    cue(a.primary || r?.pacing?.shots ? 'ready' : 'deny')
   } catch (e) {
     toast(`Analysis failed: ${(e as Error).message}`, true)
   } finally {

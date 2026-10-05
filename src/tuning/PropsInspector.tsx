@@ -1,3 +1,4 @@
+import { words } from './friendly'
 import { useMemo, useState } from 'react'
 import type { Param } from '../../shared/params.ts'
 import { colorFromCss, colorToCss, detectProps, PROP_PREFIX, sections, type PropDef } from '../../shared/props.ts'
@@ -71,7 +72,7 @@ export function PropsSections({ frame, props }: { frame: Frame; props: PropDef[]
         return (
           <PropSection
             key={g.title}
-            title={g.title}
+            title={words(g.title)}
             count={g.props.length}
             edited={edited.length}
             open={open}

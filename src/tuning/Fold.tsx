@@ -28,6 +28,7 @@ export function Fold({
   style,
   scan,
   reveal,
+  startOpen,
   children,
 }: {
   title: ReactNode
@@ -45,15 +46,17 @@ export function Fold({
   scan?: boolean
   /** opens it whenever this changes to something new (an analysis that just came back) */
   reveal?: unknown
+  /** starts open whatever was remembered (the thing you're most likely here to do) */
+  startOpen?: boolean
   children: ReactNode
 }) {
   const name = id ?? (typeof title === 'string' ? title : 'section')
   const stored = storedOpen(name)
-  const [open, setOpen] = useState(stored ?? false)
+  const [open, setOpen] = useState(startOpen || (stored ?? false))
   const ref = useRef<HTMLElement>(null)
   // Never toggled: open only if it's the first section in the panel (before paint, so no jump).
   useLayoutEffect(() => {
-    if (stored !== null) return
+    if (stored !== null || startOpen) return
     let prev = ref.current?.previousElementSibling
     while (prev && !prev.classList.contains('insp-section')) prev = prev.previousElementSibling
     if (!prev) setOpen(true)

@@ -15,7 +15,7 @@ In that browser version, "Analyze motion" and "Capture motion…" aren't availab
 
 ## 1. Read the reference
 
-- `board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis`, `label`, and any `note` frames linked to this id: a `links` entry with `"ref": "<id>"` (or, on older boards, `"link": "<id>"`). They hold the user's intent; follow them. Also read any open `comments` (top-level in `board.json`) with `"on": "<id>"`: the user's feedback on it, first message then replies.
+- `board.json`: find the frame by `id`. Note its `type`, `src`, `segment`, `analysis` (its `read` says what kind of video it is and every move; `motionKind` on the frame overrides the kind), `label`, and any `note` frames linked to this id: a `links` entry with `"ref": "<id>"` (or, on older boards, `"link": "<id>"`). They hold the user's intent; follow them. Also read any open `comments` (top-level in `board.json`) with `"on": "<id>"`: the user's feedback on it, first message then replies.
 - **video**: if `analysis` is missing, ask the user to select the video and press "Analyze motion" (or mark a segment with I/O first). Then read:
   - `assets/<id>.analysis.json`: `primary.startMs`, `primary.durationMs`, `primary.ease.bezier`, and `bursts` (several bursts usually mean stagger or a sequence).
   - `assets/<id>.sheet.png`: the keyframe contact sheet (6×4, left→right, top→bottom, evenly spaced across the segment). **Look at it.** It's how you see what moves, in what order, and how far.

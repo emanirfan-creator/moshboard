@@ -54,6 +54,10 @@ export interface Frame {
   link?: string
   /** video: the part of the clip that contains the motion */
   segment?: Segment
+  /** video: the area to analyze (0–1 of the frame), picked by drawing a box */
+  region?: Region
+  /** video: what it reads as, set by hand over the analysis's guess */
+  motionKind?: MotionKind
   /** video: analysis json; url: capture json (relative to board dir) */
   analysis?: string
   /** url: whether the site allows being framed (checked once); blocked sites show `snapshot` */
@@ -136,6 +140,8 @@ export interface BoardComment {
   on?: string
   x: number
   y: number
+  /** the border its key sits off, when picked by dragging (else the nearest one with room) */
+  side?: 'l' | 'r' | 't' | 'b'
   messages: CommentMessage[]
   resolved?: boolean
 }
@@ -164,6 +170,56 @@ export interface VideoAnalysis {
   }) | null
   energy: number[]
   contactSheet: string
+  /** what kind of video it reads as, and what was measured for that kind (older analyses lack it) */
+  read?: MotionReading
+  /** the part of the frame that was analyzed (0–1), when an area was picked */
+  region?: Region
+}
+
+/** Interface: a UI recording. Graphic: a brand post, carousel, animated type. Footage: film, live action. */
+export type MotionKind = 'interface' | 'graphic' | 'footage'
+
+export interface Region {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface Ease {
+  bezier: [number, number, number, number]
+  rmse: number
+  nearest: string
+}
+
+/** One burst of motion, read: how it moved, how long, on what curve. */
+export interface Move extends Burst {
+  /** slide: the content shifts; fade: brightness crossfades; move: something small moves; change: anything else */
+  type: 'slide' | 'fade' | 'move' | 'change'
+  dir?: '←' | '→' | '↑' | '↓'
+  /** how far a slide went, as a share of the frame's width (or height) */
+  distance?: number
+  /** how much of the frame changed (0–1) */
+  area: number
+  ease: Ease
+  /** it overshot and settled: a spring fits better than a curve */
+  spring?: { stiffness: number; damping: number }
+}
+
+export interface MotionReading {
+  kind: MotionKind
+  sure: 'sure' | 'likely' | 'unsure'
+  /** one line on why */
+  why: string
+  /** 0–1 each: still frames between moves, motion kept to one area, hard cuts, photographic look */
+  signals: { stills: number; local: number; cuts: number; photo: number }
+  moves: Move[]
+  /** when each hard cut happens (ms) */
+  cuts: number[]
+  /** repeated moves: how many, how long each holds, how long each move takes (± spread), start to start */
+  rhythm?: { beats: number; holdMs: number; moveMs: number; spreadMs: number; everyMs: number }
+  /** footage: shots, average shot length, camera moves, overall feel */
+  pacing?: { shots: number; shotMs: number; camera: { kind: string; startMs: number; endMs: number }[]; feel: 'calm' | 'steady' | 'energetic' }
 }
 
 export interface MotionCapture {

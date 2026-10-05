@@ -397,7 +397,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
   }
   if (kind === 'analyze' && method === 'POST') {
     const body = JSON.parse((await readBody(req)).toString() || '{}')
-    const result = await analyzeVideo(boardPath(board), String(body.src), String(rest[0]), body.segment)
+    const result = await analyzeVideo(boardPath(board), String(body.src), String(rest[0]), body.segment, body.region)
     json(res, result)
     return true
   }

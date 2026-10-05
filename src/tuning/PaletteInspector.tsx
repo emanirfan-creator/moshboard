@@ -9,7 +9,7 @@ import { useGlide } from '../ui/glide'
 import { cue, detent } from '../ui/sound'
 import { SplitCtl } from './controls'
 import { Fold } from './Fold'
-import { TrashIcon } from '../ui/icons'
+import { PlusIcon, TrashIcon } from '../ui/icons'
 
 const SLIDERS: { key: keyof Adjust; label: string; min: number; max: number; track: string }[] = [
   {
@@ -131,7 +131,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
             ))}
             <button className="pal-add" onClick={() => addColor(colors, set)}>
               <span className="pal-add-plus" aria-hidden>
-                +
+                <PlusIcon />
               </span>
               Add color
             </button>

@@ -100,6 +100,10 @@ export interface State {
   commentTray: boolean
   /** the comment last opened: the counter stays on it after its thread closes */
   commentCursor: string | null
+  /** video whose analysis area is being drawn on the canvas */
+  regionPick: string | null
+  /** a pin being dragged: where it is (canvas units) and what dropping it would do */
+  pinDrag: { id: string; at: { x: number; y: number }; target: PinTarget } | null
 }
 
 export interface Compare {
@@ -119,6 +123,12 @@ export interface Pending {
   h: number
   label: string
 }
+
+/** Where a dragged pin would go: onto a block, to another side of its own block, or onto the canvas. */
+export type PinTarget =
+  | { kind: 'block'; on: string; x: number; y: number }
+  | { kind: 'side'; side: 'l' | 'r' | 't' | 'b' }
+  | { kind: 'canvas'; x: number; y: number }
 
 export type ExportScope = 'selection' | 'chosen' | 'all'
 
@@ -184,6 +194,8 @@ let state: State = {
   commentView: 'open',
   commentTray: false,
   commentCursor: null,
+  regionPick: null,
+  pinDrag: null,
 }
 
 const subs = new Set<() => void>()

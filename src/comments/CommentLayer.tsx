@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as RKE } from 'react'
-import type { BoardComment } from '../../shared/types.ts'
-import { frameById, getState, setState, useCamera, useStore, viewLeft } from '../store'
+import type { BoardComment, Frame } from '../../shared/types.ts'
+import { frameById, getState, screenToWorld, setState, useCamera, useStore, viewLeft } from '../store'
+import { drag } from '../drag'
 import { CheckIcon, MoreIcon, ReopenIcon, SendIcon, TrashIcon } from '../ui/icons'
 import { drop, grab } from '../ui/sound'
-import { ago, deleteComment, deleteMessage, editMessage, openThread, pad, postDraft, reply, resolve, stemOf, stepComment } from './comments'
+import { ago, deleteComment, deleteMessage, editMessage, movePin, openThread, pad, pinTarget, postDraft, reply, resolve, stemOf, stepComment } from './comments'
 
 // Drawn in the canvas's world, at each pin's spot, scaled by --inv so pins and threads stay the
 // same size on screen at any zoom. Everything here carries .comment-ui, so comment mode's
@@ -46,6 +47,7 @@ export function CommentLayer() {
           </Stemmed>
         )
       })}
+      <PinDragPreview />
       {draftStem && (
         <Stemmed stem={draftStem} open>
           <span className="pin" data-on data-new>
@@ -100,19 +102,71 @@ function Stemmed({ stem, open, children }: { stem: NonNullable<ReturnType<typeof
   )
 }
 
+/**
+ * Drag a pin to move it: into a block to point there (tagging or re-tagging it), just past its
+ * own block's border to put the key on that side, or onto empty canvas to untag it. A short
+ * press is a click (opens the thread); Esc while dragging puts it back.
+ */
+function pressPin(e: React.PointerEvent, c: BoardComment, skipClick: { current: boolean }) {
+  if (e.button !== 0) return
+  grab()
+  const s0 = getState()
+  const wasOpen = s0.thread === c.id
+  let cancelled = false
+  const esc = (ev: KeyboardEvent) => {
+    if (ev.key !== 'Escape') return
+    ev.stopPropagation()
+    cancelled = true
+    setState({ pinDrag: null })
+  }
+  drag(
+    e,
+    (_dx, _dy, ev) => {
+      if (cancelled) return
+      const s = getState()
+      const at = screenToWorld(ev.clientX, ev.clientY)
+      const near = (STEM + KEY_HALF) / s.camera.z
+      if (!s.pinDrag) {
+        window.addEventListener('keydown', esc, true)
+        setState({ commenting: true, thread: null, draft: null })
+      }
+      setState({ pinDrag: { id: c.id, at, target: pinTarget(c, at, s.board?.frames ?? [], near) } })
+    },
+    (moved) => {
+      window.removeEventListener('keydown', esc, true)
+      if (!moved) return drop()
+      // The click a drag ends with (if any) comes right after this; don't let it open the thread.
+      skipClick.current = true
+      setTimeout(() => (skipClick.current = false), 0)
+      const d = getState().pinDrag
+      setState({ pinDrag: null })
+      if (cancelled || !d) return drop()
+      movePin(c.id, d.target)
+      if (wasOpen) setState({ thread: c.id })
+    },
+    4,
+  )
+}
+
 function Pin({ c, on }: { c: BoardComment; on: boolean }) {
   const first = c.messages[0]?.text ?? ''
+  const skipClick = useRef(false)
+  const dragging = useStore((s) => s.pinDrag?.id === c.id)
   return (
     <button
       className="pin"
       data-on={on || undefined}
       data-resolved={c.resolved || undefined}
+      data-dragging={dragging || undefined}
       data-comment={c.id}
       aria-label={`Comment ${c.n}: ${first}`}
-      title={on ? undefined : first}
-      onPointerDown={() => grab()}
-      onPointerUp={() => drop()}
-      onClick={() => (getState().thread === c.id ? setState({ thread: null }) : openThread(c.id, false))}
+      title={on || dragging ? undefined : first}
+      onPointerDown={(e) => pressPin(e, c, skipClick)}
+      onClick={() => {
+        if (skipClick.current) return void (skipClick.current = false)
+        if (getState().thread === c.id) setState({ thread: null })
+        else openThread(c.id, false)
+      }}
     >
       <span className="pin-key">
         {pad(c.n)}
@@ -372,4 +426,43 @@ async function flyToTray(id: string) {
     duration: 260,
     easing: 'cubic-bezier(0.3, 1.6, 0.5, 1)',
   })
+}
+
+/** While a pin is dragged: its key under the cursor, the block it would land on, and what the drop does. */
+function PinDragPreview() {
+  const d = useStore((s) => s.pinDrag)
+  const c = useStore((s) => (s.pinDrag ? s.board?.comments?.find((x) => x.id === s.pinDrag!.id) : undefined))
+  const target = useStore((s) => {
+    const t = s.pinDrag?.target
+    const id = t?.kind === 'block' ? t.on : t?.kind === 'side' ? c?.on : undefined
+    return id ? frameById(id) : undefined
+  })
+  if (!d || !c) return null
+  const t = d.target
+  const name = (f?: Frame) => (f ? f.label || f.type[0].toUpperCase() + f.type.slice(1) : '')
+  const label =
+    t.kind === 'canvas'
+      ? 'On canvas'
+      : t.kind === 'side'
+        ? `${{ l: 'Left', r: 'Right', t: 'Top', b: 'Bottom' }[t.side]} side`
+        : t.on === c.on
+          ? 'Move here'
+          : `Pin to ${name(target)}`
+  return (
+    <>
+      {target && (
+        <div
+          className="pin-drop-target"
+          data-side={t.kind === 'side' ? t.side : undefined}
+          style={{ left: target.x, top: target.y, width: target.w, height: target.h }}
+        />
+      )}
+      <div className="comment-ui comment-anchor pin-ghost" style={{ left: d.at.x, top: d.at.y }}>
+        <span className="pin" data-on>
+          <span className="pin-key">{pad(c.n)}</span>
+        </span>
+        <span className="pin-drop-label">{label}</span>
+      </div>
+    </>
+  )
 }

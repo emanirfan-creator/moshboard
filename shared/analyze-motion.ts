@@ -3,6 +3,7 @@
 // (frames from ffmpeg, server/analyze-video.ts) and the website (frames drawn from a <video>,
 // src/folder/analyze.ts) share it. It's an estimate to start tuning from, not truth.
 import { fitBezier } from './ease.ts'
+import { readMotion } from './read-motion.ts'
 import type { Burst, Segment, VideoAnalysis } from './types.ts'
 
 /**
@@ -125,5 +126,5 @@ export function analyzeFrames(raw: Uint8Array, w: number, h: number, seg: Segmen
     }
   }
 
-  return { bursts, primary, energy: smooth.map((n) => Math.round(n * 100) / 100) }
+  return { bursts, primary, energy: smooth.map((n) => Math.round(n * 100) / 100), read: readMotion(raw, w, h, seg, fps, diff) }
 }

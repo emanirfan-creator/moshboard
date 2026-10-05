@@ -5,7 +5,7 @@
 import type { BoardComment, Frame } from '../../shared/types.ts'
 import { isSection } from '../../shared/sections.ts'
 import { glideTo } from '../canvas/follow'
-import { getState, inspectorOpen, INSPECTOR_W, mutateComments, setState, toast, viewLeft, type State } from '../store'
+import { getState, inspectorOpen, INSPECTOR_W, mutateComments, setState, toast, viewLeft, type PinTarget, type State } from '../store'
 import { cue, drop, grab } from '../ui/sound'
 
 const newId = () => Math.random().toString(36).slice(2, 8)
@@ -23,7 +23,7 @@ export function pinAt(c: BoardComment, frames: Frame[]) {
  * never covers the block; `foot` is where the stem meets the border, `n` the way it points out.
  * A pin on the canvas itself has its key right on the spot.
  */
-export function stemOf(c: Pick<BoardComment, 'on' | 'x' | 'y'>, frames: Frame[], reach = 0) {
+export function stemOf(c: Pick<BoardComment, 'on' | 'x' | 'y' | 'side'>, frames: Frame[], reach = 0) {
   if (!c.on) return { spot: { x: c.x, y: c.y }, foot: { x: c.x, y: c.y }, n: null }
   const f = frames.find((f) => f.id === c.on)
   if (!f) return null
@@ -43,7 +43,7 @@ export function stemOf(c: Pick<BoardComment, 'on' | 'x' | 'y'>, frames: Frame[],
       : { x0: spot.x - half, x1: spot.x + half, y0: f.y + f.h, y1: f.y + f.h + reach }
     return !others.some((o) => o.x < box.x1 && o.x + o.w > box.x0 && o.y < box.y1 && o.y + o.h > box.y0)
   }
-  const side = sides.find(clear) ?? sides[0]
+  const side = c.side ?? sides.find(clear) ?? sides[0]
   const foot = {
     l: { x: f.x, y: spot.y },
     r: { x: f.x + f.w, y: spot.y },
@@ -226,4 +226,36 @@ export function openCommentsText(s: State) {
       return `${i + 1}. ${where}: ${first}${replies.length ? ` (then: ${replies.join(' / ')})` : ''}`
     })
     .join('\n')
+}
+
+/**
+ * What dropping a dragged pin at a canvas point would do. Inside a block: point there (tagging
+ * it, or re-tagging it to another block). Just outside its own block (within `near`): keep the
+ * spot and put the key on that side. Anywhere else: an untagged comment on the canvas.
+ */
+export function pinTarget(c: BoardComment, at: { x: number; y: number }, frames: Frame[], near: number): PinTarget {
+  const under = frames
+    .filter((f) => at.x >= f.x && at.x <= f.x + f.w && at.y >= f.y && at.y <= f.y + f.h)
+    .sort((a, b) => Number(isSection(a)) - Number(isSection(b)) || a.w * a.h - b.w * b.h)[0]
+  const own = c.on ? frames.find((f) => f.id === c.on) : undefined
+  const inOwn = own && at.x >= own.x && at.x <= own.x + own.w && at.y >= own.y && at.y <= own.y + own.h
+  // A strip just past its own border (about a key's length) picks that side, even where a
+  // neighbor sits close: dropping further into the neighbor re-tags it.
+  if (own && !inOwn && at.x > own.x - near && at.x < own.x + own.w + near && at.y > own.y - near && at.y < own.y + own.h + near) {
+    const d = { l: own.x - at.x, r: at.x - (own.x + own.w), t: own.y - at.y, b: at.y - (own.y + own.h) }
+    const side = (Object.keys(d) as (keyof typeof d)[]).reduce((a, k) => (d[k] > d[a] ? k : a))
+    return { kind: 'side', side }
+  }
+  if (under) return { kind: 'block', on: under.id, x: (at.x - under.x) / under.w, y: (at.y - under.y) / under.h }
+  return { kind: 'canvas', x: at.x, y: at.y }
+}
+
+/** Drop a dragged pin (see pinTarget). One undo step. */
+export function movePin(id: string, t: PinTarget) {
+  edit(id, (c) => {
+    if (t.kind === 'side') return { ...c, side: t.side }
+    const { side: _, on: __, ...rest } = c
+    return t.kind === 'block' ? { ...rest, on: t.on, x: t.x, y: t.y } : { ...rest, x: t.x, y: t.y }
+  })
+  drop()
 }

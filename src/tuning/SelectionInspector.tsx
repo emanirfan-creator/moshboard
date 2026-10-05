@@ -72,7 +72,8 @@ export function SelectionBody() {
           </Fold>
         )}
         {(linkable || anyLinked || joinable) && (
-          <Fold title="Link">
+          // Linking is the usual reason to select a few blocks: always shown open.
+          <Fold title="Link" startOpen reveal={ids.join()}>
             <div className="insp-buttons">
               {linkable && (
                 <button className="btn" onClick={() => linkSelected('together')} title="One link for all of them">

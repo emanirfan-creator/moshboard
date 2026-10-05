@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { analyzeFrames } from '../shared/analyze-motion.ts'
-import type { Segment, VideoAnalysis } from '../shared/types.ts'
+import type { Region, Segment, VideoAnalysis } from '../shared/types.ts'
 
 const FPS = 30
 const W = 192
@@ -35,20 +35,25 @@ async function probe(file: string) {
 }
 
 /** Motion timing from a clip (shared/analyze-motion.ts), with frames from ffmpeg, plus a contact sheet. */
-export async function analyzeVideo(boardDir: string, src: string, id: string, segment?: Segment): Promise<VideoAnalysis> {
+export async function analyzeVideo(boardDir: string, src: string, id: string, segment?: Segment, region?: Region): Promise<VideoAnalysis> {
   const file = path.resolve(boardDir, src)
   if (!file.startsWith(boardDir + path.sep) || !fs.existsSync(file)) throw new Error(`video not found: ${src}`)
   const info = await probe(file)
   const seg: Segment = segment && segment.out > segment.in ? segment : { in: 0, out: info.duration }
-  const h = Math.max(2, Math.round((W * info.height) / info.width / 2) * 2)
+  // An area picked on the video: only that part is read.
+  const r = region && region.w > 0.02 && region.h > 0.02 ? region : undefined
+  const srcW = info.width * (r?.w ?? 1)
+  const srcH = info.height * (r?.h ?? 1)
+  const h = Math.max(2, Math.round((W * srcH) / srcW / 2) * 2)
   const span = ['-ss', String(seg.in), '-t', String(seg.out - seg.in)]
+  const crop = r ? `crop=iw*${r.w}:ih*${r.h}:iw*${r.x}:ih*${r.y},` : ''
 
   const raw = await run('ffmpeg', [
     '-v', 'error', ...span, '-i', file,
-    '-vf', `fps=${FPS},scale=${W}:${h},format=gray`,
+    '-vf', `fps=${FPS},${crop}scale=${W}:${h},format=gray`,
     '-f', 'rawvideo', '-',
   ])
-  const { bursts, primary, energy } = analyzeFrames(raw, W, h, seg, FPS)
+  const { bursts, primary, energy, read } = analyzeFrames(raw, W, h, seg, FPS)
 
   const sheetRel = `assets/${id}.sheet.png`
   const sheetFps = Math.min(FPS, 24 / Math.max(0.1, seg.out - seg.in))
@@ -66,6 +71,8 @@ export async function analyzeVideo(boardDir: string, src: string, id: string, se
     primary,
     energy,
     contactSheet: sheetRel,
+    read,
+    ...(r ? { region: r } : {}),
   }
   fs.writeFileSync(path.join(boardDir, `assets/${id}.analysis.json`), JSON.stringify(analysis, null, 2) + '\n')
   return analysis

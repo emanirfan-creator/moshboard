@@ -5,7 +5,7 @@
 // shared/analyze-motion.ts); what differs is how files and frames are read.
 import { analyzeFrames } from '../../shared/analyze-motion.ts'
 import { buildExport } from '../../shared/export.ts'
-import type { Board, Segment, VideoAnalysis } from '../../shared/types.ts'
+import type { Board, Region, Segment, VideoAnalysis } from '../../shared/types.ts'
 import { mediaUrl, type ExportResult } from '../api'
 import { getState } from '../store'
 import { boardDir, listFiles, readFile, removeEntry, writeFile, type Dir } from './files'
@@ -75,12 +75,18 @@ const seek = (v: HTMLVideoElement, t: number) =>
   })
 
 /** Same result as the local app's analysis (server/analyze-video.ts), with frames drawn from a <video>. */
-export async function analyzeInFolder(board: string, id: string, src: string, segment?: Segment): Promise<VideoAnalysis> {
+export async function analyzeInFolder(board: string, id: string, src: string, segment?: Segment, region?: Region): Promise<VideoAnalysis> {
   const dir = await boardDir(board)
   const v = await loadVideo(mediaUrl(board, src))
   const seg: Segment = segment && segment.out > segment.in ? segment : { in: 0, out: v.duration }
   const span = Math.min(seg.out - seg.in, MAX_SECONDS)
-  const h = Math.max(2, Math.round((W * v.videoHeight) / v.videoWidth / 2) * 2)
+  // An area picked on the video: only that part is read.
+  const r = region && region.w > 0.02 && region.h > 0.02 ? region : undefined
+  const sx = (r?.x ?? 0) * v.videoWidth
+  const sy = (r?.y ?? 0) * v.videoHeight
+  const sw = (r?.w ?? 1) * v.videoWidth
+  const sh = (r?.h ?? 1) * v.videoHeight
+  const h = Math.max(2, Math.round((W * sh) / sw / 2) * 2)
 
   const canvas = document.createElement('canvas')
   canvas.width = W
@@ -93,12 +99,12 @@ export async function analyzeInFolder(board: string, id: string, src: string, se
   const raw = new Uint8Array(size * count)
   for (let i = 0; i < count; i++) {
     await seek(v, seg.in + i / FPS)
-    ctx.drawImage(v, 0, 0, W, h)
+    ctx.drawImage(v, sx, sy, sw, sh, 0, 0, W, h)
     const px = ctx.getImageData(0, 0, W, h).data
     // Grey as ffmpeg's `format=gray` makes it (BT.601 luma).
     for (let p = 0; p < size; p++) raw[i * size + p] = Math.round(0.299 * px[p * 4] + 0.587 * px[p * 4 + 1] + 0.114 * px[p * 4 + 2])
   }
-  const { bursts, primary, energy } = analyzeFrames(raw, W, h, seg, FPS)
+  const { bursts, primary, energy, read } = analyzeFrames(raw, W, h, seg, FPS)
 
   // Contact sheet: 6×4 frames evenly across the segment, as ffmpeg's tile filter lays them out.
   const tileW = 240
@@ -124,7 +130,7 @@ export async function analyzeInFolder(board: string, id: string, src: string, se
   v.removeAttribute('src')
   v.load()
 
-  const analysis: VideoAnalysis = { source: src, fps: FPS, segment: seg, bursts, primary, energy, contactSheet: sheetRel }
+  const analysis: VideoAnalysis = { source: src, fps: FPS, segment: seg, bursts, primary, energy, contactSheet: sheetRel, read, ...(r ? { region: r } : {}) }
   await writeFile(dir, `assets/${id}.analysis.json`, JSON.stringify(analysis, null, 2) + '\n')
   return analysis
 }

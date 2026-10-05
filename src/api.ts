@@ -1,6 +1,6 @@
 import type { UsedFont } from '../shared/font-probe.ts'
 import type { FontFamily } from '../shared/fonts.ts'
-import type { Board, MotionCapture, Segment, VideoAnalysis } from '../shared/types.ts'
+import type { Board, MotionCapture, Region, Segment, VideoAnalysis } from '../shared/types.ts'
 import type { PickResult } from '../server/pick-element.ts'
 
 type MediaPiece = { path: string; type: 'video' | 'image'; width?: number; height?: number }
@@ -72,8 +72,8 @@ export const api = {
     fetch(`/api/gif-to-video/${enc(b)}`, { method: 'POST', body: JSON.stringify({ src }) }).then((r) =>
       json<{ path: string | null }>(r),
     ),
-  analyze: (b: string, id: string, src: string, segment?: Segment) =>
-    fetch(`/api/analyze/${enc(b)}/${enc(id)}`, { method: 'POST', body: JSON.stringify({ src, segment }) }).then((r) =>
+  analyze: (b: string, id: string, src: string, segment?: Segment, region?: Region) =>
+    fetch(`/api/analyze/${enc(b)}/${enc(id)}`, { method: 'POST', body: JSON.stringify({ src, segment, region }) }).then((r) =>
       json<VideoAnalysis>(r),
     ),
   pick: (b: string, id: string, url: string) =>

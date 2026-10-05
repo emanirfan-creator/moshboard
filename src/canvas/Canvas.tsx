@@ -282,6 +282,8 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
   })
   const tile = !!tileMode || !!preview
   const cropping = useStore((s) => s.crop === stored.id)
+  // Drawing a video's analysis area: the picture takes the pointer (see RegionPicker).
+  const picking = useStore((s) => s.regionPick === stored.id)
   const dropTile = useStore((s) => s.dropTile === stored.id)
   const selected = useStore((s) => s.selected.includes(frame.id))
   const single = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
@@ -426,7 +428,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
       )}
       <div
         className="frame-body"
-        onPointerDown={(e) => (bodyOwnsPointer ? onDown(e) : interact && e.stopPropagation())}
+        onPointerDown={(e) => (bodyOwnsPointer ? onDown(e) : (interact || picking) && e.stopPropagation())}
       >
         <FrameContent
           frame={frame}
@@ -439,7 +441,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
         {job && <div className="job-scrim" />}
         <BlockLoader loading={!!job} label={job ?? lastJob.current} />
       </div>
-      {!interact && !bodyOwnsPointer && (
+      {!interact && !bodyOwnsPointer && !picking && (
         <div
           className="frame-hit"
           onPointerDown={(e) => (cropping ? panCrop(e, frame) : onDown(e))}

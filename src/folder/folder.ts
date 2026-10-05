@@ -8,7 +8,7 @@
 
 import skill from '../../.claude/skills/recreate/SKILL.md?raw'
 import { api } from '../api'
-import type { Segment } from '../../shared/types.ts'
+import type { Region, Segment } from '../../shared/types.ts'
 import { getState, setState, toast, toggleSidebar } from '../store'
 
 /** Website build (and `pnpm dev:web`): boards live in a folder the user picks. The local app never uses one. */
@@ -217,7 +217,7 @@ function useFolderFeatures() {
   const load = () => import('./features')
   Object.assign(api, {
     exportBoard: (b: string, ids?: string[]) => load().then((m) => m.exportInFolder(b, ids)),
-    analyze: (b: string, id: string, src: string, segment?: Segment) => load().then((m) => m.analyzeInFolder(b, id, src, segment)),
+    analyze: (b: string, id: string, src: string, segment?: Segment, region?: Region) => load().then((m) => m.analyzeInFolder(b, id, src, segment, region)),
     gifToVideo: (b: string, src: string) => load().then(async (m) => ({ path: await m.gifToVideoInFolder(b, src) })),
     sweep: (b: string) => load().then((m) => m.sweepInFolder(b)),
   } satisfies Partial<typeof api>)
