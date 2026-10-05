@@ -168,8 +168,7 @@ function CodeForm() {
     <div className="dialog-form" onKeyDown={submitKeys(submit)}>
       <h2>Component</h2>
       <p>
-        Paste an <b>install command</b> (<span className="mono">npx shadcn@latest add …</span>) to get every file, or a
-        single React or HTML file.
+        An <b>install command</b> (<span className="mono">npx shadcn@latest add …</span>) or one React or HTML file.
       </p>
       <label>
         Name
@@ -222,8 +221,7 @@ function UrlForm() {
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Add a link</h2>
       <p>
-        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and .mp4/.jpg links download as media. Other sites stay
-        live: double-click to use one.
+        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and media links download. Other sites stay live.
       </p>
       <label>
         URL
@@ -248,7 +246,7 @@ function NoteForm() {
     <div className="dialog-form" onKeyDown={submitKeys(submit)}>
       <h2>Note</h2>
       <p>
-        Exports to design.md. To attach one, select it with a reference and use ⌘K → Link.
+        Goes into design.md. Link it to a reference with ⌘K → Link.
       </p>
       <label className="grow">
         Text
@@ -305,11 +303,11 @@ function PaletteForm({ onMode }: { onMode: (m: 'palette' | 'single') => void }) 
       <ModeSwitch mode="palette" onMode={onMode} />
       <p>
         {from === 'selection'
-          ? 'Colors from your selected references.'
+          ? 'From your selected references.'
           : from === 'board'
-            ? 'Colors from this board’s images, videos and sites.'
-            : 'A fresh scheme for now. Once the board has images, videos or sites, palettes match them.'}{' '}
-        Lock the ones you like and <b>Generate</b> the rest.
+            ? 'From this board’s references.'
+            : 'A fresh scheme. Add references and it matches them.'}{' '}
+        Lock what you like, <b>Generate</b> the rest.
       </p>
       <Footer>
         <button autoFocus className="btn btn-primary" onClick={submit}>
@@ -340,7 +338,7 @@ function SingleColorForm({ onMode }: { onMode: (m: 'palette' | 'single') => void
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Color</h2>
       <ModeSwitch mode="single" onMode={onMode} />
-      <p>For a palette later, select swatches and use ⌘K → Combine.</p>
+      <p>To make a palette, select swatches and ⌘K → Combine.</p>
       <div className="color-form">
         <ColorPicker value={color} onChange={setColor} />
         <label>

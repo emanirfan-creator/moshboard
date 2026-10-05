@@ -143,7 +143,7 @@ function Picker({ id }: { id: string }) {
                 }}
                 placeholder={picked?.selector ?? 'Or type a CSS selector'}
                 spellCheck={false}
-                title="For elements below the first screen, or a more exact target"
+                title="For elements further down, or a more exact target"
               />
               <button className="btn btn-primary" disabled={!ready} onClick={capture}>
                 Capture

@@ -102,7 +102,7 @@ export function ClaudeTask() {
             {copied ? 'Copied' : 'Copy for Claude'}
           </button>
           <p className="onboarding-tip">
-            {copied ? `Paste it into Claude Code opened in “${folder ?? 'your folder'}”. The board updates when it’s done.` : 'Works with Codex too.'}
+            {copied ? `Paste it into Claude Code in “${folder ?? 'your folder'}”. The board updates when it’s done.` : 'Works with Codex too.'}
           </p>
         </div>
       </div>

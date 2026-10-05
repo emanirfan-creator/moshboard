@@ -447,8 +447,8 @@ function frameImports(modules: Record<string, string>, missing: Set<string>) {
 }
 
 const missingMessage = (missing: Set<string>) =>
-  `This component imports ${[...missing].map((m) => `“${m}”`).join(', ')}, which isn’t part of what was pasted.\n\n` +
-  `Paste the install command instead (e.g. npx shadcn@latest add @aceternity/…) to get every file.`
+  `This component imports ${[...missing].map((m) => `“${m}”`).join(', ')}, which wasn’t pasted.\n\n` +
+  `Paste its install command instead (npx shadcn@latest add …) to get every file.`
 
 // Painted before any script loads, so a frame is never a white box while
 // Tailwind or esm.sh are still downloading.

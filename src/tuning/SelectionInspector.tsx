@@ -83,7 +83,7 @@ export function SelectionBody() {
                 </button>
               )}
               {linkable && n > 2 && (
-                <button className="btn" onClick={() => linkSelected('each')} title="Each gets its own link, so they aren't linked to each other">
+                <button className="btn" onClick={() => linkSelected('each')} title="A separate link for each">
                   Link each to {refName}
                 </button>
               )}
@@ -94,7 +94,7 @@ export function SelectionBody() {
                   </button>
                 ))}
               {anyLinked && (
-                <button className="btn" onClick={() => unlinkSelected()} title="Leave their links; a reference ends the links that hang off it">
+                <button className="btn" onClick={() => unlinkSelected()} title="Leave their links (a reference ends its links)">
                   Unlink
                 </button>
               )}

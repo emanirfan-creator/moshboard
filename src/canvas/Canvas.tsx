@@ -398,7 +398,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
               className="head-action"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => regeneratePalette(frame.id)}
-              title="New colors from the board, keeping locked ones"
+              title="New colors from the board, keeps locked ones"
             >
               Generate
             </button>

@@ -1068,7 +1068,7 @@ export function SplitCtl({
         </span>
         {modified && (
           <button
-            className="split-reset"
+            className="btn split-reset"
             onClick={() => {
               tick(0.35)
               onReset()

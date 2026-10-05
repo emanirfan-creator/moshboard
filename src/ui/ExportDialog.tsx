@@ -135,7 +135,7 @@ export function ExportDialog() {
                 Share as a page
               </button>
             </div>
-            <p>One HTML file with the whole canvas: clips play, components run, live sites stay live. Opens in any browser.</p>
+            <p>One HTML file of the whole canvas, still live. Opens in any browser.</p>
             {openCount > 0 && <Switch label="Show comments on the page" on={shareComments} onChange={setShareComments} />}
           </div>
 

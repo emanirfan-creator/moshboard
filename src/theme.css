@@ -5686,15 +5686,12 @@ textarea,
 .split-bar[data-big] .split-was {
   opacity: 0;
 }
-.split-reset {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-3);
-  font-size: 12px;
-  cursor: pointer;
-  transition: color var(--dur) var(--ease);
+.btn.split-reset {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
 }
-.split-reset:hover {
-  color: var(--text-1);
+.split .num-head {
+  align-items: center;
+  min-height: 22px;
 }

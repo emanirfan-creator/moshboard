@@ -59,23 +59,23 @@ export function nextStep(f: Frame): Step | null {
   const s = getState()
   const frames = s.board?.frames ?? []
   if (f.type === 'video') {
-    if (!f.analysis) return { label: 'Analyze motion', hint: f.segment ? 'Measure timing and easing in the marked part' : 'Measure timing and easing (mark a part first with I and O to narrow it down)', run: analyzeSelected }
-    if (!copiesOf(f, frames).length) return { label: 'Copy /recreate', hint: 'Copies the command; paste it in Claude Code to get a tunable copy', run: copyRecreate }
+    if (!f.analysis) return { label: 'Analyze motion', hint: f.segment ? 'Measure timing and easing in the marked part' : 'Measure timing and easing (I / O mark a part)', run: analyzeSelected }
+    if (!copiesOf(f, frames).length) return { label: 'Copy /recreate', hint: 'Copy the command for Claude Code', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
   if (f.type === 'url') {
     if (!f.analysis)
       return FOLDER_ONLY
-        ? { label: 'Capture with Claude', hint: 'Claude opens the site in your Chrome and records its exact timing', run: () => askClaude('capture', f.id) }
-        : { label: 'Capture motion', hint: 'Pick an element on the site and record its exact timing', run: () => setState({ picking: f.id }) }
+        ? { label: 'Capture with Claude', hint: 'Claude records its timing in your Chrome', run: () => askClaude('capture', f.id) }
+        : { label: 'Capture motion', hint: 'Pick an element and record its timing', run: () => setState({ picking: f.id }) }
     if (!copiesOf(f, frames).some((c) => c.file?.endsWith('.tsx')))
-      return { label: 'Copy /recreate', hint: 'Copies the command; paste it in Claude Code to turn the capture into a tunable copy', run: copyRecreate }
+      return { label: 'Copy /recreate', hint: 'Copy the command for Claude Code', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
   if (f.type === 'code' && refsOf(f).length && stageOf(f, frames)) {
     if (s.overrides[f.id]) return { label: 'Save tuning', hint: 'Write the tuned values into the code', kbd: '⌘S', run: () => lockParams() }
-    if (!f.tuned) return { label: 'Replay side by side', hint: 'Compare with the reference, then tune in the panel', kbd: 'R', run: () => replay() }
-    return { label: 'Export spec', hint: 'Write motion.md, tokens and snippets for this reference and its copy', run: () => exportBoard() }
+    if (!f.tuned) return { label: 'Replay side by side', hint: 'Compare, then tune in the panel', kbd: 'R', run: () => replay() }
+    return { label: 'Export spec', hint: 'motion.md, tokens and snippets for this pair', run: () => exportBoard() }
   }
   return null
 }

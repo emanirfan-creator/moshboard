@@ -155,7 +155,7 @@ export function SectionBody({ frame }: { frame: Frame }) {
             <button className="btn" onClick={() => evenOut(frame.id)} title="Every part back to the same size">
               Even out
             </button>
-            <button className="btn" onClick={() => freeLayout(frame.id)} title="Keep the section and where its blocks are, without a layout">
+            <button className="btn" onClick={() => freeLayout(frame.id)} title="Keep the blocks where they are, without a layout">
               Free layout
             </button>
           </div>

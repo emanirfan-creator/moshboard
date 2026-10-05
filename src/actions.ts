@@ -282,7 +282,7 @@ export function addSection() {
   const frames = getState().board?.frames ?? []
   // Blocks in a layout are placed by it; a section inside it would sit on top of them.
   const tiles = layoutMembers(frames)
-  if (getState().selected.some((id) => tiles.has(id))) return toast('These are in a layout already. Select its section to change it.')
+  if (getState().selected.some((id) => tiles.has(id))) return toast('Already in a layout. Select its section to change it.')
   const sel = withContents(getState().selected, frames)
     .map(frameById)
     .filter((f): f is Frame => !!f)
@@ -1048,7 +1048,7 @@ export function linkSelected(mode: 'together' | 'each' = 'together') {
   cue('bloom')
   const made = new Set(plan.values()).size
   const name = ref.label ?? ref.type
-  if (plan.size < others.length) toast(`Linked ${plan.size} of ${others.length} to ${name}. A block can be in ${MAX_LINKS} links at most`, true)
+  if (plan.size < others.length) toast(`Linked ${plan.size} of ${others.length} to ${name} (${MAX_LINKS} links max per block)`, true)
   else toast(made > 1 ? `${made} links to ${name}` : `Linked to ${name} · link ${[...plan.values()][0]}`)
 }
 
@@ -1067,7 +1067,7 @@ export function joinLink(n: number) {
   if (!joining.size) return tooMany()
   mutateFrames(apply)
   cue('bloom')
-  if (joining.size < others.length) toast(`Added ${joining.size} of ${others.length} to link ${n}. A block can be in ${MAX_LINKS} links at most`, true)
+  if (joining.size < others.length) toast(`Added ${joining.size} of ${others.length} to link ${n} (${MAX_LINKS} links max per block)`, true)
   else toast(`Added to link ${n}`)
 }
 

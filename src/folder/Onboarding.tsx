@@ -153,7 +153,7 @@ export function Onboarding() {
           {step === 'claude' && (
             <>
               <h2>Use Claude with your boards</h2>
-              <p>Claude recreates references as code, captures a site’s motion, and snapshots sites that block previews.</p>
+              <p>Claude recreates references as code and captures sites’ motion.</p>
               <ol className="onboarding-steps">
                 <li>
                   <span>Open Claude and go to Code</span>
