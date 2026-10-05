@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type PointerEvent as RPE, type ReactNode }
 import { contrast, hexToLch, lchToHex, paletteFromSamples } from '../../shared/color.ts'
 import { boardSamples, hasColors } from '../boardColors'
 import { clamp, drag } from '../drag'
-import { getState, useStore } from '../store'
+import { getState, toast, useStore } from '../store'
+import { copyText } from '../clipboard'
 import { CheckIcon, CopyIcon, ReopenIcon } from './icons'
 import { tick } from './sound'
 
@@ -239,13 +240,11 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
           title="Copy"
           aria-label="Copy"
           onClick={() =>
-            navigator.clipboard.writeText(formatColor(current, format)).then(
-              () => {
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1200)
-              },
-              () => {},
-            )
+            copyText(formatColor(current, format)).then((ok) => {
+              if (!ok) return toast('Couldn’t copy to the clipboard', true)
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1200)
+            })
           }
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
@@ -274,10 +273,12 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
           { ink: '#ffffff', r: onWhite },
           { ink: '#111111', r: onBlack },
         ].map(({ ink, r }) => (
-          <div key={ink} className="cp-chip" style={{ background: current, color: ink }} title={`${ink === '#ffffff' ? 'White' : 'Dark'} text: ${r.toFixed(1)}:1`}>
-            <b>Aa</b>
+          <div key={ink} className="cp-chip" title={`${ink === '#ffffff' ? 'White' : 'Dark'} text: ${r.toFixed(1)}:1`}>
+            <b style={{ background: current, color: ink }}>Aa</b>
             <span className="cp-chip-r">{r.toFixed(1)}</span>
-            <span className="cp-chip-g">{grade(r)}</span>
+            <span className="cp-chip-g" data-low={r < 3 || undefined}>
+              {grade(r)}
+            </span>
           </div>
         ))}
       </div>

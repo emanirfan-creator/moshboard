@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as RKE } from 'react'
 import type { BoardComment } from '../../shared/types.ts'
-import { frameById, getState, setState, useStore, viewLeft } from '../store'
+import { frameById, getState, setState, useCamera, useStore, viewLeft } from '../store'
 import { CheckIcon, MoreIcon, ReopenIcon, SendIcon, TrashIcon } from '../ui/icons'
 import { drop, grab } from '../ui/sound'
 import { ago, deleteComment, deleteMessage, editMessage, openThread, pad, postDraft, reply, resolve, stemOf, stepComment } from './comments'
@@ -22,15 +22,19 @@ export function CommentLayer() {
   const draft = useStore((s) => s.draft)
   const view = useStore((s) => s.commentView)
   const comparing = useStore((s) => !!s.compare)
+  // How far a key reaches past the border, in canvas units: it depends on the zoom, so the
+  // layer redraws when the zoom changes enough to matter.
+  const zoom = useCamera((c) => 2 ** (Math.round(Math.log2(c.z) * 4) / 4))
   if (!frames || comparing) return null
+  const reach = (STEM + KEY_HALF + 4) / zoom
 
-  const draftStem = draft && stemOf(draft, frames)
+  const draftStem = draft && stemOf(draft, frames, reach)
   const nextN = Math.max(0, ...(comments ?? []).map((c) => c.n)) + 1
 
   return (
     <>
       {(comments ?? []).map((c) => {
-        const stem = stemOf(c, frames)
+        const stem = stemOf(c, frames, reach)
         if (!stem) return null
         // In comment mode the toolbar's side shows (Open or Done); outside it only open pins,
         // and none with ⇧C off.

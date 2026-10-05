@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { setState, useStore } from '../store'
 import { cue, drop, grab } from '../ui/sound'
-import { clearResolved, openThread, pad, placedOf, setCommentView, stepComment } from './comments'
+import { openThread, pad, placedOf, setCommentView, stepComment } from './comments'
 
 /**
  * In the toolbar while commenting: ‹ 02 / 05 › flips through the comments (Tab / ⇧Tab), the
@@ -81,11 +81,6 @@ export function CommentBar() {
           </span>
         </button>
       </div>
-      {view === 'done' && done > 0 && (
-        <button className="cmt-count cmt-word" onClick={clearResolved} title="Delete every resolved comment">
-          Clear
-        </button>
-      )}
     </div>
   )
 }

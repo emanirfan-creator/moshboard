@@ -86,7 +86,8 @@ function Toolbar({ left, right }: { left: number; right: number }) {
         aria-label="Tools"
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {tools.map((t) =>
+        {/* Commenting: the add tools step aside, so the comment bar has room. */}
+        {(commenting ? tools.filter((t) => t.id === 'select' || t.id === 'hand') : tools).map((t) =>
           t.group ? (
             <ToolGroup key={t.id} id={t.id} label={t.label} items={t.group} />
           ) : (

@@ -23,13 +23,27 @@ export function pinAt(c: BoardComment, frames: Frame[]) {
  * never covers the block; `foot` is where the stem meets the border, `n` the way it points out.
  * A pin on the canvas itself has its key right on the spot.
  */
-export function stemOf(c: Pick<BoardComment, 'on' | 'x' | 'y'>, frames: Frame[]) {
+export function stemOf(c: Pick<BoardComment, 'on' | 'x' | 'y'>, frames: Frame[], reach = 0) {
   if (!c.on) return { spot: { x: c.x, y: c.y }, foot: { x: c.x, y: c.y }, n: null }
   const f = frames.find((f) => f.id === c.on)
   if (!f) return null
   const spot = { x: f.x + c.x * f.w, y: f.y + c.y * f.h }
   const d = { l: spot.x - f.x, r: f.x + f.w - spot.x, t: spot.y - f.y, b: f.y + f.h - spot.y }
-  const side = (Object.keys(d) as (keyof typeof d)[]).reduce((a, k) => (d[k] < d[a] ? k : a))
+  // The nearest border that has open canvas outside it, so the key doesn't sit on the block
+  // next door (`reach`: how far the key's far edge stands off, in canvas units at this zoom).
+  // Boxed in on every side, it takes the nearest border anyway.
+  const sides = (Object.keys(d) as (keyof typeof d)[]).sort((a, b) => d[a] - d[b])
+  const others = reach ? frames.filter((o) => o.id !== f.id && !isSection(o)) : []
+  const clear = (k: keyof typeof d) => {
+    const half = reach / 2
+    const box =
+      k === 'l' ? { x0: f.x - reach, x1: f.x, y0: spot.y - half, y1: spot.y + half }
+      : k === 'r' ? { x0: f.x + f.w, x1: f.x + f.w + reach, y0: spot.y - half, y1: spot.y + half }
+      : k === 't' ? { x0: spot.x - half, x1: spot.x + half, y0: f.y - reach, y1: f.y }
+      : { x0: spot.x - half, x1: spot.x + half, y0: f.y + f.h, y1: f.y + f.h + reach }
+    return !others.some((o) => o.x < box.x1 && o.x + o.w > box.x0 && o.y < box.y1 && o.y + o.h > box.y0)
+  }
+  const side = sides.find(clear) ?? sides[0]
   const foot = {
     l: { x: f.x, y: spot.y },
     r: { x: f.x + f.w, y: spot.y },

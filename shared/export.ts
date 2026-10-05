@@ -459,7 +459,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const colorRow = (n: string, locked?: boolean, share?: number): [string, string, string] => {
     const hex = colors.get(n)!.value
     const ink = inkFor(hex)
-    const amount = share !== undefined ? `${Math.round(share * 100)}% of the palette   ` : ''
+    const amount = share !== undefined ? `${`${Math.round(share * 100)}%`.padStart(4)} of the palette   ` : ''
     return [n, hex.toUpperCase(), `${amount}text: ${ink === '#ffffff' ? 'white' : 'dark'} ${contrast(hex, ink).toFixed(1)}:1${locked ? '   locked' : ''}`]
   }
   const groupNames = new Map<string, number>()

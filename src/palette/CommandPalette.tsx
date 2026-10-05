@@ -4,7 +4,7 @@ import { askClaude } from '../folder/ClaudeTask'
 import { chooseFolder, FOLDER_ONLY, folderSupported, switchFolder } from '../folder/folder'
 import { hasColors } from '../boardColors'
 import { canCompare, exitCompare, startCompare } from '../canvas/compare'
-import { setCommenting, stepComment } from '../comments/comments'
+import { clearResolved, setCommenting, stepComment } from '../comments/comments'
 import {
   addNote,
   addPalette,
@@ -196,6 +196,7 @@ function Palette() {
 
     add('Comments', s.commenting ? 'Stop commenting' : 'Comment', () => setCommenting(), 'C')
     add('Comments', s.pins ? 'Hide comments' : 'Show comments', () => togglePins(), '⇧C')
+    if (s.board?.comments?.some((c) => c.resolved)) add('Comments', 'Delete resolved comments', clearResolved)
     if (s.commenting) {
       add('Comments', 'Next comment', () => stepComment(1), 'Tab')
       add('Comments', 'Previous comment', () => stepComment(-1), '⇧Tab')

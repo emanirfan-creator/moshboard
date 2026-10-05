@@ -2677,27 +2677,37 @@ body:has(.sidebar[data-open]) .hint {
   height: 28px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: 7px;
+  padding: 0 6px 0 3px;
   border-radius: 7px;
-  box-shadow: inset 0 0 0 1px var(--line);
+  background: rgba(255, 255, 255, 0.04);
   font-size: 12px;
 }
+/* "Aa" on a piece of the color; the ratio and grade sit in panel text so they always read. */
 .cp-chip b {
+  width: 28px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px var(--line);
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
 }
 .cp-chip-r {
+  color: var(--text-2);
   font: 11px var(--mono);
-  opacity: 0.8;
 }
 .cp-chip-g {
   margin-left: auto;
   padding: 1px 4px;
-  border: 1px solid currentColor;
+  border: 1px solid var(--line-2);
   border-radius: 4px;
+  color: var(--text-2);
   font: 600 9.5px var(--mono);
-  opacity: 0.85;
+}
+.cp-chip-g[data-low] {
+  color: var(--text-4);
 }
 .cp-board {
   display: flex;
@@ -5694,4 +5704,11 @@ textarea,
 .split .num-head {
   align-items: center;
   min-height: 22px;
+}
+.export-switch .num-name {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
