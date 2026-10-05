@@ -1,3 +1,4 @@
+import { Fold } from './Fold'
 import {
   combineSwatches,
   deleteSelected,
@@ -46,36 +47,32 @@ export function SelectionBody() {
       </header>
       <div className="insp-scroll">
         {sections >= 2 && (
-          <section className="insp-section">
-            <h3>Directions</h3>
+          <Fold title="Directions">
             <div className="insp-buttons">
               <button className="btn btn-primary" onClick={startCompare}>
                 Compare side by side <kbd>X</kbd>
               </button>
             </div>
-          </section>
+          </Fold>
         )}
         {arrangeWhy ? (
-          <section className="insp-section">
-            <h3>Arrange</h3>
+          <Fold title="Arrange">
             <p className="ctl-help">{arrangeWhy}</p>
-          </section>
+          </Fold>
         ) : (
           <SelectionArrange ids={arrangeIds.split(',')} />
         )}
         {colorish >= 2 && (
-          <section className="insp-section">
-            <h3>Combine</h3>
+          <Fold title="Combine">
             <div className="insp-buttons">
               <button className="btn" onClick={combineSwatches} title="Left to right, no duplicates">
                 {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
               </button>
             </div>
-          </section>
+          </Fold>
         )}
         {(linkable || anyLinked || joinable) && (
-          <section className="insp-section">
-            <h3>Link</h3>
+          <Fold title="Link">
             <div className="insp-buttons">
               {linkable && (
                 <button className="btn" onClick={() => linkSelected('together')} title="One link for all of them">
@@ -99,7 +96,7 @@ export function SelectionBody() {
                 </button>
               )}
             </div>
-          </section>
+          </Fold>
         )}
       </div>
       <footer className="insp-foot">

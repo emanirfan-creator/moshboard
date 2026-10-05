@@ -22,6 +22,7 @@ import { computeLayout, currentOption, LAYOUT_GAP, LAYOUT_PAD, optionsFor, ROW_O
 import { frameById, useStore } from '../store'
 import { Segmented } from '../ui/Segmented'
 import { NumberCtl, SplitCtl } from './controls'
+import { Fold } from './Fold'
 
 const MODES: { id: LayoutMode; label: string }[] = [
   { id: 'grid', label: 'Grid' },
@@ -130,8 +131,7 @@ export function SectionBody({ frame }: { frame: Frame }) {
   const ids = L ? L.order : inner ? inner.split(',') : []
   return (
     <div className="insp-scroll">
-      <section className="insp-section">
-        <h3>{L ? 'Layout' : 'Arrange'}</h3>
+      <Fold title={L ? 'Layout' : 'Arrange'}>
         <ArrangeChoices
           target={frame.id}
           ids={ids}
@@ -140,9 +140,8 @@ export function SectionBody({ frame }: { frame: Frame }) {
           onMode={(m) => (L ? m !== L.mode && arrange(frame.id, m, firstOption(m)) : setMode(m))}
         />
         <p className="ctl-help">{L ? HELP[L.mode] : 'Blocks dropped in later join it.'}</p>
-      </section>
-      {L && (
-        <section className="insp-section">
+        {L && (
+          <>
           <NumberCtl
             p={GAP_PARAM}
             value={L.gap}
@@ -159,8 +158,9 @@ export function SectionBody({ frame }: { frame: Frame }) {
               Free layout
             </button>
           </div>
-        </section>
-      )}
+          </>
+        )}
+      </Fold>
     </div>
   )
 }
@@ -177,11 +177,7 @@ export function TileBody({ frame }: { frame: Frame }) {
   })
   if (!s?.layout) return null
   return (
-    <section className="insp-section">
-      <h3>
-        In {s.label ? `“${s.label}”` : 'a layout'}
-        <small className="insp-size">{size}</small>
-      </h3>
+    <Fold title={`In ${s.label ? `“${s.label}”` : 'a layout'}`} id="In a layout" aside={<small className="insp-size">{size}</small>}>
       <GridSplit sid={s.id} blockId={frame.id} />
       <p className="ctl-help">
         <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd> to move. {HELP[s.layout.mode]}
@@ -201,7 +197,7 @@ export function TileBody({ frame }: { frame: Frame }) {
           Take out
         </button>
       </div>
-    </section>
+    </Fold>
   )
 }
 
@@ -209,13 +205,12 @@ export function TileBody({ frame }: { frame: Frame }) {
 export function SelectionArrange({ ids }: { ids: string[] }) {
   const [mode, setMode] = useState<LayoutMode>(() => lastArrange().mode)
   return (
-    <section className="insp-section">
-      <h3>Arrange</h3>
+    <Fold title="Arrange">
       <ArrangeChoices target={null} ids={ids} mode={mode} active={null} onMode={setMode} />
       <p className="ctl-help">
         Hover to preview.
       </p>
-    </section>
+    </Fold>
   )
 }
 

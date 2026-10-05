@@ -9,7 +9,7 @@ import { ChoiceCtl, ColorCtl, NumberCtl, TextCtl, ToggleCtl } from './controls'
 import { parseModules } from './detection'
 
 const EMPTY = {}
-/** Past this many settings the panel gets a filter, and only the first sections start open. */
+/** Past this many settings the panel gets a filter. */
 const MANY = 12
 /** Sections the user opened or closed, per frame, for this session. */
 const folded = new Map<string, boolean>()
@@ -66,7 +66,7 @@ export function PropsSections({ frame, props }: { frame: Frame; props: PropDef[]
       )}
       {groups.map((g, i) => {
         const key = `${frame.id}:${g.title}`
-        const open = q ? true : (folded.get(key) ?? (!many || i < 2))
+        const open = q ? true : (folded.get(key) ?? i === 0)
         const edited = g.props.filter(changed)
         return (
           <PropSection

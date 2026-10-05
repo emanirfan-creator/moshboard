@@ -1,3 +1,4 @@
+import { Fold } from './Fold'
 import type { Frame } from '../../shared/types.ts'
 import { allLinks, linkNumbers } from '../../shared/frame-links.ts'
 import { unlinkSelected } from '../actions'
@@ -28,8 +29,7 @@ export function LinksBody({ frame }: { frame: Frame }) {
   })
   if (!rows) return null
   return (
-    <section className="insp-section">
-      <h3>Links</h3>
+    <Fold title="Links">
       <div className="link-rows">
         {rows.split(',').map((row) => {
           const [ns, role, others] = row.split('|')
@@ -61,6 +61,6 @@ export function LinksBody({ frame }: { frame: Frame }) {
           )
         })}
       </div>
-    </section>
+    </Fold>
   )
 }

@@ -45,6 +45,7 @@ import {
 } from '../../shared/fonts.ts'
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
+import { Fold } from './Fold'
 import { SelectionBody } from './SelectionInspector'
 import { SectionBody, TileBody } from './ArrangeInspector'
 import { LinksBody } from './LinksInspector'
@@ -169,9 +170,12 @@ function Section({
   note,
   where,
   index,
+  reveal,
   children,
 }: {
   title: ReactNode
+  /** opens the section when it changes to something (e.g. a fresh analysis) */
+  reveal?: unknown
   note?: string
   /** file:line, right of the title */
   where?: string
@@ -179,24 +183,24 @@ function Section({
   children: ReactNode
 }) {
   return (
-    <section
-      className="insp-section"
-      data-scan={index !== undefined || undefined}
+    <Fold
+      title={title}
+      // A detected animation by its place in the code: several can share a title.
+      id={where ?? (typeof title === 'string' ? title : undefined)}
+      reveal={reveal}
+      scan={index !== undefined}
       style={index !== undefined ? ({ '--i': index } as React.CSSProperties) : undefined}
-    >
-      <header className="insp-section-head">
-        <div className="insp-title-row">
-          <h3>{title}</h3>
-          {where && <span className="insp-where">{where}</span>}
-        </div>
-        {note && (
+      after={where && <span className="insp-where">{where}</span>}
+      sub={
+        note && (
           <span className="insp-src" title={note}>
             {note}
           </span>
-        )}
-      </header>
+        )
+      }
+    >
       {children}
-    </section>
+    </Fold>
   )
 }
 
@@ -494,6 +498,8 @@ function VideoBody({ frame }: { frame: Frame }) {
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const raw = useStore((s) => (frame.analysis ? s.files[frame.analysis] : undefined))
+  // Analyzing (and a result coming back) opens Measured.
+  const measuring = useStore((s) => s.jobs[frame.id] ?? null)
   const analysis = useMemo(() => (raw ? readAnalysis(frame) : null), [raw, frame])
 
   useEffect(() => {
@@ -596,7 +602,7 @@ function VideoBody({ frame }: { frame: Frame }) {
             </button>
           </div>
         </Section>
-        <Section title="Measured">
+        <Section title="Measured" reveal={measuring ?? raw}>
           {analysis?.primary ? (
             <dl className="insp-facts">
               <div>

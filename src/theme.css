@@ -3186,7 +3186,8 @@ body:has(.sidebar[data-open]) .hint {
   gap: 2px;
   padding: 3px;
   border-radius: 8px;
-  background: rgba(10, 10, 11, 0.86);
+  /* Solid: the site's own buttons mustn't show through it. */
+  background: var(--shell);
   border: 1px solid var(--line-2);
   color: var(--text-3);
   font-size: 12px;
@@ -3198,7 +3199,12 @@ body:has(.sidebar[data-open]) .hint {
   opacity: 1;
 }
 .snap-bar > span {
-  padding: 0 8px;
+  margin: 0 4px 0 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-3);
+  font-size: 11px;
   cursor: help;
 }
 .snap-bar button {
@@ -5711,4 +5717,20 @@ textarea,
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
+}
+/* Every panel section folds (Fold.tsx), like a component's prop groups. */
+.fold:not([data-open]) {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.fold-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.fold-head .prop-toggle h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

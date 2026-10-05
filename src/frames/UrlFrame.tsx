@@ -142,7 +142,7 @@ function Snapshot({ frame, interact }: { frame: Frame; interact: boolean }) {
       </div>
       <BlockLoader loading={refreshing} label="Refreshing snapshot" />
       <div className="snap-bar" onPointerDown={(e) => e.stopPropagation()}>
-        <span title={`${host} blocks embedding. Double-click to scroll.`}>
+        <span title={`${host} can’t be shown live, so this is a picture of it. Double-click to scroll.`}>
           Snapshot
         </span>
         <button onClick={refresh} disabled={refreshing}>

@@ -972,6 +972,7 @@ export function SplitCtl({
   onRename,
   mine,
   swatches,
+  hideName,
 }: {
   name: string
   /** each part's name, left to right */
@@ -989,6 +990,8 @@ export function SplitCtl({
   mine?: number
   /** paint each part in its own color (a palette's colors), with readable text on it */
   swatches?: { bg: string; ink: string }[]
+  /** the section's title already says what it is */
+  hideName?: boolean
 }) {
   const [active, setActive] = useState<number | null>(null)
   const [keyed, setKeyed] = useState(false)
@@ -1061,9 +1064,9 @@ export function SplitCtl({
   let from = 0
   return (
     <div className="num split" data-mod={modified || undefined} data-active={big || undefined}>
-      <div className="num-head">
+      {(!hideName || modified) && <div className="num-head">
         <span className="num-label">
-          <NameLabel className="num-name" text={name} onRename={onRename} />
+          {!hideName && <NameLabel className="num-name" text={name} onRename={onRename} />}
           {modified && <ResetDot onReset={onReset} />}
         </span>
         {modified && (
@@ -1077,7 +1080,7 @@ export function SplitCtl({
             {original.every((o) => Math.abs(o - original[0]) < 0.005) ? 'Even out' : 'Reset'}
           </button>
         )}
-      </div>
+      </div>}
       <div
         ref={bar}
         className="split-bar"

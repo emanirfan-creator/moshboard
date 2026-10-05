@@ -8,6 +8,7 @@ import { ColorPicker } from '../ui/ColorPicker'
 import { useGlide } from '../ui/glide'
 import { cue, detent } from '../ui/sound'
 import { SplitCtl } from './controls'
+import { Fold } from './Fold'
 import { TrashIcon } from '../ui/icons'
 
 const SLIDERS: { key: keyof Adjust; label: string; min: number; max: number; track: string }[] = [
@@ -84,8 +85,7 @@ export function PaletteBody({ frame }: { frame: Frame }) {
   return (
     <>
       <div className="insp-scroll">
-        <section className="insp-section">
-          <h3>Colors</h3>
+        <Fold title="Colors">
           <div className="pal-list">
             {colors.map((c, i) => (
               <div key={i} className="pal-item">
@@ -136,17 +136,16 @@ export function PaletteBody({ frame }: { frame: Frame }) {
               Add color
             </button>
           </div>
-        </section>
-        <section className="insp-section">
+        </Fold>
+        <Fold title="Shares">
           <Shares colors={colors} onChange={set} />
-        </section>
-        <section className="insp-section">
-          <h3>Adjust palette</h3>
+        </Fold>
+        <Fold title="Adjust palette">
           {SLIDERS.map((s) => (
             <Slider key={s.key} s={s} value={adjust[s.key]} onChange={(n) => change(s.key, n)} />
           ))}
           <p className="ctl-help">Previewing until you apply.</p>
-        </section>
+        </Fold>
       </div>
       <footer className="insp-foot">
         {draft ? (
@@ -194,6 +193,7 @@ function Shares({ colors, onChange }: { colors: PaletteColor[]; onChange: (c: Pa
     <>
     <SplitCtl
       name="Shares"
+      hideName
       parts={colors.map((c) => name(c.hex))}
       value={value}
       original={even}
