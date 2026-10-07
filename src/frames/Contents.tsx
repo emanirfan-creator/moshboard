@@ -7,6 +7,7 @@ import { loadFont } from '../fonts'
 import { fitFrame, getState, mutateFrames, sameFrameExcept, setState, toast, updateFrame, useCamera, useStore } from '../store'
 import { drag } from '../drag'
 import { cue } from '../ui/sound'
+import { AudioFrame } from './AudioFrame'
 import { CodeFrame } from './CodeFrame'
 import { PaletteFrame } from './PaletteFrame'
 import { UrlFrame } from './UrlFrame'
@@ -30,7 +31,7 @@ interface ContentProps {
 }
 
 const POSITION = ['x', 'y'] as const
-const LIVE = new Set(['video', 'code', 'url'])
+const LIVE = new Set(['video', 'audio', 'code', 'url'])
 
 /** Moving a frame changes only its position, which its content never reads: skip those renders. */
 export const FrameContent = memo(
@@ -58,6 +59,8 @@ function Content({
       return <ImageFrame frame={frame} size={size} />
     case 'video':
       return <VideoFrame frame={frame} interact={interact} inView={inView} />
+    case 'audio':
+      return <AudioFrame frame={frame} seen={seen} />
     case 'code':
       return seen ? <CodeFrame frame={frame} interact={interact} size={size} inView={inView} /> : null
     case 'url':

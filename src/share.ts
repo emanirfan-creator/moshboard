@@ -81,6 +81,16 @@ async function content(f: Frame, board: string, w: number, h: number): Promise<s
       return f.src ? `<img src="${await media(f.src, 1600)}" alt="${esc(f.label ?? '')}">` : ''
     case 'video':
       return f.src ? `<video src="${await media(f.src)}" autoplay muted loop playsinline></video>` : ''
+    case 'audio': {
+      // Spotify plays in its own player; sounds the board holds play from the page itself.
+      const spotify = f.music && /open\.spotify\.com\/(\w+)\/(\w+)/.exec(f.src ?? '')
+      if (spotify) return `<iframe src="https://open.spotify.com/embed/${spotify[1]}/${spotify[2]}" height="152" style="height:152px" allow="encrypted-media" loading="lazy"></iframe>`
+      const sounds = f.clips ?? (f.src ? [{ src: f.src, name: '' }] : [])
+      const rows = await Promise.all(
+        sounds.map(async (c) => `<div class="sound">${c.name ? `<span>${esc(c.name)}</span>` : ''}<audio controls preload="none" src="${await media(c.src)}"></audio></div>`),
+      )
+      return `<div class="sounds">${rows.join('')}</div>`
+    }
     case 'url': {
       if (f.embed === 'blocked' && f.snapshot) return `<img class="top" src="${await media(f.snapshot, 1600)}" alt="${esc(f.label ?? '')}">`
       return scaled(`<iframe src="${esc(f.src ?? '')}" loading="lazy" referrerpolicy="no-referrer"></iframe>`)
@@ -122,7 +132,7 @@ async function frameHtml(f: Frame, board: string) {
   }
   const style = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`
   if (!block) return `<div class="frame ${f.type}" style="${style}">${body}</div>`
-  const kind = { code: 'Component', url: 'Website', image: 'Image', video: 'Video', palette: 'Palette' }[f.type as string] ?? ''
+  const kind = { code: 'Component', url: 'Website', image: 'Image', video: 'Video', audio: 'Sound', palette: 'Palette' }[f.type as string] ?? ''
   const link = f.type === 'url' && f.src ? `<a href="${esc(f.src)}" target="_blank" rel="noreferrer">Open ↗</a>` : ''
   return `<div class="frame block" style="${style}"><header><span class="dot"></span><span class="title">${esc(f.label || kind)}</span>${link}<span class="kind">${kind}</span></header><div class="body">${body}</div></div>`
 }
@@ -181,6 +191,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1012; col
 .font small { color: #62666d; font: 12px Inter, sans-serif; margin-top: 6px; }
 .swatch { height: 100%; border-radius: 12px; display: flex; align-items: flex-end; padding: 10px; }
 .swatch span, .palette span { font: 11px ui-monospace, Menlo, monospace; color: #fff; mix-blend-mode: difference; }
+.sounds { height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 12px; background: #cfd0d2; border-radius: 12px; overflow: auto; } .sound { display: flex; align-items: center; gap: 10px; color: #1b1b1d; font-size: 12px; } .sound span { min-width: 64px; } .sound audio { flex: 1; height: 32px; }
 .palette { height: 100%; display: flex; border-radius: 12px; overflow: hidden; }
 .palette div { flex: 1; display: flex; align-items: flex-end; padding: 10px; }
 .missing { height: 100%; display: grid; place-items: center; color: #62666d; }

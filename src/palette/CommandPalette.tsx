@@ -5,8 +5,13 @@ import { chooseFolder, FOLDER_ONLY, folderSupported, switchFolder } from '../fol
 import { hasColors } from '../boardColors'
 import { canCompare, exitCompare, startCompare } from '../canvas/compare'
 import { clearResolved, setCommenting, stepComment } from '../comments/comments'
+import { playSound, stopRecording } from '../frames/audio'
 import {
   addNote,
+  assetUrl,
+  recordSounds,
+  splitSounds,
+  combineSounds,
   addPalette,
   combineSwatches,
   regeneratePalette,
@@ -110,6 +115,13 @@ function Palette() {
       add('Video', 'Copy /recreate command', copyRecreate)
       add('Video', 'Replay with linked copy', () => replay(), 'R')
     }
+    if (one?.type === 'audio' && one.src && !one.music) {
+      const src = one.src
+      add('Sound', 'Play', () => playSound(one.id, assetUrl(src)))
+    }
+    if (one?.type === 'audio' && !one.music) add('Sound', s.recording ? 'Stop recording' : 'Record more from a tab…', () => recordSounds(undefined, one.id))
+    if (one?.clips) add('Sound', 'Split into separate sounds', () => splitSounds(one.id))
+    if (sel.filter((f) => f!.type === 'audio' && !f!.music).length >= 2) add('Sound', 'Merge into pads', combineSounds)
     if (one?.type === 'url' && FOLDER_ONLY) {
       // The website can't drive a browser: these go to the user's Claude.
       add('Site', 'Capture motion with Claude…', () => askClaude('capture', one.id))
@@ -185,8 +197,11 @@ function Palette() {
     }
 
     add('Add', 'Image or video…', () => setState({ add: 'media' }))
+    add('Add', 'Sound…', () => setState({ add: 'sound' }))
+    if (s.recording) add('Add', 'Stop recording', () => stopRecording())
+    else if ('getDisplayMedia' in (navigator.mediaDevices ?? {})) add('Add', 'Record sounds from a tab…', () => recordSounds())
     add('Add', 'Component (install command or code)…', () => setState({ add: 'code' }))
-    add('Add', 'Link (Pinterest, Cosmos, website)…', () => setState({ add: 'url' }))
+    add('Add', 'Link (Pinterest, Cosmos, Spotify, website)…', () => setState({ add: 'url' }))
     add('Add', sel.length ? 'Section around selection' : 'Section', () => addSection(), 'S')
     add('Add', 'Text', () => addText(), 'T')
     add('Add', 'Note', () => addNote())

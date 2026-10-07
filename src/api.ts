@@ -3,7 +3,7 @@ import type { FontFamily } from '../shared/fonts.ts'
 import type { Board, MotionCapture, Region, Segment, VideoAnalysis } from '../shared/types.ts'
 import type { PickResult } from '../server/pick-element.ts'
 
-type MediaPiece = { path: string; type: 'video' | 'image'; width?: number; height?: number }
+type MediaPiece = { path: string; type: 'video' | 'image' | 'audio'; width?: number; height?: number }
 
 export interface ExportResult {
   dir: string

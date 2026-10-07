@@ -7,6 +7,7 @@ import { COMPARE_SUMMARY_GAP } from './compare'
 const KIND: Partial<Record<Frame['type'], [string, string]>> = {
   image: ['image', 'images'],
   video: ['video', 'videos'],
+  audio: ['sound', 'sounds'],
   url: ['site', 'sites'],
   code: ['component', 'components'],
   note: ['note', 'notes'],

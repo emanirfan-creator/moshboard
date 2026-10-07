@@ -5,7 +5,7 @@ import path from 'node:path'
 
 const MAX_BYTES = 250 * 1024 * 1024
 
-import { MEDIA_EXT } from '../shared/links.ts'
+import { MEDIA_EXT, mediaKind } from '../shared/links.ts'
 import { gifToVideo, probeSize } from './gif.ts'
 import { findMediaLink, UA, type Found } from './media-find.ts'
 
@@ -18,6 +18,16 @@ const EXT: Record<string, string> = {
   'image/webp': '.webp',
   'image/gif': '.gif',
   'image/avif': '.avif',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/wave': '.wav',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/ogg': '.ogg',
+  'audio/opus': '.opus',
+  'audio/flac': '.flac',
 }
 
 async function download(boardDir: string, url: string, base: string) {
@@ -25,7 +35,7 @@ async function download(boardDir: string, url: string, base: string) {
   if (!r.ok || !r.body) throw new Error(`Download failed (${r.status})`)
   const type = (r.headers.get('content-type') ?? '').split(';')[0].trim()
   const ext = EXT[type] ?? MEDIA_EXT.exec(new URL(url).pathname)?.[0].replace(/\?.*$/, '') ?? ''
-  if (!ext) throw new Error(`That link isn’t an image or video (${type || 'unknown type'})`)
+  if (!ext) throw new Error(`That link isn’t an image, video or sound (${type || 'unknown type'})`)
   const buf = Buffer.from(await r.arrayBuffer())
   if (buf.length > MAX_BYTES) throw new Error('That file is too large (over 250 MB)')
   const slug =
@@ -40,7 +50,7 @@ async function download(boardDir: string, url: string, base: string) {
   // Animated GIFs (common on Cosmos) are motion: make them video.
   const video = ext === '.gif' ? await gifToVideo(boardDir, rel) : null
   if (video) return { rel: video, kind: 'video' as const }
-  return { rel, kind: type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/.test(ext) ? ('video' as const) : ('image' as const) }
+  return { rel, kind: mediaKind(type, ext) }
 }
 
 export async function resolveMediaLink(boardDir: string, link: string) {

@@ -139,6 +139,16 @@ const MIME = {
   m4v: 'video/mp4',
   mov: 'video/quicktime',
   webm: 'video/webm',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  opus: 'audio/ogg',
+  flac: 'audio/flac',
+  aif: 'audio/aiff',
+  aiff: 'audio/aiff',
   json: 'application/json',
   html: 'text/html; charset=utf-8',
   tsx: 'text/plain; charset=utf-8',
@@ -314,6 +324,16 @@ const MEDIA_EXT = {
   'image/webp': '.webp',
   'image/gif': '.gif',
   'image/avif': '.avif',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/wave': '.wav',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/ogg': '.ogg',
+  'audio/opus': '.opus',
+  'audio/flac': '.flac',
 }
 
 /** Downloads a found piece (straight from its host when it allows that, else through api/media-proxy) into assets/. */
@@ -331,11 +351,11 @@ async function saveMedia(dir, item, title) {
     blob = await r.blob()
   }
   const type = blob.type.split(';')[0]
-  const ext = MEDIA_EXT[type] ?? /\.(mp4|webm|mov|m4v|jpe?g|png|gif|webp|avif)(?=$|\?)/i.exec(item.url)?.[0].toLowerCase()
-  if (!ext) throw new HttpError(415, `That link isn’t an image or video (${type || 'unknown type'})`)
+  const ext = MEDIA_EXT[type] ?? /\.(mp4|webm|mov|m4v|jpe?g|png|gif|webp|avif|mp3|wav|m4a|aac|ogg|oga|opus|flac)(?=$|\?)/i.exec(item.url)?.[0].toLowerCase()
+  if (!ext) throw new HttpError(415, `That link isn’t an image, video or sound (${type || 'unknown type'})`)
   const rel = uniqueAsset(`${item.title ?? title ?? 'media'}${ext}`)
   await write(dir, rel, blob)
-  const kind = type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/.test(ext) ? 'video' : 'image'
+  const kind = type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac)$/i.test(ext) ? 'audio' : type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/.test(ext) ? 'video' : 'image'
   let { width, height } = item
   if (kind === 'image' && !width) {
     try {

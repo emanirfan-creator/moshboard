@@ -1,6 +1,6 @@
 import type { FrameLink } from './frame-links.ts'
 
-export type FrameType = 'image' | 'video' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette' | 'section'
+export type FrameType = 'image' | 'video' | 'audio' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette' | 'section'
 
 export interface Segment {
   in: number // seconds
@@ -18,7 +18,7 @@ export interface Frame {
   label?: string
   /** section: the approved direction (one per board); "approved only" exports use it alone */
   chosen?: boolean
-  /** image/video: path relative to the board dir (assets/…); url: the href */
+  /** image/video/audio: path relative to the board dir (assets/…); url: the href; audio from Spotify: its open.spotify.com link */
   src?: string
   /** code: path relative to the board dir (frames/<id>.tsx | .html) */
   file?: string
@@ -46,8 +46,14 @@ export interface Frame {
   usedFonts?: { stack: string; weight: number; score: number }[]
   /** font swatch: how it presents the family (default 'name') */
   fontLayout?: 'name' | 'specimen' | 'glyphs'
-  /** image/video: the page it came from (e.g. a Cosmos element) */
+  /** image/video/audio: the page it came from (e.g. a Cosmos element, the site a tab recording was made on) */
   origin?: string
+  /** audio: what the sound measures as (read in the page from the file) */
+  sound?: SoundReading
+  /** audio: sounds split from one tab recording, shown as pads (`src` is unset) */
+  clips?: Clip[]
+  /** audio: a Spotify link, played in Spotify's own player (nothing of it is saved but the link and title) */
+  music?: { provider: 'spotify'; title?: string }
   /** the links this block follows: a reference it copies or annotates, and the link's number (shared/frame-links.ts) */
   links?: FrameLink[]
   /** older boards and tools: the one reference this block follows; read into `links` on load */
@@ -152,6 +158,32 @@ export interface CommentMessage {
   /** ISO time it was written */
   at: string
   edited?: boolean
+}
+
+/** A short sound, measured: how long, how it starts and fades, how high, how loud. */
+export interface SoundReading {
+  /** seconds, from the first audible sample to where it falls silent */
+  length: number
+  /** seconds to reach its peak */
+  attack: number
+  /** seconds from the peak down to silence */
+  fade: number
+  /** Hz of its strongest tone, when it has one */
+  pitch?: number
+  /** peak level, dBFS */
+  peak: number
+  /** where its energy sits, Hz (spectral centroid): low is warm/dull, high is bright/crisp */
+  bright: number
+  /** 0–1: how much of it is tone rather than noise */
+  tonal: number
+  /** loudness envelope, 0–1, for drawing */
+  peaks: number[]
+}
+
+export interface Clip {
+  src: string
+  name: string
+  sound?: SoundReading
 }
 
 export interface Burst {

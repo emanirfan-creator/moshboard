@@ -4,5 +4,5 @@ import type { Frame } from '../../shared/types.ts'
 export const BLOCK_HEAD = 44
 export const BLOCK_PAD = 8
 
-const BLOCK_TYPES = new Set(['code', 'url', 'image', 'video', 'palette'])
+const BLOCK_TYPES = new Set(['code', 'url', 'image', 'video', 'audio', 'palette'])
 export const isBlock = (f: Frame) => BLOCK_TYPES.has(f.type)

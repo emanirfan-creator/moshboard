@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, type PointerEvent as RPE } from 'react'
 import type { Frame } from '../../shared/types.ts'
-import { addText, pasteText, regeneratePalette, selectLink, uploadFiles } from '../actions'
+import { addSoundFiles, addText, pasteText, regeneratePalette, selectLink, uploadFiles } from '../actions'
 import { linkNumbers } from '../../shared/frame-links.ts'
 import { LinkTag } from '../ui/LinkTag'
 import { bySize, isSection, sectionAt } from '../../shared/sections.ts'
@@ -192,6 +192,11 @@ export function Canvas() {
     e.preventDefault()
     const at = screenToWorld(e.clientX, e.clientY)
     const files = [...e.dataTransfer.files]
+    // Sounds dropped on a sound block join it as pads.
+    const pads = getState().board?.frames.findLast(
+      (f) => f.type === 'audio' && !f.music && at.x >= f.x && at.x <= f.x + f.w && at.y >= f.y && at.y <= f.y + f.h,
+    )
+    if (pads && files.some((f) => f.type.startsWith('audio/'))) return addSoundFiles(pads.id, files)
     if (files.length) return uploadFiles(files, at)
     const uri = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
     if (uri) pasteText(uri.split('\n')[0], at)
@@ -321,10 +326,11 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
       ? frame.file?.endsWith('.html')
         ? 'HTML'
         : 'React'
-      : { image: 'Image', video: 'Video', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette', section: 'Section' }[frame.type]
+      : { image: 'Image', video: 'Video', audio: 'Sound', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette', section: 'Section' }[frame.type]
   const block = isBlock(frame)
   // A selected palette's columns take the pointer (hover tools), while drags still move it.
-  const bodyOwnsPointer = frame.type === 'palette' && single && !interact
+  // A sound's keys and reel work with one click, selected or not.
+  const bodyOwnsPointer = ((frame.type === 'palette' && single) || frame.type === 'audio') && !interact
   const meta = [
     kind,
     frame.viewport ? `${frame.viewport}w` : '',

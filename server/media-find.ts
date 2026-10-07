@@ -3,13 +3,13 @@
 // so it runs in the local server (server/media-link.ts downloads what it finds) and as a Vercel
 // function for the website (api/media-find), where the browser saves the files into the folder.
 
-import { MEDIA_EXT } from '../shared/links.ts'
+import { MEDIA_EXT, mediaKind } from '../shared/links.ts'
 
 export const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140 Safari/537.36'
 
 export interface Found {
   url: string
-  kind: 'video' | 'image'
+  kind: 'video' | 'image' | 'audio'
   title?: string
   width?: number
   height?: number
@@ -153,7 +153,7 @@ export async function findMediaLink(link: string): Promise<FoundLink> {
   // Direct file link.
   if (MEDIA_EXT.test(u.pathname)) {
     const name = u.pathname.split('/').pop() ?? 'media'
-    return { title: name, source: link, items: [{ url: link, kind: /\.(mp4|webm|mov|m4v)$/i.test(name) ? 'video' : 'image', title: name.replace(/\.\w+$/, '') }] }
+    return { title: name.replace(/\.\w+$/, ''), source: link, items: [{ url: link, kind: mediaKind('', /\.\w+$/.exec(name)?.[0] ?? ''), title: name.replace(/\.\w+$/, '') }] }
   }
   const r = await fetch(link, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(20000) })
   if (!r.ok) throw new Error(`${host} returned ${r.status}`)

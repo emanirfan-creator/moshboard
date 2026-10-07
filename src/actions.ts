@@ -5,7 +5,7 @@ import { easingBezier, isRuntimeName, saveRuntime } from '../shared/runtime-moti
 import { detectProps, isPropName, PROP_PREFIX } from '../shared/props.ts'
 import { detectFor, parseModules } from './tuning/detection'
 import { cue, scanChirp, scanEmpty } from './ui/sound'
-import type { Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
+import type { Clip as SoundClip, Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
 import { allLinks, linkNumbers, linksOf, MAX_LINKS, nextLinkNumber, normalizeLinks, refsOf, type FrameLink, type LinkInfo } from '../shared/frame-links.ts'
@@ -19,6 +19,7 @@ import { boardLabel, boardsLabel, FOLDER_ONLY } from './folder/folder'
 import { ensureDefaultExport } from './frames/sandbox'
 import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
+import { measure, padsSize, recordTab, SOUND_SIZE, SPOTIFY_SIZE, spotifyLink, spotifyTitle } from './frames/audio'
 import { BLOCK_HEAD, BLOCK_PAD } from './canvas/blocks'
 import { boundsAround, isSection, SECTION_PAD, sectionContents, sectionOf, withContents } from '../shared/sections.ts'
 import {
@@ -499,6 +500,8 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     toast('That isn’t a web address', true)
     return
   }
+  const spotify = spotifyLink(url)
+  if (spotify) return addSpotify(spotify.url, at)
   if (!isMediaLink(url)) return addUrl(url, at)
   const host = new URL(url).hostname.replace(/^www\./, '')
   // A placeholder where it will land, so the canvas shows it's coming (and you can keep working).
@@ -512,9 +515,9 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     const w0 = m.width ?? 480
     const h0 = m.height ?? 300
     const k = Math.min(1, max / Math.max(w0, h0))
-    const box = blockBox(w0 * k, h0 * k)
+    const box = m.type === 'audio' ? blockBox(SOUND_SIZE.w, SOUND_SIZE.h) : blockBox(w0 * k, h0 * k)
     const f = addFrame({ type: m.type, src: m.path, origin: m.source, label: m.title, ...place(box.w, box.h, at) })
-    toast(`Added ${m.type} from ${host}`)
+    toast(`Added ${m.type === 'audio' ? 'sound' : m.type} from ${host}`)
     cue('ready')
     convertGifs(getState().boardName)
     return f
@@ -526,7 +529,7 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
 
 /** A project's pieces side by side at a shared height, centered on `at`, as one undo step. */
 function addPieces(
-  items: { path: string; type: 'video' | 'image'; width?: number; height?: number }[],
+  items: { path: string; type: 'video' | 'image' | 'audio'; width?: number; height?: number }[],
   title: string,
   source: string,
   host: string,
@@ -556,6 +559,129 @@ function addPieces(
   toast(`Added ${frames.length} pieces from ${host}`)
   cue('ready')
   return frames[0]
+}
+
+/** A Spotify link: Spotify's own player in a sound block. Only the link and its title are kept. */
+export async function addSpotify(url: string, at?: { x: number; y: number }) {
+  const box = blockBox(SPOTIFY_SIZE.w, SPOTIFY_SIZE.h)
+  const f = addFrame({ type: 'audio', src: url, music: { provider: 'spotify' }, label: 'Spotify', ...place(box.w, box.h, at) })
+  cue('paste')
+  const title = await spotifyTitle(url)
+  if (title && frameById(f.id)) updateFrame(f.id, { label: title, music: { provider: 'spotify', title } })
+  return f
+}
+
+/** Records a tab's sounds; when it stops, each one becomes a pad: in a new block, or added to `into`. */
+export function recordSounds(at = viewportCenter(), into?: string) {
+  if (getState().recording) return recordTab(() => {})
+  return recordTab((clips) => {
+    if (into && frameById(into)) {
+      addClips(into, clips)
+      toast(`Added ${clips.length} sound${clips.length > 1 ? 's' : ''}`)
+      cue('ready')
+      return
+    }
+    const size = padsSize(clips.length)
+    const box = blockBox(size.w, size.h)
+    addFrame({ type: 'audio', clips, label: 'Recorded sounds', ...place(box.w, box.h, at) })
+    toast(`${clips.length} sound${clips.length > 1 ? 's' : ''} from the recording`)
+    cue('ready')
+  })
+}
+
+/** A sound block's sounds: its pads, or the one sound it holds. Spotify blocks have none. */
+const soundsOf = (f: Frame): SoundClip[] =>
+  f.type !== 'audio' || f.music ? [] : (f.clips ?? (f.src ? [{ src: f.src, name: f.label || 'Sound', sound: f.sound }] : []))
+
+const padsBox = (n: number) => blockBox(padsSize(n).w, padsSize(n).h)
+
+/** More pads on a sound block; a single sound becomes the first pad. It grows to fit where it stands. */
+export function addClips(id: string, clips: SoundClip[]) {
+  const f = frameById(id)
+  if (!f || f.type !== 'audio' || f.music) return
+  const next = [...soundsOf(f), ...clips]
+  updateFrame(id, { clips: next, src: undefined, sound: undefined, label: f.clips ? f.label : 'Sounds', ...padsBox(next.length) })
+}
+
+export function renameClip(id: string, index: number, name: string) {
+  const f = frameById(id)
+  if (!f?.clips || !name.trim()) return
+  updateFrame(id, { clips: f.clips.map((c, i) => (i === index ? { ...c, name: name.trim() } : c)) })
+}
+
+/** Sound blocks selected → one row of pads, left to right, where the first one was. */
+export function combineSounds() {
+  const sources = getState()
+    .selected.map(frameById)
+    .filter((f): f is Frame => !!f && soundsOf(f).length > 0)
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+  if (sources.length < 2) return toast('Select two or more sounds', true)
+  const seen = new Set<string>()
+  const clips = sources.flatMap(soundsOf).filter((c) => !seen.has(c.src) && seen.add(c.src))
+  const ids = new Set(sources.map((s) => s.id))
+  mutateFrames((fs) => fs.filter((f) => !ids.has(f.id)))
+  const rows = sources.filter((f) => f.clips)
+  addFrame({ type: 'audio', clips, label: rows.length === 1 ? rows[0].label : 'Sounds', x: sources[0].x, y: sources[0].y, ...padsBox(clips.length) })
+  toast(`Merged ${sources.length} into one row of pads · ⌘Z to undo`)
+  cue('paste')
+}
+
+/** One sound per pad, side by side where the pads were. */
+export function splitSounds(id = getState().selected[0]) {
+  const f = frameById(id)
+  if (!f?.clips?.length) return
+  const box = blockBox(SOUND_SIZE.w, SOUND_SIZE.h)
+  const made = f.clips.map((c, i) => ({
+    id: newId(),
+    type: 'audio' as const,
+    src: c.src,
+    sound: c.sound,
+    label: c.name,
+    x: f.x + (i % 3) * (box.w + 24),
+    y: f.y + Math.floor(i / 3) * (box.h + 24),
+    ...box,
+  }))
+  mutateFrames((fs) => [...fs.filter((x) => x.id !== f.id), ...made])
+  setState({ selected: made.map((m) => m.id) })
+  cue('paste')
+}
+
+/** One pad out of the row, as its own sound beside it. */
+export function takeOutClip(id: string, index: number) {
+  const f = frameById(id)
+  const c = f?.clips?.[index]
+  if (!f || !c) return
+  const rest = f.clips!.filter((_, i) => i !== index)
+  const box = blockBox(SOUND_SIZE.w, SOUND_SIZE.h)
+  const out = { id: newId(), type: 'audio' as const, src: c.src, sound: c.sound, label: c.name, ...place(box.w, box.h, { x: f.x + f.w + 24 + box.w / 2, y: f.y + box.h / 2 }) }
+  mutateFrames((fs) => [
+    ...fs.flatMap((x) => (x.id !== f.id ? [x] : rest.length ? [{ ...x, clips: rest, ...padsBox(rest.length) }] : [])),
+    out,
+  ])
+  setState({ selected: [out.id] })
+  cue('paste')
+}
+
+export function removeClip(id: string, index: number) {
+  const f = frameById(id)
+  if (!f?.clips || f.clips.length < 2) return
+  const next = f.clips.filter((_, i) => i !== index)
+  updateFrame(id, { clips: next, ...padsBox(next.length) })
+  cue('remove')
+}
+
+/** Sound files dropped on a row of pads: each becomes another pad, named after its file. */
+export async function addSoundFiles(id: string, files: File[]) {
+  const board = getState().boardName
+  const clips: SoundClip[] = []
+  for (const file of files.filter((f) => f.type.startsWith('audio/') || AUDIO_FILE.test(f.name))) {
+    const up = await api.upload(board, file)
+    const sound = await measure(assetUrl(up.path)).catch(() => undefined)
+    clips.push({ src: up.path, name: file.name.replace(/\.\w+$/, ''), sound })
+  }
+  if (!clips.length) return toast('Only sounds can go on pads', true)
+  addClips(id, clips)
+  cue('paste')
 }
 
 export function addUrl(href: string, at?: { x: number; y: number }) {
@@ -738,6 +864,8 @@ function mediaSize(file: File, kind: 'image' | 'video'): Promise<{ w: number; h:
   })
 }
 
+const AUDIO_FILE = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|aiff?)$/i
+
 export async function uploadFiles(files: File[], at = viewportCenter()) {
   let offset = 0
   for (const file of files) {
@@ -745,7 +873,9 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
       ? 'image'
       : file.type.startsWith('video/')
         ? 'video'
-        : null
+        : file.type.startsWith('audio/') || AUDIO_FILE.test(file.name)
+          ? 'audio'
+          : null
     if (!type) {
       if (/\.(tsx|jsx|html?)$/i.test(file.name)) {
         const kind = /\.html?$/i.test(file.name) ? 'html' : 'tsx'
@@ -753,7 +883,7 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
       } else toast(`Skipped ${file.name}: unsupported type`, true)
       continue
     }
-    const media = await mediaSize(file, type as 'image' | 'video')
+    const media = type === 'audio' ? SOUND_SIZE : await mediaSize(file, type as 'image' | 'video')
     const size = blockBox(media.w, media.h)
     // Big clips take a moment to copy in: show where they'll land meanwhile.
     const done = startPending({ ...place(size.w, size.h, { x: at.x + offset, y: at.y + offset }), label: `Adding ${file.name}` })
@@ -935,11 +1065,17 @@ export async function pasteFrames(from: Clip | null = clip, at?: { dx: number; d
       return [{ ref: l.ref, n: l.n || followLink(l.ref)[0].n }]
     })
     let src = f.src
-    if (src && from.board !== s.boardName && (f.type === 'image' || f.type === 'video')) {
+    if (src && from.board !== s.boardName && (f.type === 'image' || f.type === 'video' || (f.type === 'audio' && !f.music))) {
       src = (await api.copyAsset(s.boardName, from.board, src).catch(() => ({ path: src! }))).path
     }
+    let clips = f.clips
+    if (clips && from.board !== s.boardName) {
+      clips = await Promise.all(
+        clips.map(async (c) => ({ ...c, src: (await api.copyAsset(s.boardName, from.board, c.src).catch(() => ({ path: c.src }))).path })),
+      )
+    }
     // A copy is never the approved direction: there's one, and it's the original.
-    const base = { ...f, id, links: links.length ? links : undefined, link: undefined, src, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
+    const base = { ...f, id, links: links.length ? links : undefined, link: undefined, src, clips, chosen: undefined, x: f.x + dx, y: f.y + dy, analysis: from.board === s.boardName ? f.analysis : undefined }
     // A layout keeps its copied blocks, in the same places.
     if (f.layout) {
       const order = f.layout.order.map((o) => ids.get(o) ?? '')

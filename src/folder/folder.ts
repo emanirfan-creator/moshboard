@@ -529,7 +529,7 @@ function watchByPolling(dir: Dir) {
 const AGENTS = `# Moshboard
 
 This folder holds Moshboard boards: a moodboard where references can be live (videos, websites,
-runnable components). Each board is a folder with a \`board.json\`, \`frames/\` (code frame
+sounds, runnable components). Each board is a folder with a \`board.json\`, \`frames/\` (code frame
 sources) and \`assets/\` (uploads and analysis). The app watches these files, so edits show up live.
 \`board.json\`'s \`comments\` are the user's own review notes, pinned on blocks (\`on\` is the frame id).
 When asked to address them, make the change, then set \`"resolved": true\` on each one handled.

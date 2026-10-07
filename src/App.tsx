@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { RecordingBar } from './frames/RecordingBar'
 import {
   copySelection,
   pasteFrames,
@@ -267,6 +268,7 @@ export function App() {
       <CapturePicker />
       <Onboarding />
       <ClaudeTask />
+      <RecordingBar />
       {toast && (
         <div className="toast" data-error={toast.error || undefined}>
           {toast.text}

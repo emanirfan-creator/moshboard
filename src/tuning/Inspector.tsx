@@ -16,6 +16,11 @@ import {
   resetParam,
   resetParams,
   setParam,
+  recordSounds,
+  removeClip,
+  renameClip,
+  splitSounds,
+  takeOutClip,
 } from '../actions'
 import { clamp, drag } from '../drag'
 import { videos } from '../frames/registry'
@@ -62,6 +67,7 @@ import { runtimeGroups } from '../../shared/runtime-motion.ts'
 import { Segmented } from '../ui/Segmented'
 import { feelOf, mainMove } from '../../shared/read-motion.ts'
 import { scanChirp } from '../ui/sound'
+import { seconds, soundFacts, soundFeel } from '../../shared/sound.ts'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
 
 const EMPTY = {}
@@ -131,6 +137,7 @@ export function Inspector() {
 const KIND: Record<string, string> = {
   code: 'Component',
   video: 'Video',
+  audio: 'Sound',
   text: 'Text',
   palette: 'Palette',
   swatch: 'Font',
@@ -159,6 +166,7 @@ function Body({ frame }: { frame: Frame }) {
       <LinksBody frame={frame} />
       {frame.type === 'code' && <CodeBody frame={frame} />}
       {frame.type === 'video' && <VideoBody frame={frame} />}
+      {frame.type === 'audio' && <AudioBody frame={frame} />}
       {frame.type === 'text' && <TextBody frame={frame} />}
       {frame.type === 'palette' && <PaletteBody frame={frame} />}
       {frame.type === 'swatch' && frame.font && <FontBody frame={frame} />}
@@ -625,6 +633,95 @@ function VideoBody({ frame }: { frame: Frame }) {
         </button>
       </footer>
     </>
+  )
+}
+
+/** A sound: what it measures as. A row of pads: each pad, to rename, take out or remove. Spotify: the way back to it. */
+function AudioBody({ frame }: { frame: Frame }) {
+  if (frame.music)
+    return (
+      <footer className="insp-foot">
+        <a className="btn" href={frame.src} target="_blank" rel="noreferrer">
+          Open in Spotify
+        </a>
+      </footer>
+    )
+  if (frame.clips)
+    return (
+      <div className="insp-scroll">
+        <Section title="Sounds">
+          <dl className="insp-facts">
+            {frame.clips.map((c, i) => (
+              <ClipRow key={c.src} id={frame.id} index={i} name={c.name} read={c.sound ? `${seconds(c.sound.length)} · ${soundFeel(c.sound)}` : '…'} only={frame.clips!.length < 2} />
+            ))}
+          </dl>
+          <div className="insp-buttons">
+            <RecordMore id={frame.id} />
+            <button className="btn" onClick={() => splitSounds(frame.id)} title="One block per sound">
+              Split
+            </button>
+          </div>
+        </Section>
+      </div>
+    )
+  return (
+    <div className="insp-scroll">
+      <Section title="Sound">
+        {frame.sound ? <Facts rows={soundFacts(frame.sound)} /> : <p className="ctl-help">Reading the sound…</p>}
+        <div className="insp-buttons">
+          <RecordMore id={frame.id} />
+        </div>
+      </Section>
+    </div>
+  )
+}
+
+/** One pad: double-click its name to rename it; hover for take out and remove. */
+function ClipRow({ id, index, name, read, only }: { id: string; index: number; name: string; read: string; only: boolean }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <div className="clip-row">
+      {editing ? (
+        <input
+          className="clip-name-input"
+          autoFocus
+          defaultValue={name}
+          onFocus={(e) => e.target.select()}
+          onBlur={(e) => (renameClip(id, index, e.target.value), setEditing(false))}
+          onKeyDown={(e) => {
+            e.stopPropagation()
+            if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur()
+          }}
+        />
+      ) : (
+        <dt onDoubleClick={() => setEditing(true)} title="Double-click to rename">
+          {name}
+        </dt>
+      )}
+      <dd>{read}</dd>
+      {!only && (
+        <>
+          <button className="icon-btn clip-act" onClick={() => takeOutClip(id, index)} title="Take out as its own block" aria-label={`Take out ${name}`}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M9.5 3.5h3v3M12.5 3.5 7.5 8.5M11 9.5v3H3.5V5h3" />
+            </svg>
+          </button>
+          <button className="icon-btn clip-act" onClick={() => removeClip(id, index)} title={`Remove ${name}`} aria-label={`Remove ${name}`}>
+            <CloseIcon />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** More pads from a tab (sound files can also be dropped on the block). */
+function RecordMore({ id }: { id: string }) {
+  const recording = useStore((s) => !!s.recording)
+  return (
+    <button className="btn" onClick={() => recordSounds(undefined, id)} title="Or drop sound files on the block">
+      {recording ? 'Stop recording' : 'Record more'}
+    </button>
   )
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { looksLikeInstall } from '../../shared/install.ts'
-import { addCode, addFrame, addFromRegistry, addLink, addPalette, addNote, addSection, addText, looksLikeCode, uploadFiles } from '../actions'
+import { addCode, addFrame, addFromRegistry, addLink, addPalette, addNote, addSection, addText, looksLikeCode, recordSounds, uploadFiles } from '../actions'
 import { setState, useStore, viewportCenter, type AddKind } from '../store'
 import { DEFAULT_FONT, fontStack, SWATCH_SIZE, swatchBox, swatchFont, type FontFamily } from '../../shared/fonts.ts'
 import { hasColors } from '../boardColors'
@@ -9,10 +9,11 @@ import { suggestFonts, type FontSuggestion } from '../fontSuggest'
 import { ColorPicker } from './ColorPicker'
 import { FontPicker } from './FontPicker'
 import { Segmented } from './Segmented'
-import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, NoteIcon, SectionIcon, SwatchIcon, TextIcon, FontIcon } from './icons'
+import { CloseIcon, CodeIcon, LinkIcon, MediaIcon, SoundIcon, NoteIcon, SectionIcon, SwatchIcon, TextIcon, FontIcon } from './icons'
 
 const OPTIONS: { kind: AddKind; title: string; hint: string; icon: ReactNode }[] = [
   { kind: 'media', title: 'Image or video', hint: 'Screenshots, clips, recordings', icon: <MediaIcon /> },
+  { kind: 'sound', title: 'Sound', hint: 'A file, Spotify, or a tab’s sounds', icon: <SoundIcon /> },
   { kind: 'code', title: 'Component', hint: 'Install command or pasted code', icon: <CodeIcon /> },
   { kind: 'url', title: 'Link', hint: 'Pinterest, Cosmos or any site', icon: <LinkIcon /> },
   { kind: 'text', title: 'Text', hint: 'Type on the canvas (T)', icon: <TextIcon /> },
@@ -66,6 +67,7 @@ function Dialog({ kind }: { kind: AddKind }) {
         </button>
         <div className="dialog-body">
           {kind === 'media' && <MediaForm />}
+          {kind === 'sound' && <SoundForm />}
           {kind === 'code' && <CodeForm />}
           {kind === 'url' && <UrlForm />}
           {kind === 'note' && <NoteForm />}
@@ -152,6 +154,66 @@ function MediaForm() {
   )
 }
 
+/** A sound: drop a file, paste a Spotify or sound link, or record what a tab plays. */
+function SoundForm() {
+  const input = useRef<HTMLInputElement>(null)
+  const [over, setOver] = useState(false)
+  const [url, setUrl] = useState('')
+  const canRecord = 'getDisplayMedia' in (navigator.mediaDevices ?? {})
+  const take = (files: File[]) => {
+    if (!files.length) return
+    close()
+    uploadFiles(files)
+  }
+  const submit = () => {
+    if (!url.trim()) return
+    close()
+    addLink(url.trim())
+  }
+  return (
+    <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
+      <h2>Sound</h2>
+      <div
+        className="dropzone"
+        data-over={over || undefined}
+        onClick={() => input.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setOver(true)
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          take([...e.dataTransfer.files])
+        }}
+      >
+        <SoundIcon />
+        <b>Drop a sound or click to browse</b>
+        <span>MP3, WAV, M4A, OGG, FLAC</span>
+        <input ref={input} type="file" multiple accept="audio/*" hidden onChange={(e) => take([...(e.target.files ?? [])])} />
+      </div>
+      <label>
+        Or a link
+        <input value={url} placeholder="https://open.spotify.com/track/… or a .mp3 link" onChange={(e) => setUrl(e.target.value)} />
+      </label>
+      <Footer
+        tip={
+          canRecord && (
+            <button className="btn btn-ghost" onClick={() => (close(), recordSounds())} title="Pick a tab, use it, then Stop: each sound becomes a pad">
+              Record from a tab
+            </button>
+          )
+        }
+      >
+        <button className="btn btn-primary" disabled={!url.trim()} onClick={submit}>
+          Add link <kbd>↵</kbd>
+        </button>
+      </Footer>
+    </div>
+  )
+}
+
 function CodeForm() {
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
@@ -221,7 +283,7 @@ function UrlForm() {
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Add a link</h2>
       <p>
-        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and media links download. Other sites stay live.
+        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and media links download. <b>Spotify</b> plays in its own player. Other sites stay live.
       </p>
       <label>
         URL

@@ -35,6 +35,11 @@ export const MediaIcon = () => (
     <circle cx="10.5" cy="6" r="1" />
   </Icon>
 )
+export const SoundIcon = () => (
+  <Icon>
+    <path d="M3 7v2M5.5 5v6M8 2.5v11M10.5 5v6M13 7v2" />
+  </Icon>
+)
 export const CodeIcon = () => (
   <Icon>
     <path d="m5.5 4.5-3.5 3.5 3.5 3.5M10.5 4.5 14 8l-3.5 3.5" />

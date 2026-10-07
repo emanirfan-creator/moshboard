@@ -28,6 +28,19 @@
   --inner: #1b1c1f;
   --shell-radius: 18px;
   --radius: 12px;
+  /* Sound blocks are drawn as brushed-aluminium hardware: light metal, black keys and a black screen. */
+  --alu: #cfd0d2;
+  --alu-well: #b8b9bc;
+  --alu-plate: #c4c5c8;
+  --alu-ridge: #bcbdc0;
+  --alu-ridge-2: #cacbce;
+  --alu-hub: #d9dadc;
+  --alu-edge: #a9aaad;
+  --alu-key: #e9e9ea;
+  --alu-pad: #e4e4e6;
+  --ink: #1b1b1d;
+  --ink-2: #5d5e62;
+  --screen: #050505;
 
   --font: 'Inter Variable', Inter, system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
@@ -2833,7 +2846,7 @@ body:has(.sidebar[data-open]) .hint {
 /* Off screen: skip drawing a block's content. Not for blocks holding an iframe (code, sites):
    Chrome already stops drawing an off-screen iframe, and switching one off makes it redraw from
    scratch when it comes back, which is what stuttered while panning. */
-.frame[data-away]:not([data-type='code'], [data-type='url']) .frame-body {
+.frame[data-away]:not([data-type='code'], [data-type='url'], [data-type='audio']) .frame-body {
   content-visibility: hidden;
 }
 
@@ -5947,4 +5960,372 @@ textarea,
 }
 .kind-menu span small {
   color: var(--text-4);
+}
+
+/* ── sound blocks (frames/AudioFrame.tsx): a small aluminium device in the block. A reel you push
+      to play, a black screen with the waveform, black keys and a ticked knob; a tab recording is a
+      row of pads; Spotify keeps its own player in the window. ── */
+
+.deck {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--alu);
+  color: var(--ink);
+  font-size: 12px;
+  overflow: hidden;
+}
+.deck .screw {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--alu-edge);
+}
+.deck button {
+  font: inherit;
+  color: inherit;
+}
+.deck button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.deck-sound {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 100%;
+  gap: 16px;
+  padding: 16px;
+  align-items: center;
+}
+.reel {
+  height: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+.reel svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transition: transform 120ms var(--ease);
+}
+.reel:active svg {
+  transform: scale(0.985);
+}
+.reel-well {
+  fill: var(--alu-well);
+}
+.reel-plate {
+  fill: var(--alu-plate);
+  stroke: var(--alu-edge);
+  stroke-width: 0.5;
+}
+.reel-ridge {
+  fill: none;
+  stroke: var(--alu-ridge);
+  stroke-width: 1.2;
+}
+.reel-ridge.alt {
+  stroke: var(--alu-ridge-2);
+}
+.reel-hub {
+  fill: var(--alu-hub);
+  stroke: var(--alu-edge);
+  stroke-width: 0.5;
+}
+.reel-notch {
+  fill: var(--alu-well);
+}
+.reel-notch-edge {
+  fill: none;
+  stroke: var(--alu-edge);
+  stroke-width: 0.8;
+}
+.reel-mark {
+  fill: var(--ink);
+}
+/* Spins while it plays, and stops where it is. */
+.reel-spin {
+  transform-origin: 100px 100px;
+  animation: reel-spin 2.4s linear infinite paused;
+}
+.reel[data-on] .reel-spin {
+  animation-play-state: running;
+}
+@keyframes reel-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.deck-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+}
+.deck-screen {
+  background: var(--screen);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #f2f2f2;
+}
+.deck-wave {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+.deck-wave rect {
+  fill: #444;
+}
+.deck-wave rect[data-on] {
+  fill: #f2f2f2;
+}
+.deck-head {
+  stroke: #fff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.deck-read {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.deck-read .dim {
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-keys {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.deck-gap {
+  flex: 1;
+}
+.deck-key {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 0.5px solid var(--alu-edge);
+  background: var(--alu-key);
+  cursor: pointer;
+  transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+.deck-key svg {
+  width: 14px;
+  height: 14px;
+}
+.deck-key-main,
+.deck-key[data-on] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff !important;
+}
+.deck-key:active {
+  transform: translateY(0.5px);
+}
+.knob {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.knob svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.knob-tick {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+}
+.knob-cap {
+  fill: var(--ink);
+}
+.knob-line {
+  stroke: #fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-origin: 22px 22px;
+  transition: transform 160ms var(--spring);
+}
+.deck-pads {
+  padding: 12px;
+}
+.pads {
+  display: grid;
+  gap: 6px;
+}
+.pad {
+  height: 64px;
+  display: flex;
+  align-items: flex-end;
+  padding: 6px;
+  border-radius: 6px;
+  border: 0.5px solid var(--alu-edge);
+  background: var(--alu-pad);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: background 80ms var(--ease), color 80ms var(--ease);
+}
+.pad[data-on] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--alu-pad) !important;
+}
+.deck-spotify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 12px 12px;
+}
+.deck-window {
+  position: relative;
+  height: 162px;
+  flex: none;
+  padding: 5px;
+  border-radius: 8px;
+  background: var(--screen);
+}
+.spotify-slot,
+.spotify-slot > * {
+  display: block;
+  width: 100%;
+  height: 152px;
+  border: 0;
+  border-radius: 12px;
+}
+/* Before the block is selected, a click on the player selects the block. */
+.deck-window:not([data-live]) iframe {
+  pointer-events: none;
+}
+.spotify-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f2f2f2;
+  font-size: 12px;
+}
+.reel-small {
+  width: 44px;
+  height: 44px;
+  flex: none;
+}
+.deck-time {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Recording a tab's sounds: a bar with the time and Stop, over the canvas. */
+.rec-bar {
+  position: fixed;
+  z-index: 31;
+  top: 16px;
+  left: calc(var(--view-left, 0px) + (100vw - var(--view-left, 0px) - var(--view-right, 0px)) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: var(--overlay);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-1);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  animation: toast-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-1);
+  animation: rec-blink 1.2s ease-in-out infinite;
+}
+@keyframes rec-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* A pad's row in the side panel: its remove button shows on hover. */
+.clip-row {
+  align-items: center;
+  gap: 8px;
+}
+.clip-row dd {
+  margin-left: auto !important;
+}
+.clip-row dt {
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clip-act {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: none;
+}
+.clip-act svg {
+  width: 12px;
+  height: 12px;
+}
+/* On hover the actions take the reading's place, so the row never gets crowded. */
+.clip-row:hover .clip-act,
+.clip-act:focus-visible {
+  display: grid;
+}
+.clip-row:hover dd {
+  display: none;
+}
+.clip-row:hover dt {
+  margin-right: auto;
+}
+.clip-name-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: var(--text-1);
+  background: var(--accent-soft);
+  border: 0;
+  border-radius: 6px;
+  padding: 2px 6px;
+  outline: none;
+}
+
+/* Reordering pads: the others slide into their new slots; the held one rides the pointer. */
+.pads[data-reordering] .pad {
+  transition: transform 200ms var(--glide);
+}
+.pads[data-reordering] .pad[data-held] {
+  transition: none;
+  position: relative;
+  z-index: 1;
+  cursor: grabbing;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+/* Pads that can be reordered show a grab hand (a press still plays them). */
+.pads[data-sortable] .pad {
+  cursor: grab;
 }

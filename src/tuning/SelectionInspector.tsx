@@ -1,5 +1,6 @@
 import { Fold } from './Fold'
 import {
+  combineSounds,
   combineSwatches,
   deleteSelected,
   duplicateSelected,
@@ -27,6 +28,9 @@ export function SelectionBody() {
   const arrangeIds = useStore((s) => (s.board, readingOrder(arrangeable().frames).join()))
   const colorish = useStore(
     (s) => s.selected.filter((id) => ['swatch', 'palette'].includes(frameById(id)?.type ?? '')).length,
+  )
+  const sounds = useStore(
+    (s) => s.selected.filter((id) => { const f = frameById(id); return f?.type === 'audio' && !f.music }).length,
   )
   const palettes = useStore((s) => s.selected.filter((id) => frameById(id)?.type === 'palette').length)
   const n = ids.length
@@ -67,6 +71,15 @@ export function SelectionBody() {
             <div className="insp-buttons">
               <button className="btn" onClick={combineSwatches} title="Left to right, no duplicates">
                 {palettes >= 2 ? 'Merge palettes' : palettes ? 'Merge into palette' : 'Swatches → palette'}
+              </button>
+            </div>
+          </Fold>
+        )}
+        {sounds >= 2 && (
+          <Fold title="Sounds">
+            <div className="insp-buttons">
+              <button className="btn" onClick={combineSounds} title="Left to right, as one row of pads">
+                Merge into pads
               </button>
             </div>
           </Fold>

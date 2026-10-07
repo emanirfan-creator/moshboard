@@ -102,6 +102,8 @@ export interface State {
   commentCursor: string | null
   /** video whose analysis area is being drawn on the canvas */
   regionPick: string | null
+  /** a tab's sound being recorded: when it started (ms) */
+  recording: number | null
   /** a pin being dragged: where it is (canvas units) and what dropping it would do */
   pinDrag: { id: string; at: { x: number; y: number }; target: PinTarget } | null
 }
@@ -132,7 +134,7 @@ export type PinTarget =
 
 export type ExportScope = 'selection' | 'chosen' | 'all'
 
-export type AddKind = 'media' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text' | 'section'
+export type AddKind = 'media' | 'sound' | 'code' | 'url' | 'note' | 'color' | 'font' | 'text' | 'section'
 
 function storedFlag(key: string, fallback = true) {
   try {
@@ -195,6 +197,7 @@ let state: State = {
   commentTray: false,
   commentCursor: null,
   regionPick: null,
+  recording: null,
   pinDrag: null,
 }
 
@@ -443,7 +446,7 @@ export const screenToWorld = (sx: number, sy: number) => {
 /** sidebar width plus its inset from the screen edge */
 export const SIDEBAR_W = 252
 export const INSPECTOR_W = 300
-const INSPECTED = new Set(['code', 'video', 'text', 'palette'])
+const INSPECTED = new Set(['code', 'video', 'audio', 'text', 'palette'])
 /** Whether the right-hand inspector is showing (one inspectable frame selected). */
 export const inspectorOpen = (s: State) =>
   s.selected.length > 1 ||

@@ -17,7 +17,8 @@ import {
   type Param,
   type Spring,
 } from './params.ts'
-import type { Board, Frame, MotionCapture, MotionKind, Move, VideoAnalysis } from './types.ts'
+import type { Board, Frame, MotionCapture, MotionKind, Move, SoundReading, VideoAnalysis } from './types.ts'
+import { soundFacts } from './sound.ts'
 import { isSection, sectionOf, withContents } from './sections.ts'
 import { normalizeLinks, refsOf } from './frame-links.ts'
 
@@ -344,6 +345,16 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const fontImports = [...new Set(fonts.map((f) => f.fontHref).filter(Boolean))]
   const notes = board.frames.filter((f) => (f.type === 'note' || f.type === 'text') && f.text?.trim())
   const images = board.frames.filter((f) => f.type === 'image' && f.src)
+  const sounds = board.frames.filter((f) => f.type === 'audio' && !f.music && (f.src || f.clips?.length))
+  const music = board.frames.filter((f) => f.type === 'audio' && f.music && f.src)
+  const notesOn = (f: Frame) => notes.filter((n) => refsOf(n).includes(f.id)).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`).join('')
+  // One sound: its file in refs/ and what it measures as, in the side panel's words.
+  const soundLine = (label: string, src: string, r?: SoundReading) => {
+    const dest = copyRef(src)
+    const file = dest ? `: [\`${dest}\`](${dest})` : ''
+    const read = r ? `. ${soundFacts(r).map(([k, v]) => (k === 'Feel' ? v.toLowerCase() : `${k.toLowerCase()} ${v}`)).join(', ')}` : ''
+    return `- **${label}**${file}${read}`
+  }
 
   // ── tokens.css / tokens.json ────────────────────────────
   const tokenCss = [
@@ -527,6 +538,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
         ['Animating something?', '→ motion.md'],
         ...(codeFrames.length ? [['Rebuilding an interaction?', '→ interactions.md + snippets/'] as [string, string]] : []),
         ...(images.length ? [['Matching a look?', '→ Visual references below · refs/'] as [string, string]] : []),
+        ...(sounds.length ? [['Adding a sound?', '→ Sound below · refs/'] as [string, string]] : []),
       ],
       '',
     ),
@@ -560,6 +572,23 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
           }),
           '',
         ]
+      : []),
+    ...(sounds.length
+      ? [
+          '## Sound',
+          '',
+          'Interface sounds, measured from the files in `refs/`. Match their length, how fast they get loud and how they fade before matching anything else.',
+          '',
+          ...sounds.flatMap((f) =>
+            f.clips
+              ? [`- **${name(f)}**${notesOn(f)}`, ...f.clips.map((c) => `  ${soundLine(c.name, c.src, c.sound)}`)]
+              : [soundLine(name(f), f.src!, f.sound) + notesOn(f)],
+          ),
+          '',
+        ]
+      : []),
+    ...(music.length
+      ? ['## Music', '', 'Mood references, played in Spotify. Their feel is in the notes beside them.', '', ...music.map((f) => `- **${f.music?.title ?? name(f)}**: ${f.src}${notesOn(f)}`), '']
       : []),
     ...pacingSection(board.frames, readJson, name),
     ...(codeFrames.length
