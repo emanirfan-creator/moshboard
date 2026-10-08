@@ -43,6 +43,8 @@ const setFrame = (patch: Partial<Frame>) => editBoard((b) => Object.assign(b.fra
 const frame = readBoard().frames.find((f) => f.id === frameId)
 if (!frame) fail(`No frame ${frameId} on that board`)
 if (frame!.type !== 'url' || !frame!.src) fail(`Frame ${frameId} isn't a website (it's ${frame!.type})`)
+// Instagram/LinkedIn posts keep only their link: nothing is captured or saved from them.
+if (frame!.post) fail(`Frame ${frameId} is a ${frame!.post.provider} post, not a website; posts stay in the site's own embed`)
 const url = frame!.src!
 
 try {
@@ -53,6 +55,13 @@ try {
     const selector = flag('selector') ?? fail('capture needs --selector "<css>" (find one with: elements)')
     const trigger = flag('trigger') ?? 'hover'
     const { capture, path: rel, scaffold } = await captureUrl(boardDir, frameId, { url, selector, trigger })
+    const n = capture.transitions.length + capture.animations.length
+    // Nothing moved: the board stays as it was, so trying again leaves nothing behind.
+    if (!n) {
+      console.log(JSON.stringify({ captured: 0, recording: capture.recording }, null, 2))
+      console.error('Nothing moved. Nothing was added to the board.')
+      process.exit(0)
+    }
     // Like "Capture motion" in the app: the capture is linked to the site, and a starting frame replays it.
     const id = Math.random().toString(36).slice(2, 8)
     fs.mkdirSync(path.join(boardDir, 'frames'), { recursive: true })
@@ -62,11 +71,9 @@ try {
       f.analysis = rel
       b.frames.push({ id, type: 'code', file: `frames/${id}.html`, label: `${f.label ?? 'Site'}: ${trigger}`, link: f.id, x: f.x + f.w + 48, y: f.y, w: 420, h: 300, fit: true })
     })
-    const n = capture.transitions.length + capture.animations.length
     console.log(
       JSON.stringify({ captured: n, transitions: capture.transitions, animations: capture.animations.map((a) => ({ name: a.name, duration: a.duration, delay: a.delay, easing: a.easing })), file: rel, recording: capture.recording, scaffold: id }, null, 2),
     )
-    if (!n) console.error('Nothing moved. Try another element or trigger.')
   } else if (command === 'snapshot') {
     const shot = await snapshotUrl(boardDir, frameId, url, Number(flag('width')) || frame!.viewport || 1280)
     const usedFonts = await siteFonts(url).catch(() => [])

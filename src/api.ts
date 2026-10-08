@@ -105,6 +105,8 @@ export const api = {
         }
       >(r),
     ),
+  /** The post an Instagram share link stands for. */
+  postLink: (url: string) => fetch(`/api/post-link?url=${enc(url)}`).then((r) => json<{ url: string }>(r)),
   embeddable: (url: string) =>
     fetch(`/api/embeddable/_?url=${enc(url)}`).then((r) => json<{ embeddable: boolean; reason?: string }>(r)),
   snapshot: (b: string, id: string, url: string, width?: number) =>

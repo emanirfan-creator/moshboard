@@ -101,11 +101,15 @@ async function mp4BesideStream(m3u8: string): Promise<string | null> {
   if (!m) return null
   const [, root, kind, path] = m
   const tries = [`${root}${kind}/720p/${path}.mp4`, ...[4, 3, 2, 1].map((t) => `${root}iht/expMp4/${path}_t${t}.mp4`)]
-  for (const url of tries) {
-    const r = await fetch(url, { method: 'HEAD', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(10000) }).catch(() => null)
-    if (r?.ok && (r.headers.get('content-type') ?? '').startsWith('video/')) return url
-  }
-  return null
+  // All at once with a short limit (the website's function has a minute in all), best one that answers.
+  const ok = await Promise.all(
+    tries.map((url) =>
+      fetch(url, { method: 'HEAD', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(6000) })
+        .then((r) => r.ok && (r.headers.get('content-type') ?? '').startsWith('video/'))
+        .catch(() => false),
+    ),
+  )
+  return tries[ok.indexOf(true)] ?? null
 }
 
 // A Muzli project (me.muz.li/<user>/<slug>) is several pieces. The page data lists
@@ -150,14 +154,14 @@ async function findPinterestMedia(pageUrl: string): Promise<Found | null> {
     ...(pin.carousel_data?.carousel_slots ?? []).map((s: any) => s.videos?.video_list),
   ]
   const title = pickTitle(pin.title || pin.grid_title, pin.description)
+  // The first page that has a video, in order: its mp4, or for a page that only streams, the mp4 beside it.
   for (const list of lists) {
     const v = bestPinVideo(list)
     if (v) return { url: v.url, kind: 'video', title, width: v.width, height: v.height }
+    const stream = pinStream(list)
+    const mp4 = stream && (await mp4BesideStream(stream.url))
+    if (mp4) return { url: mp4, kind: 'video', title, width: stream.width, height: stream.height }
   }
-  // Only a stream: its mp4 copy, else the cover picture below.
-  const stream = lists.map(pinStream).find(Boolean)
-  const mp4 = stream && (await mp4BesideStream(stream.url))
-  if (mp4) return { url: mp4, kind: 'video', title, width: stream.width, height: stream.height }
   const image = pin.images?.orig ?? Object.values(pin.images ?? {}).at(-1)
   return image?.url ? { url: image.url, kind: 'image', title, width: image.width, height: image.height } : null
 }

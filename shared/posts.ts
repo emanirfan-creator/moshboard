@@ -28,7 +28,17 @@ const INSTAGRAM = /^\/(?:[\w.]+\/)?(p|reels?|tv)\/(?!audio\/)([\w-]+)/
 const LINKEDIN_URN = /urn:li:(activity|share|ugcPost):(\d+)/
 const LINKEDIN_POST = /^\/posts\/(?:.*[-_])?(activity|share|ugcPost)-(\d{10,})/
 
-/** An Instagram or LinkedIn post link, or null for anything else. */
+/** An Instagram share link (instagram.com/share/…, from the app's share sheet): it has to be followed to find the post. */
+export function isShareLink(href: string) {
+  try {
+    const u = new URL(href)
+    return /(^|\.)instagram\.com$/i.test(u.hostname) && /^\/share\//.test(u.pathname)
+  } catch {
+    return false
+  }
+}
+
+/** An Instagram or LinkedIn post link, or null for anything else (and for share links: see isShareLink). */
 export function postLink(href: string): PostLink | null {
   let u: URL
   try {
@@ -38,6 +48,7 @@ export function postLink(href: string): PostLink | null {
   }
   const host = u.hostname.toLowerCase()
   if (host === 'instagram.com' || host.endsWith('.instagram.com')) {
+    if (u.pathname.startsWith('/share/')) return null
     const m = INSTAGRAM.exec(u.pathname)
     if (!m) return null
     const kind = m[1] === 'p' || m[1] === 'tv' ? 'p' : 'reel'
@@ -49,7 +60,12 @@ export function postLink(href: string): PostLink | null {
     }
   }
   if (host === 'linkedin.com' || host.endsWith('.linkedin.com')) {
-    const path = decodeURIComponent(u.pathname)
+    let path = u.pathname
+    try {
+      path = decodeURIComponent(path)
+    } catch {
+      // a stray % in the slug: the id is still readable as is
+    }
     const m = LINKEDIN_URN.exec(path) ?? LINKEDIN_POST.exec(path)
     if (!m) return null
     const urn = `urn:li:${m[1]}:${m[2]}`

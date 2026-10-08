@@ -101,7 +101,12 @@ async function content(f: Frame, board: string, w: number, h: number): Promise<s
     }
     case 'url': {
       const post = f.post && postLink(f.src ?? '')
-      if (post) return `<iframe class="post" src="${esc(post.embed)}" loading="lazy" allow="autoplay; encrypted-media; fullscreen"></iframe>`
+      if (post) {
+        // As on the canvas: narrower than the embed's own minimum, it's drawn at that and scaled down.
+        const frame = `<iframe class="post" src="${esc(post.embed)}" loading="lazy" allow="autoplay; encrypted-media; fullscreen"></iframe>`
+        const k = Math.min(1, w / 326)
+        return k < 1 ? `<div class="scaled" style="width:326px;height:${h / k}px;transform:scale(${k})">${frame}</div>` : frame
+      }
       if (f.embed === 'blocked' && f.snapshot) return `<img class="top" src="${await media(f.snapshot, 1600)}" alt="${esc(f.label ?? '')}">`
       return scaled(`<iframe src="${esc(f.src ?? '')}" loading="lazy" referrerpolicy="no-referrer"></iframe>`)
     }

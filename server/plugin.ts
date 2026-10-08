@@ -483,9 +483,10 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     json(res, await resolveMediaLink(boardPath(board), String(link)))
     return true
   }
-  if ((kind === 'media-find' || kind === 'media-proxy') && method === 'GET') {
+  if ((kind === 'media-find' || kind === 'media-proxy' || kind === 'post-link') && method === 'GET') {
     // The website's functions (server/web), answered here too so folder mode works the same locally.
-    const { default: run } = kind === 'media-find' ? await import('./web/media-find.ts') : await import('./web/media-proxy.ts')
+    const { default: run } =
+      kind === 'media-find' ? await import('./web/media-find.ts') : kind === 'post-link' ? await import('./web/post-link.ts') : await import('./web/media-proxy.ts')
     await run(req, res)
     return true
   }

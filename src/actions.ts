@@ -8,7 +8,7 @@ import { cue, scanChirp, scanEmpty } from './ui/sound'
 import type { Clip as SoundClip, Frame, FrameType, MotionCapture, Region, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
-import { POST_SIZE, postLink, type PostLink } from '../shared/posts.ts'
+import { isShareLink, POST_SIZE, postLink, type PostLink } from '../shared/posts.ts'
 import { findPost, PHONE_RATIO } from './frames/findPost'
 import { allLinks, linkNumbers, linksOf, MAX_LINKS, nextLinkNumber, normalizeLinks, refsOf, type FrameLink, type LinkInfo } from '../shared/frame-links.ts'
 import { layoutMembers, movedSince, settleLayouts } from './layout'
@@ -504,6 +504,14 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
   }
   const spotify = spotifyLink(url)
   if (spotify) return addSpotify(spotify.url, at)
+  // An Instagram share link stands for a post: follow it to the post's own address first.
+  if (isShareLink(url)) {
+    const real = await api.postLink(url).catch(() => null)
+    const post = real && postLink(real.url)
+    if (post) return addPost(post, at)
+    toast('Couldn’t open that share link. Open it in your browser and paste the address it lands on', true)
+    return
+  }
   const post = postLink(url)
   if (post) return addPost(post, at)
   if (!isMediaLink(url)) return addUrl(url, at)
@@ -936,11 +944,18 @@ export function setView(id: string, view: Region | null, aspect: number, longest
   const f = frameById(id)
   if (!f) return
   const ratio = view ? (aspect * view.w) / view.h : aspect
+  if (!Number.isFinite(ratio) || ratio <= 0) return
   const tiled = !!getState().board && layoutMembers(getState().board!.frames).has(id)
-  const iw = longest ? (ratio >= 1 ? longest : longest * ratio) : f.w - BLOCK_PAD * 2
+  // In a layout the layout sizes the box; the block's own size (`natural`, which the layout reads
+  // for its shape and gives back when it leaves) takes the crop's shape instead.
+  const own = tiled ? (f.natural ?? { w: f.w, h: f.h }) : f
+  const iw = longest ? (ratio >= 1 ? longest : longest * ratio) : own.w - BLOCK_PAD * 2
   const box = blockBox(iw, iw / ratio)
-  const size = tiled || !Number.isFinite(box.h) ? {} : longest ? box : { h: box.h }
-  updateFrame(id, { view: view ?? undefined, ...size, crop: undefined })
+  const size = tiled ? { natural: longest ? box : { w: own.w, h: box.h } } : longest ? box : { h: box.h }
+  // An analysis area picked before that isn't inside the new crop would be read out of sight.
+  const inside = (r: Region, v: Region) => r.x >= v.x - 0.001 && r.y >= v.y - 0.001 && r.x + r.w <= v.x + v.w + 0.001 && r.y + r.h <= v.y + v.h + 0.001
+  const region = f.region && view && !inside(f.region, view) ? { region: undefined } : {}
+  updateFrame(id, { view: view ?? undefined, ...size, ...region, crop: undefined })
 }
 
 /** A picture's or video's own width ÷ height. */
@@ -1590,13 +1605,19 @@ export const readAnalysis = (f?: Frame): VideoAnalysis | null => (f?.analysis ? 
 
 export async function captureSelected(selector: string, trigger: string) {
   const f = frameById(getState().selected[0])
-  if (!f || f.type !== 'url' || !f.src) return toast('Select a URL frame to capture', true)
+  if (!f || f.type !== 'url' || !f.src || f.post) return toast('Select a website to capture', true)
   const done = startJob(f.id, `Capturing ${trigger === 'load' ? 'page load' : trigger}`)
   try {
     const { capture, path, scaffold } = await api.capture(getState().boardName, f.id, { url: f.src, selector, trigger })
+    const n = capture.transitions.length + capture.animations.length
+    // Nothing moved: leave the site as it was (no empty capture, no scaffold to clean up).
+    if (!n) {
+      toast('No transitions fired. Try another selector or trigger')
+      cue('deny')
+      return
+    }
     setState((s) => ({ files: { ...s.files, [path]: JSON.stringify(capture) } }))
     updateFrame(f.id, { analysis: path })
-    const n = capture.transitions.length + capture.animations.length
     await addCode('html', scaffold, {
       label: `${f.label ?? 'Site'}: ${trigger}`,
       links: followLink(f.id),
@@ -1605,8 +1626,8 @@ export async function captureSelected(selector: string, trigger: string) {
       w: 420,
       h: 300,
     })
-    toast(n ? `Captured ${n} timing${n > 1 ? 's' : ''}. Scaffold added` : 'No transitions fired. Try another selector or trigger')
-    cue(n ? 'ready' : 'deny')
+    toast(`Captured ${n} timing${n > 1 ? 's' : ''}. Scaffold added`)
+    cue('ready')
   } catch (e) {
     toast(`Capture failed: ${(e as Error).message}`, true)
   } finally {

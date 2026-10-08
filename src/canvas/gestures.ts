@@ -376,8 +376,8 @@ export function resizeFrame(e: RPE, f0: Frame, dir: Dir) {
         if (dir === 'e' || dir === 'w') y = f0.y + (f0.h - h) / 2
         else x = f0.x + (f0.w - w) / 2
       }
-      // A hand resize becomes the frame's own size again.
-      const patch = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), natural: undefined }
+      // A hand resize becomes the frame's own size again (and a block still waiting to size itself won't now).
+      const patch = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), natural: undefined, fit: undefined }
       // A layout section's blocks follow as it resizes.
       if (f0.layout) mutateFrames((fs) => settleLayouts(fs.map((f) => (f.id === f0.id ? { ...f, ...patch } : f))), false)
       else updateFrame(f0.id, patch, false)

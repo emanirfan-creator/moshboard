@@ -5,9 +5,7 @@
 import type { Frame } from '../shared/types.ts'
 import { refsOf } from '../shared/frame-links.ts'
 import { analyzeSelected, copyRecreate, exportBoard, lockParams, replay } from './actions'
-import { getState, setState } from './store'
-import { askClaude } from './folder/ClaudeTask'
-import { FOLDER_ONLY } from './folder/folder'
+import { getState } from './store'
 
 export type Stage = 'measured' | 'recreated' | 'tuned'
 export const STAGES: Stage[] = ['measured', 'recreated', 'tuned']
@@ -65,10 +63,9 @@ export function nextStep(f: Frame): Step | null {
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
   if (f.type === 'url' && !f.post) {
-    if (!f.analysis)
-      return FOLDER_ONLY
-        ? { label: 'Capture with Claude', hint: 'Claude records its timing in your Chrome', run: () => askClaude('capture', f.id) }
-        : { label: 'Capture motion', hint: 'Pick an element and record its timing', run: () => setState({ picking: f.id }) }
+    // A site is a reference first, not necessarily a motion one: capturing is in ⌘K for when it's
+    // wanted. (A site that can't be shown offers its snapshot in the block itself.)
+    if (!f.analysis) return null
     if (!copiesOf(f, frames).some((c) => c.file?.endsWith('.tsx')))
       return { label: 'Copy /recreate', hint: 'Copy the command for Claude Code', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }

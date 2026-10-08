@@ -1,6 +1,6 @@
 ---
 name: moshboard-site
-description: Capture a live website's motion, take a snapshot of it, or read its fonts, for a site frame on a Moshboard board, using the user's own Chrome. Use when asked to "capture motion", "snapshot", or "read the fonts" of a website on a Moshboard board, or when the Moshboard website hands over an instruction mentioning a site frame.
+description: Capture a live website's motion (looking first and asking which), take a snapshot of it, or read its fonts, for a site frame on a Moshboard board, using the user's own Chrome. Use when asked to "capture motion", "snapshot", or "read the fonts" of a website on a Moshboard board, or when the Moshboard website hands over an instruction mentioning a site frame.
 ---
 
 # Live sites on a Moshboard board
@@ -17,13 +17,12 @@ The first run sets up a browser driver next to the script (about a minute, once)
 
 ## Capture motion
 
-The user describes the element in words ("the Get started button") and a trigger (hover, click, load, scroll).
+Look first, then ask. Which motion matters, and whether to rebuild it, are the user's call: don't pick for them and don't measure until they've chosen. A hint in their message ("I'm thinking of the menu") is a starting point, not an order.
 
-1. `elements <board> <frameId>` lists what's on the site's first screen: each candidate's `selector`, its text `label`, whether it `moves` (declares a transition or animation) and its likely `trigger`. It also saves a screenshot (path in the output): look at it to match the user's words to the right candidate. Prefer one that `moves`.
-2. `capture <board> <frameId> --selector "<selector>" --trigger <trigger>` fires the trigger and measures the real timing: declared transitions, running animations, what changed, and a screen recording. It links the capture to the site frame and adds a starting code frame next to it that replays the timing. Its values are exact.
-3. If nothing moved, try the next likely candidate or trigger once, then tell the user what you tried.
-
-Afterwards, say in a sentence what was captured (property, duration, easing). Suggest `/recreate <board> <the scaffold id>` if they want it rebuilt faithfully.
+1. `elements <board> <frameId>` lists what's on the site's first screen: each candidate's `selector`, its text `label`, whether it `moves` (declares a transition or animation) and its likely `trigger`. It also saves a screenshot (path in the output): look at it.
+2. Tell the user, in plain words, what moves and what sets each one off (hover, click, load, scroll), a few at most, and ask which one they want. If nothing on the first screen moves, say so and ask what they had in mind.
+3. Once they've chosen: `capture <board> <frameId> --selector "<selector>" --trigger <trigger>` fires the trigger and measures the real timing (declared transitions, running animations, what changed, and a screen recording), links the capture to the site frame and adds a starting code frame next to it that replays the timing. Its values are exact. If nothing moved, say what you tried and ask before trying something else.
+4. Say in a sentence or two what was measured (what moves, how long, the easing), then ask whether they want it rebuilt. Only if they do, suggest `/recreate <board> <the scaffold id>`; rebuilding is its own back-and-forth, not part of the capture.
 
 ## Snapshot
 

@@ -24,6 +24,7 @@ import { Canvas } from './canvas/Canvas'
 import { CommandPalette } from './palette/CommandPalette'
 import { frameById, getState, redo, setState, SIDEBAR_W, sidebarShown, toast, togglePins, toggleSidebar, undo, useStore } from './store'
 import { arrangeAgain, canCrop, moveTile, startCrop } from './arrange'
+import { cancelCrop, finishCrop } from './frames/ViewPicker'
 import { jumpAlongLinks, jumpBack } from './canvas/follow'
 import { Inspector } from './tuning/Inspector'
 import { AddDialog } from './ui/AddDialog'
@@ -71,7 +72,7 @@ function useHotkeys() {
         if (!s.space) setState({ space: true })
       } else if (e.key === 'Escape') {
         if (s.regionPick) setState({ regionPick: null })
-        else if (s.viewPick) setState({ viewPick: null, viewDraft: null })
+        else if (s.viewPick) cancelCrop()
         else if (s.thread || s.draft) setState({ thread: null, draft: null })
         else if (s.commenting) setCommenting(false)
         else if (s.crop) setState({ crop: null })
@@ -111,6 +112,10 @@ function useHotkeys() {
         // A block in a layout trades places with its neighbor.
         const dir = ({ ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' } as const)[e.key as 'ArrowLeft']
         if (dir && moveTile(dir)) e.preventDefault()
+      } else if (e.key === 'Enter' && s.viewPick) {
+        // Cropping a picture: Enter keeps the crop (and nothing else, e.g. a layout's Pan & zoom).
+        e.preventDefault()
+        finishCrop('draft')
       } else if (e.key === 'Enter' && s.selected.length === 1 && canCrop(frameById(s.selected[0]))) {
         e.preventDefault()
         startCrop(s.selected[0])
@@ -200,6 +205,9 @@ function useLiveFiles() {
 }
 
 export function App() {
+  // Selecting something else, deleting the block or leaving the board ends a crop, unsaved.
+  const cropGone = useStore((s) => !!s.viewPick && !(s.selected.length === 1 && s.selected[0] === s.viewPick && frameById(s.viewPick)))
+  useEffect(() => void (cropGone && cancelCrop()), [cropGone])
   // A block still on its way (a link downloading, a clip copying in) counts: the canvas isn't empty anymore.
   const empty = useStore((s) => s.board !== null && s.board.frames.length === 0 && s.pending.length === 0)
   const toast = useStore((s) => s.toast)

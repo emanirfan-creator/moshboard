@@ -94,7 +94,7 @@ async function folder(clientId) {
 }
 
 // Requests the local server answers without touching boards: they still go to the network.
-const STATELESS = new Set(['tailwind', 'registry', 'embeddable', 'site-fonts', 'fonts', 'media-find', 'media-proxy'])
+const STATELESS = new Set(['tailwind', 'registry', 'embeddable', 'site-fonts', 'fonts', 'media-find', 'media-proxy', 'post-link'])
 // Features that still need the local app (ffmpeg, a browser it drives, the disk).
 const LOCAL_ONLY = {
   analyze: 'Motion analysis',

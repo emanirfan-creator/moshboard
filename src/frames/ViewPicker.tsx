@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { Frame, Region } from '../../shared/types.ts'
 import { fileAspect, setView } from '../actions'
 import { drag } from '../drag'
-import { frameById, getState, setState, useStore } from '../store'
+import { frameById, getState, setState, useCamera, useStore } from '../store'
 import { cue } from '../ui/sound'
 
 const FULL: Region = { x: 0, y: 0, w: 1, h: 1 }
@@ -53,11 +53,8 @@ export function ViewPicker({ frame }: { frame: Frame }) {
     }
   }, [])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Enter' && (e.preventDefault(), finishCrop('draft'))
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  // Zooming moves the picture's inset (it's in screen pixels): draw the box again.
+  useCamera((c) => c.z)
 
   // The overlay ↔ the file, through object-fit: contain inside the media's padding.
   const map = () => {
@@ -84,11 +81,12 @@ export function ViewPicker({ frame }: { frame: Frame }) {
       dw,
       dh,
       toFile: (cx: number, cy: number) => ({ x: clamp((cx - ox) / dw), y: clamp((cy - oy) / dh) }),
+      // As percentages of the overlay: its rect is on screen (zoomed), the box is drawn inside it.
       toBox: (g: Region) => ({
-        left: ox - r.left + g.x * dw,
-        top: oy - r.top + g.y * dh,
-        width: g.w * dw,
-        height: g.h * dh,
+        left: `${((ox - r.left + g.x * dw) / r.width) * 100}%`,
+        top: `${((oy - r.top + g.y * dh) / r.height) * 100}%`,
+        width: `${((g.w * dw) / r.width) * 100}%`,
+        height: `${((g.h * dh) / r.height) * 100}%`,
       }),
     }
   }
@@ -118,7 +116,9 @@ export function ViewPicker({ frame }: { frame: Frame }) {
         } else if (inside) {
           setDraft({ ...start, x: clamp(start.x + q.x - p.x, 0, 1 - start.w), y: clamp(start.y + q.y - p.y, 0, 1 - start.h) })
         } else {
-          setDraft({ x: Math.min(p.x, q.x), y: Math.min(p.y, q.y), w: Math.max(MIN, Math.abs(q.x - p.x)), h: Math.max(MIN, Math.abs(q.y - p.y)) })
+          const w = Math.max(MIN, Math.abs(q.x - p.x))
+          const h = Math.max(MIN, Math.abs(q.y - p.y))
+          setDraft({ x: Math.min(Math.min(p.x, q.x), 1 - w), y: Math.min(Math.min(p.y, q.y), 1 - h), w, h })
         }
       },
       undefined,

@@ -354,7 +354,8 @@ function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
  */
 function cropStyle(frame: Frame, cropping = false): React.CSSProperties | undefined {
   // Inset from the block's border, so the crop's edges aren't the block's (its resize handles sit there).
-  if (cropping) return { objectFit: 'contain', padding: 'calc(16px * var(--inv, 1))', boxSizing: 'border-box' }
+  // 16 screen px, but never more than a sliver of the block (zoomed far out, 16px is most of it).
+  if (cropping) return { objectFit: 'contain', padding: 'min(calc(16px * var(--inv, 1)), 6%)', boxSizing: 'border-box' }
   const v = frame.view
   const viewBox = v ? { objectViewBox: `inset(${pct(v.y)} ${pct(1 - v.x - v.w)} ${pct(1 - v.y - v.h)} ${pct(v.x)})` } : undefined
   const c = frame.crop

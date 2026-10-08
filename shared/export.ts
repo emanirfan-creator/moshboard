@@ -665,7 +665,8 @@ function describeReference(
       if (sheet) lines.push(`- **Keyframes:** [\`${sheet}\`](${sheet})`)
     }
   } else if (ref.type === 'url' && ref.post && ref.src) {
-    lines.push(`- **Reference:** ${POST_SITE[ref.post.provider]} post "${label}": ${ref.src}`)
+    const site = POST_SITE[ref.post.provider]
+    lines.push(`- **Reference:** ${label.includes(site) ? `"${label}"` : `${site} post "${label}"`}: ${ref.src}`)
   } else if (ref.type === 'url' && ref.src) {
     lines.push(`- **Reference:** live site ${ref.src}`)
     const c = readJson<MotionCapture>(ref.analysis)

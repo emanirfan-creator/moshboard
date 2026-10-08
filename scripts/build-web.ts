@@ -10,6 +10,7 @@ const OUT = path.resolve('.vercel/output')
 const FUNCTIONS: Record<string, string> = {
   'media-find': '/api/media-find',
   'media-proxy': '/api/media-proxy',
+  'post-link': '/api/post-link',
   registry: '/api/registry(/.*)?',
   fonts: '/api/fonts',
   embeddable: '/api/embeddable(/.*)?',

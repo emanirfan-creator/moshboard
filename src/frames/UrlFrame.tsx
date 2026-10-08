@@ -5,7 +5,7 @@ import { assetUrl } from '../actions'
 import { askClaude } from '../folder/ClaudeTask'
 import { FOLDER_ONLY } from '../folder/folder'
 import { api } from '../api'
-import { getState, updateFrame } from '../store'
+import { fitFrame, getState, updateFrame } from '../store'
 import { BlockLoader } from './BlockLoader'
 import { BLOCK_HEAD, BLOCK_PAD } from '../canvas/blocks'
 
@@ -39,8 +39,9 @@ async function takeSnapshot(frame: Frame) {
 export function UrlFrame({ frame, interact, size }: { frame: Frame; interact: boolean; size: Size }) {
   const [error, setError] = useState<string | null>(null)
 
+  // Posts (frame.post) are the site's own embed: never checked, never snapshotted.
   useEffect(() => {
-    if (frame.embed || !frame.src) return
+    if (frame.post || frame.embed || !frame.src) return
     once(`embed:${frame.id}`, () => api.embeddable(frame.src!)).then((r) =>
       updateFrame(frame.id, { embed: r.embeddable ? 'live' : 'blocked' }),
     )
@@ -48,7 +49,7 @@ export function UrlFrame({ frame, interact, size }: { frame: Frame; interact: bo
 
   useEffect(() => {
     // The website can't take snapshots itself; it asks Claude (below).
-    if (frame.embed !== 'blocked' || frame.snapshot || error || FOLDER_ONLY) return
+    if (frame.post || frame.embed !== 'blocked' || frame.snapshot || error || FOLDER_ONLY) return
     takeSnapshot(frame).catch((e) => setError((e as Error).message))
   }, [frame.embed, frame.snapshot, error])
 
@@ -199,7 +200,8 @@ function measured(data: unknown): number | null {
 function fitPost(id: string, height: number) {
   const f = getState().board?.frames.find((x) => x.id === id)
   if (!f?.fit) return
-  updateFrame(id, { fit: undefined, h: Math.round(Math.min(1400, height) + BLOCK_HEAD + BLOCK_PAD) })
+  // Its own measurement, not an edit: no undo step of its own (undoing past it would only refit).
+  fitFrame(id, { fit: undefined, h: Math.round(Math.min(1400, height) + BLOCK_HEAD + BLOCK_PAD) })
 }
 
 function Snapshot({ frame, interact }: { frame: Frame; interact: boolean }) {
