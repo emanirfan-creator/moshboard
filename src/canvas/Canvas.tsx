@@ -18,6 +18,7 @@ import { BlockLoader } from '../frames/BlockLoader'
 import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './blocks'
 import { useInView } from './useInView'
 import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
+import { POST_SITE } from '../../shared/posts.ts'
 import {
   frameById,
   getState,
@@ -287,8 +288,8 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
   })
   const tile = !!tileMode || !!preview
   const cropping = useStore((s) => s.crop === stored.id)
-  // Drawing a video's analysis area: the picture takes the pointer (see RegionPicker).
-  const picking = useStore((s) => s.regionPick === stored.id)
+  // Drawing a video's analysis area or a picture's crop: the picture takes the pointer (RegionPicker, ViewPicker).
+  const picking = useStore((s) => s.regionPick === stored.id || s.viewPick === stored.id)
   const dropTile = useStore((s) => s.dropTile === stored.id)
   const selected = useStore((s) => s.selected.includes(frame.id))
   const single = useStore((s) => s.selected.length === 1 && s.selected[0] === frame.id)
@@ -326,7 +327,9 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
       ? frame.file?.endsWith('.html')
         ? 'HTML'
         : 'React'
-      : { image: 'Image', video: 'Video', audio: 'Sound', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette', section: 'Section' }[frame.type]
+      : frame.post
+        ? POST_SITE[frame.post.provider]
+        : { image: 'Image', video: 'Video', audio: 'Sound', url: 'Website', note: 'Note', swatch: 'Swatch', text: 'Text', palette: 'Palette', section: 'Section' }[frame.type]
   const block = isBlock(frame)
   // A selected palette's columns take the pointer (hover tools), while drags still move it.
   // A sound's keys and reel work with one click, selected or not.

@@ -5,8 +5,9 @@ import { unlinkSelected } from '../actions'
 import { jumpTo, linkedTo } from '../canvas/follow'
 import { frameById, useStore } from '../store'
 import { LinkTag } from '../ui/LinkTag'
+import { POST_SITE } from '../../shared/posts.ts'
 
-const nameOf = (f?: Frame) => f?.label || (f ? { code: 'Component', url: 'Website', note: 'Note' }[f.type as string] || f.type[0].toUpperCase() + f.type.slice(1) : '')
+const nameOf = (f?: Frame) => f?.label || (f?.post ? POST_SITE[f.post.provider] : f ? { code: 'Component', url: 'Website', note: 'Note' }[f.type as string] || f.type[0].toUpperCase() + f.type.slice(1) : '')
 
 /**
  * The links a selected block is in, one row each: what's at the other end, go there, and

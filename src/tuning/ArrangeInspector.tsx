@@ -185,12 +185,12 @@ export function TileBody({ frame }: { frame: Frame }) {
       <div className="insp-buttons">
         {canCrop(frame) && (
           <button className="btn" onClick={() => startCrop(frame.id)} title="Drag to move the picture, scroll to zoom  ↵">
-            {cropping ? 'Done' : 'Crop'}
+            {cropping ? 'Done' : 'Pan & zoom'}
           </button>
         )}
         {crop && (
           <button className="btn" onClick={() => resetCrop(frame.id)}>
-            Reset crop
+            Reset
           </button>
         )}
         <button className="btn" onClick={() => takeOut(frame.id)}>

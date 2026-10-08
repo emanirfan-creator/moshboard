@@ -86,7 +86,7 @@ export async function suggestFonts(list: { mac: FontFamily[]; google: FontFamily
   const taken = new Set(frames.filter((f) => f.type === 'swatch' && f.font).map((f) => f.font!.toLowerCase()))
   const sources = await Promise.all(
     frames.map(async (f): Promise<UsedFont[]> => {
-      if (f.type === 'url' && f.src) return fontsOfSite(f.id, f.src, f.usedFonts)
+      if (f.type === 'url' && f.src && !f.post) return fontsOfSite(f.id, f.src, f.usedFonts)
       if (f.type === 'code') return f.usedFonts ?? []
       if (f.type === 'text' && f.font && f.text?.trim()) return [{ stack: `"${f.font}"`, weight: f.weight ?? 400, score: 1 }]
       return []

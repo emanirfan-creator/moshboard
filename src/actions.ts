@@ -5,9 +5,11 @@ import { easingBezier, isRuntimeName, saveRuntime } from '../shared/runtime-moti
 import { detectProps, isPropName, PROP_PREFIX } from '../shared/props.ts'
 import { detectFor, parseModules } from './tuning/detection'
 import { cue, scanChirp, scanEmpty } from './ui/sound'
-import type { Clip as SoundClip, Frame, FrameType, MotionCapture, VideoAnalysis } from '../shared/types.ts'
+import type { Clip as SoundClip, Frame, FrameType, MotionCapture, Region, VideoAnalysis } from '../shared/types.ts'
 import { looksLikeInstall } from '../shared/install.ts'
 import { isMediaLink } from '../shared/links.ts'
+import { POST_SIZE, postLink, type PostLink } from '../shared/posts.ts'
+import { findPost, PHONE_RATIO } from './frames/findPost'
 import { allLinks, linkNumbers, linksOf, MAX_LINKS, nextLinkNumber, normalizeLinks, refsOf, type FrameLink, type LinkInfo } from '../shared/frame-links.ts'
 import { layoutMembers, movedSince, settleLayouts } from './layout'
 import { copyText } from './clipboard'
@@ -502,6 +504,8 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
   }
   const spotify = spotifyLink(url)
   if (spotify) return addSpotify(spotify.url, at)
+  const post = postLink(url)
+  if (post) return addPost(post, at)
   if (!isMediaLink(url)) return addUrl(url, at)
   const host = new URL(url).hostname.replace(/^www\./, '')
   // A placeholder where it will land, so the canvas shows it's coming (and you can keep working).
@@ -568,6 +572,15 @@ export async function addSpotify(url: string, at?: { x: number; y: number }) {
   cue('paste')
   const title = await spotifyTitle(url)
   if (title && frameById(f.id)) updateFrame(f.id, { label: title, music: { provider: 'spotify', title } })
+  return f
+}
+
+/** An Instagram or LinkedIn post: the site's own embed in a block. Only the link is kept. */
+export function addPost(post: PostLink, at?: { x: number; y: number }) {
+  const size = POST_SIZE[post.provider]
+  const box = blockBox(size.w, size.h)
+  const f = addFrame({ type: 'url', src: post.url, post: { provider: post.provider }, embed: 'live', fit: post.provider === 'instagram' || undefined, label: post.name, ...place(box.w, box.h, at) })
+  cue('paste')
   return f
 }
 
@@ -889,17 +902,78 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
     const done = startPending({ ...place(size.w, size.h, { x: at.x + offset, y: at.y + offset }), label: `Adding ${file.name}` })
     const up = await api.upload(getState().boardName, file).finally(done)
     const path = up.path
-    addFrame({
+    const f = addFrame({
       type: up.type ?? type,
       src: path,
       label: file.name.replace(/\.\w+$/, ''),
       ...place(size.w, size.h, { x: at.x + offset, y: at.y + offset }),
     })
+    // A phone screenshot or screen recording: show just the post in it.
+    if ((f.type === 'image' || f.type === 'video') && media.h / media.w >= PHONE_RATIO) autoCrop(f.id, file, f.type, media.w / media.h)
     offset += 32
   }
   if (offset) cue('paste')
   // The local server converts animated GIFs on upload; the website does it here.
   convertGifs(getState().boardName)
+}
+
+/** Crops a new upload to the post found in it, once (it doesn't touch a block that's been cropped by hand since). */
+async function autoCrop(id: string, file: File, kind: 'image' | 'video', aspect: number) {
+  const url = URL.createObjectURL(file)
+  const view = await findPost(url, kind).finally(() => URL.revokeObjectURL(url))
+  if (!view || !frameById(id) || frameById(id)!.view) return
+  // Back to the size a dropped picture or video gets: the phone's narrow width made it small.
+  setView(id, view, aspect, kind === 'video' ? 480 : 360)
+  toast('Cropped to the post · ⌘Z to undo')
+}
+
+/**
+ * Shows just `view` of a picture or video (null: all of it). A loose block keeps its width and
+ * top and takes the crop's shape (or, with `longest`, is sized so its longer side is that);
+ * one in a layout keeps the box the layout gives it.
+ */
+export function setView(id: string, view: Region | null, aspect: number, longest?: number) {
+  const f = frameById(id)
+  if (!f) return
+  const ratio = view ? (aspect * view.w) / view.h : aspect
+  const tiled = !!getState().board && layoutMembers(getState().board!.frames).has(id)
+  const iw = longest ? (ratio >= 1 ? longest : longest * ratio) : f.w - BLOCK_PAD * 2
+  const box = blockBox(iw, iw / ratio)
+  const size = tiled || !Number.isFinite(box.h) ? {} : longest ? box : { h: box.h }
+  updateFrame(id, { view: view ?? undefined, ...size, crop: undefined })
+}
+
+/** A picture's or video's own width ÷ height. */
+export function fileAspect(f: Frame): Promise<number> {
+  const v = videos.get(f.id)
+  if (v?.videoWidth) return Promise.resolve(v.videoWidth / v.videoHeight)
+  return new Promise((resolve) => {
+    const url = assetUrl(f.src!)
+    if (f.type === 'video') {
+      const el = document.createElement('video')
+      el.preload = 'metadata'
+      el.onloadedmetadata = () => resolve(el.videoWidth / el.videoHeight || 1)
+      el.onerror = () => resolve(1)
+      el.src = url
+    } else {
+      const img = new Image()
+      img.onload = () => resolve(img.naturalWidth / img.naturalHeight || 1)
+      img.onerror = () => resolve(1)
+      img.src = `${url}?w=320`
+    }
+  })
+}
+
+/** ⌘K "Crop to the post": looks for the post in the selected picture or video. */
+export async function cropToPost(id = getState().selected[0]) {
+  const f = frameById(id)
+  if (!f || (f.type !== 'image' && f.type !== 'video') || !f.src) return
+  const done = startJob(f.id, 'Finding the post')
+  const [view, aspect] = await Promise.all([findPost(f.type === 'image' ? `${assetUrl(f.src)}?w=640` : assetUrl(f.src), f.type), fileAspect(f)]).finally(done)
+  if (!view) return toast('Couldn’t find a post in it. Crop… to pick it', true)
+  setView(f.id, view, aspect)
+  toast('Cropped to the post · ⌘Z to undo')
+  cue('confirm')
 }
 
 export function deleteSelected() {
@@ -1482,7 +1556,8 @@ export async function analyzeSelected() {
   if (!f || f.type !== 'video' || !f.src) return toast('Select a video to analyze', true)
   const done = startJob(f.id, 'Measuring motion')
   try {
-    const a = await api.analyze(getState().boardName, f.id, f.src, f.segment, f.region)
+    // A cropped video is read inside its crop unless an area was picked.
+    const a = await api.analyze(getState().boardName, f.id, f.src, f.segment, f.region ?? f.view)
     const rel = `assets/${f.id}.analysis.json`
     setState((s) => ({ files: { ...s.files, [rel]: JSON.stringify(a) } }))
     updateFrame(f.id, { analysis: rel })
@@ -1589,7 +1664,7 @@ export function fitView(frames: Pick<Frame, 'x' | 'y' | 'w' | 'h'>[]) {
 export function setViewport(width: number | undefined) {
   for (const id of getState().selected) {
     const f = frameById(id)
-    if (f && (f.type === 'code' || f.type === 'url')) updateFrame(id, { viewport: width })
+    if (f && (f.type === 'code' || (f.type === 'url' && !f.post))) updateFrame(id, { viewport: width })
   }
 }
 

@@ -50,10 +50,14 @@ import {
   ungroupSection,
   focusFrame,
   pickSection,
+  cropToPost,
+  fileAspect,
+  setView,
 } from '../actions'
 import { isTunable } from '../../shared/autoParams.ts'
 import { linkNumbers } from '../../shared/frame-links.ts'
 import { shareBoard } from '../share'
+import { POST_SITE } from '../../shared/posts.ts'
 import { setSounds, soundsOn } from '../ui/sound'
 import { frameById, getState, setState, togglePins, toggleSidebar, updateFrame, useStore } from '../store'
 
@@ -107,6 +111,13 @@ function Palette() {
       if (one.file?.endsWith('.tsx') && !isTunable(s.files[one.file] ?? '')) add('Frame', 'Add controls to code', () => makeTunable())
       add('Frame', 'Copy /recreate command', copyRecreate)
     }
+    if ((one?.type === 'image' || one?.type === 'video') && one.src) {
+      const group = one.type === 'image' ? 'Picture' : 'Video'
+      add(group, 'Crop…', () => setState({ viewPick: one.id, selected: [one.id], interact: null, regionPick: null }))
+      add(group, 'Crop to the post', () => cropToPost(one.id))
+      add(group, 'Crop with Claude…', () => askClaude('crop', one.id))
+      if (one.view) add(group, 'Show all of it', () => fileAspect(one).then((a) => setView(one.id, null, a)))
+    }
     if (one?.type === 'video') {
       add('Video', 'Analyze motion', analyzeSelected)
       add('Video', 'Mark segment start', () => markSegment('in'), 'I')
@@ -122,7 +133,10 @@ function Palette() {
     if (one?.type === 'audio' && !one.music) add('Sound', s.recording ? 'Stop recording' : 'Record more from a tab…', () => recordSounds(undefined, one.id))
     if (one?.clips) add('Sound', 'Split into separate sounds', () => splitSounds(one.id))
     if (sel.filter((f) => f!.type === 'audio' && !f!.music).length >= 2) add('Sound', 'Merge into pads', combineSounds)
-    if (one?.type === 'url' && FOLDER_ONLY) {
+    if (one?.type === 'url' && one.post) {
+      const src = one.src
+      add('Post', `Open on ${POST_SITE[one.post.provider]}`, () => window.open(src, '_blank', 'noopener'))
+    } else if (one?.type === 'url' && FOLDER_ONLY) {
       // The website can't drive a browser: these go to the user's Claude.
       add('Site', 'Capture motion with Claude…', () => askClaude('capture', one.id))
       if (one.embed === 'blocked') add('Site', 'Snapshot with Claude…', () => askClaude('snapshot', one.id))
@@ -132,7 +146,7 @@ function Palette() {
       add('Site', 'Capture motion…', () => setState({ picking: one.id }))
       add('Site', 'Copy /recreate command', copyRecreate)
     }
-    if (one?.type === 'code' || one?.type === 'url') {
+    if (one?.type === 'code' || (one?.type === 'url' && !one.post)) {
       for (const w of [375, 768, 1280]) add('Frame', `Render at ${w}px wide`, () => setViewport(w))
       if (one.viewport) add('Frame', 'Render at frame size', () => setViewport(undefined))
     }

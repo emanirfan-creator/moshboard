@@ -13,7 +13,8 @@ export type Stage = 'measured' | 'recreated' | 'tuned'
 export const STAGES: Stage[] = ['measured', 'recreated', 'tuned']
 export const STAGE_LABEL: Record<Stage, string> = { measured: 'Measured', recreated: 'Recreated', tuned: 'Tuned' }
 
-const isRef = (f: Frame) => f.type === 'video' || f.type === 'url'
+// A post (Instagram, LinkedIn) can't be measured: it's a look reference, not a motion one.
+const isRef = (f: Frame) => f.type === 'video' || (f.type === 'url' && !f.post)
 /** Coded copies linked to a reference (the scaffold a site capture adds counts too). */
 const copiesOf = (f: Frame, frames: Frame[]) => frames.filter((c) => c.type === 'code' && refsOf(c).includes(f.id))
 
@@ -63,7 +64,7 @@ export function nextStep(f: Frame): Step | null {
     if (!copiesOf(f, frames).length) return { label: 'Copy /recreate', hint: 'Copy the command for Claude Code', run: copyRecreate }
     return { label: 'Replay with copy', hint: 'Play the reference and its copy side by side', kbd: 'R', run: () => replay() }
   }
-  if (f.type === 'url') {
+  if (f.type === 'url' && !f.post) {
     if (!f.analysis)
       return FOLDER_ONLY
         ? { label: 'Capture with Claude', hint: 'Claude records its timing in your Chrome', run: () => askClaude('capture', f.id) }

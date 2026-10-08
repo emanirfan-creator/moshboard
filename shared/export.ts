@@ -21,6 +21,7 @@ import type { Board, Frame, MotionCapture, MotionKind, Move, SoundReading, Video
 import { soundFacts } from './sound.ts'
 import { isSection, sectionOf, withContents } from './sections.ts'
 import { normalizeLinks, refsOf } from './frame-links.ts'
+import { POST_SITE } from './posts.ts'
 
 /** The board's files, as the export reads them (paths relative to the board folder). */
 export interface ExportFiles {
@@ -295,7 +296,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
 
   // References with no coded copy yet.
   const replicated = new Set(codeFrames.flatMap(refsOf))
-  const pending = board.frames.filter((f) => (f.type === 'video' || f.type === 'url') && !replicated.has(f.id))
+  const pending = board.frames.filter((f) => (f.type === 'video' || (f.type === 'url' && !f.post)) && !replicated.has(f.id))
   if (pending.length) {
     motion.push(
       [
@@ -345,6 +346,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const fontImports = [...new Set(fonts.map((f) => f.fontHref).filter(Boolean))]
   const notes = board.frames.filter((f) => (f.type === 'note' || f.type === 'text') && f.text?.trim())
   const images = board.frames.filter((f) => f.type === 'image' && f.src)
+  const posts = board.frames.filter((f) => f.type === 'url' && f.post && f.src)
   const sounds = board.frames.filter((f) => f.type === 'audio' && !f.music && (f.src || f.clips?.length))
   const music = board.frames.filter((f) => f.type === 'audio' && f.music && f.src)
   const notesOn = (f: Frame) => notes.filter((n) => refsOf(n).includes(f.id)).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`).join('')
@@ -537,7 +539,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
         ['Need a color or font?', '→ Color, Type below · tokens.css'],
         ['Animating something?', '→ motion.md'],
         ...(codeFrames.length ? [['Rebuilding an interaction?', '→ interactions.md + snippets/'] as [string, string]] : []),
-        ...(images.length ? [['Matching a look?', '→ Visual references below · refs/'] as [string, string]] : []),
+        ...(images.length || posts.length ? [['Matching a look?', `→ Visual references below${images.length ? ' · refs/' : ''}`] as [string, string]] : []),
         ...(sounds.length ? [['Adding a sound?', '→ Sound below · refs/'] as [string, string]] : []),
       ],
       '',
@@ -561,14 +563,19 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
           '',
         ]
       : []),
-    ...(images.length
+    ...(images.length || posts.length
       ? [
           '## Visual references',
           '',
           ...images.map((f) => {
             const dest = copyRef(f.src!)
             const about = notes.filter((n) => refsOf(n).includes(f.id)).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`)
-            return `- **${name(f)}**: [\`${dest}\`](${dest})${about.join('')}`
+            return `- **${name(f)}**: [\`${dest}\`](${dest})${cropNote(f)}${about.join('')}`
+          }),
+          // Posts stay on their site (only the link is kept): open them there.
+          ...posts.map((f) => {
+            const site = POST_SITE[f.post!.provider]
+            return `- **${name(f)}**${name(f).includes(site) ? '' : ` (${site})`}: ${f.src}${notesOn(f)}`
           }),
           '',
         ]
@@ -649,7 +656,7 @@ function describeReference(
 ): string[] {
   const lines: string[] = []
   if (ref.type === 'video' && ref.src) {
-    lines.push(`- **Reference:** video "${label}"${ref.segment ? `, ${ref.segment.in.toFixed(2)}s–${ref.segment.out.toFixed(2)}s` : ''}${ref.origin ? ` (from ${ref.origin})` : ''}`)
+    lines.push(`- **Reference:** video "${label}"${ref.segment ? `, ${ref.segment.in.toFixed(2)}s–${ref.segment.out.toFixed(2)}s` : ''}${ref.origin ? ` (from ${ref.origin})` : ''}${cropNote(ref)}`)
     const a = readJson<VideoAnalysis>(ref.analysis)
     const measured = a ? measuredLines(a, ref.motionKind) : []
     if (measured.length) {
@@ -657,6 +664,8 @@ function describeReference(
       const sheet = copyRef(a!.contactSheet)
       if (sheet) lines.push(`- **Keyframes:** [\`${sheet}\`](${sheet})`)
     }
+  } else if (ref.type === 'url' && ref.post && ref.src) {
+    lines.push(`- **Reference:** ${POST_SITE[ref.post.provider]} post "${label}": ${ref.src}`)
   } else if (ref.type === 'url' && ref.src) {
     lines.push(`- **Reference:** live site ${ref.src}`)
     const c = readJson<MotionCapture>(ref.analysis)
@@ -668,11 +677,19 @@ function describeReference(
     }
   } else if (ref.type === 'image' && ref.src) {
     const dest = copyRef(ref.src)
-    lines.push(`- **Reference:** image [\`${dest}\`](${dest})${ref.origin ? ` (from ${ref.origin})` : ''}`)
+    lines.push(`- **Reference:** image [\`${dest}\`](${dest})${ref.origin ? ` (from ${ref.origin})` : ''}${cropNote(ref)}`)
   } else {
     lines.push(`- **Reference:** ${ref.type} "${label}"`)
   }
   return lines
+}
+
+/** A cropped picture or video: the part of the file the board shows (the file itself is whole). */
+function cropNote(f: Frame) {
+  const v = f.view
+  if (!v) return ''
+  const p = (n: number) => `${Math.round(n * 100)}%`
+  return `. Only the part from ${p(v.x)}–${p(v.x + v.w)} across and ${p(v.y)}–${p(v.y + v.h)} down is the reference; the rest is the app it was captured in`
 }
 
 /** Inline locked params so the snippet doesn't depend on the Moshboard runtime. */

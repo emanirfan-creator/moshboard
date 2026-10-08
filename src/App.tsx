@@ -71,6 +71,7 @@ function useHotkeys() {
         if (!s.space) setState({ space: true })
       } else if (e.key === 'Escape') {
         if (s.regionPick) setState({ regionPick: null })
+        else if (s.viewPick) setState({ viewPick: null })
         else if (s.thread || s.draft) setState({ thread: null, draft: null })
         else if (s.commenting) setCommenting(false)
         else if (s.crop) setState({ crop: null })

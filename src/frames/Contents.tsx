@@ -12,6 +12,7 @@ import { CodeFrame } from './CodeFrame'
 import { PaletteFrame } from './PaletteFrame'
 import { UrlFrame } from './UrlFrame'
 import { videos } from './registry'
+import { ViewPicker } from './ViewPicker'
 
 export interface Size {
   w: number
@@ -79,6 +80,7 @@ function Content({
 function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boolean; inView: boolean }) {
   const ref = useRef<HTMLVideoElement>(null)
   const seg = frame.segment
+  const cropping = useStore((s) => s.viewPick === frame.id)
 
   useEffect(() => {
     const v = ref.current
@@ -130,11 +132,11 @@ function VideoFrame({ frame, interact, inView }: { frame: Frame; interact: boole
 
   return (
     <>
-    <RegionPicker frame={frame} />
+    {cropping ? <ViewPicker frame={frame} /> : <RegionPicker frame={frame} />}
     <video
       ref={ref}
       className="content-media"
-      style={cropStyle(frame)}
+      style={cropStyle(frame, cropping)}
       src={assetUrl(frame.src!)}
       muted
       // Not autoPlay: that makes the browser download every clip on the board when it opens.
@@ -345,13 +347,21 @@ function TextFrame({ frame, interact }: { frame: Frame; interact: boolean }) {
   )
 }
 
-/** A picture's crop in a layout: which part shows (it already covers its box) and how far it's zoomed. */
-function cropStyle(frame: Frame): React.CSSProperties | undefined {
+/**
+ * How a picture or video sits in its block: just its `view` (the part of the file it shows), then
+ * in a layout, which part of that covers the box and how far it's zoomed. While its crop is being
+ * dragged it shows the whole file instead, letterboxed.
+ */
+function cropStyle(frame: Frame, cropping = false): React.CSSProperties | undefined {
+  if (cropping) return { objectFit: 'contain' }
+  const v = frame.view
+  const viewBox = v ? { objectViewBox: `inset(${pct(v.y)} ${pct(1 - v.x - v.w)} ${pct(1 - v.y - v.h)} ${pct(v.x)})` } : undefined
   const c = frame.crop
-  if (!c) return undefined
+  if (!c) return viewBox as React.CSSProperties | undefined
   const at = `${(0.5 + c.x) * 100}% ${(0.5 + c.y) * 100}%`
-  return { objectPosition: at, transform: c.s !== 1 ? `scale(${c.s})` : undefined, transformOrigin: at }
+  return { ...viewBox, objectPosition: at, transform: c.s !== 1 ? `scale(${c.s})` : undefined, transformOrigin: at }
 }
+const pct = (n: number) => `${Math.max(0, Math.round(n * 10000) / 100)}%`
 
 /** Requests a resized copy matched to on-screen size; only ever steps up, so zooming in sharpens without flicker. */
 function ImageFrame({ frame, size }: { frame: Frame; size: Size }) {
@@ -362,16 +372,20 @@ function ImageFrame({ frame, size }: { frame: Frame; size: Size }) {
   })
   const best = useRef(0)
   best.current = Math.max(best.current, want)
+  const cropping = useStore((s) => s.viewPick === frame.id)
   return (
+    <>
+    {cropping && <ViewPicker frame={frame} />}
     <img
       className="content-media"
-      style={cropStyle(frame)}
+      style={cropStyle(frame, cropping)}
       src={`${assetUrl(frame.src!)}?w=${best.current}`}
       alt={frame.label ?? ''}
       draggable={false}
       decoding="async"
       loading="lazy"
     />
+    </>
   )
 }
 
@@ -409,28 +423,30 @@ function RegionPicker({ frame }: { frame: Frame }) {
   useLayoutEffect(() => void (on && measured((n) => n + 1)), [on, frame.region])
   if (!on) return null
 
-  // The box ↔ the video's own frame, through object-fit: cover.
+  // The box ↔ the video's own frame, through its crop (`view`) and object-fit: cover.
   const map = () => {
     const el = box.current!
     const r = el.getBoundingClientRect()
     const v = videos.get(frame.id)
-    const vw = v?.videoWidth || r.width
-    const vh = v?.videoHeight || r.height
+    const crop = frame.view ?? { x: 0, y: 0, w: 1, h: 1 }
+    const vw = (v?.videoWidth || r.width) * crop.w
+    const vh = (v?.videoHeight || r.height) * crop.h
     const s = Math.max(r.width / vw, r.height / vh)
     const dw = vw * s
     const dh = vh * s
     const ox = (r.width - dw) / 2
     const oy = (r.height - dh) / 2
+    const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
     return {
       toVideo: (cx: number, cy: number) => ({
-        x: Math.min(1, Math.max(0, (cx - r.left - ox) / dw)),
-        y: Math.min(1, Math.max(0, (cy - r.top - oy) / dh)),
+        x: clamp01(crop.x + clamp01((cx - r.left - ox) / dw) * crop.w),
+        y: clamp01(crop.y + clamp01((cy - r.top - oy) / dh) * crop.h),
       }),
       toBox: (g: Region) => ({
-        left: `${((ox + g.x * dw) / r.width) * 100}%`,
-        top: `${((oy + g.y * dh) / r.height) * 100}%`,
-        width: `${((g.w * dw) / r.width) * 100}%`,
-        height: `${((g.h * dh) / r.height) * 100}%`,
+        left: `${((ox + ((g.x - crop.x) / crop.w) * dw) / r.width) * 100}%`,
+        top: `${((oy + ((g.y - crop.y) / crop.h) * dh) / r.height) * 100}%`,
+        width: `${(((g.w / crop.w) * dw) / r.width) * 100}%`,
+        height: `${(((g.h / crop.h) * dh) / r.height) * 100}%`,
       }),
     }
   }

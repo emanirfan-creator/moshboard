@@ -1,4 +1,5 @@
 import type { FrameLink } from './frame-links.ts'
+import type { PostProvider } from './posts.ts'
 
 export type FrameType = 'image' | 'video' | 'audio' | 'url' | 'code' | 'swatch' | 'note' | 'text' | 'palette' | 'section'
 
@@ -66,6 +67,8 @@ export interface Frame {
   motionKind?: MotionKind
   /** video: analysis json; url: capture json (relative to board dir) */
   analysis?: string
+  /** url: an Instagram or LinkedIn post, shown in the site's own embed (only the link is kept; shared/posts.ts) */
+  post?: { provider: PostProvider }
   /** url: whether the site allows being framed (checked once); blocked sites show `snapshot` */
   embed?: 'live' | 'blocked'
   /** url: full-page screenshot used when the site blocks embedding */
@@ -74,9 +77,11 @@ export interface Frame {
   natural?: { w: number; h: number }
   /** section: lays out the blocks in it as a grid, columns or rows (see src/layout.ts) */
   layout?: SectionLayout
+  /** image/video: the part of the file the block shows (0–1 of the file), e.g. just the post in a phone screenshot */
+  view?: Region
   /** image/video in a layout: what part shows in its box (pan -0.5..0.5 across the overflow, zoom ≥ 1) */
   crop?: { x: number; y: number; s: number }
-  /** code: not sized yet; set when added, cleared once it's sized to what it renders */
+  /** code, post: not sized yet; set when added, cleared once it's sized to what it renders */
   fit?: boolean
   /** code/url: logical render width; content is scaled to fit the frame */
   viewport?: number

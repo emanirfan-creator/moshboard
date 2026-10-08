@@ -1499,6 +1499,10 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* More kinds than fit a short window: the list scrolls (the dialog clips). */
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .dialog-title {
   padding: 2px 8px 12px;
@@ -1506,6 +1510,7 @@ kbd {
   font-weight: 590;
 }
 .dialog-opt {
+  flex: none;
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -5828,6 +5833,29 @@ textarea,
 .pin[data-dragging],
 .canvas[data-gesture] .pin {
   cursor: grabbing;
+}
+
+/* Cropping a picture or video (ViewPicker): the whole file, the crop as a box with the rest dimmed. */
+.view-pick {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  cursor: crosshair;
+}
+.view-box {
+  position: absolute;
+  border: calc(1.5px * var(--inv, 1)) solid var(--text-1);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.view-bar {
+  top: auto;
+  right: auto;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%) scale(var(--inv, 1));
+  transform-origin: 50% 100%;
 }
 
 /* A video's analysis area (RegionPicker): drawn while picking, shown on the selected video. */

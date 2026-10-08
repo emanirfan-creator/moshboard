@@ -283,7 +283,7 @@ function UrlForm() {
     <div className="dialog-form" onKeyDown={(e) => (e.stopPropagation(), e.key === 'Enter' && submit())}>
       <h2>Add a link</h2>
       <p>
-        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and media links download. <b>Spotify</b> plays in its own player. Other sites stay live.
+        <b>Pinterest</b>, <b>Cosmos</b>, <b>Muzli</b>, Are.na and media links download. <b>Spotify</b>, <b>Instagram</b> and <b>LinkedIn</b> show as they do on their site. Other sites stay live.
       </p>
       <label>
         URL

@@ -16,6 +16,7 @@ import { buildSrcdoc, loadCompiler } from './frames/sandbox'
 import { getState, toast } from './store'
 import { parseModules } from './tuning/detection'
 import { cue } from './ui/sound'
+import { POST_SITE, postLink } from '../shared/posts.ts'
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
@@ -67,6 +68,13 @@ async function codeDoc(f: Frame, board: string) {
   return buildSrcdoc(kind, source, cssVars(params, values), runtimeValues(params, values), modules, tw, wrapper, f.props ?? {})
 }
 
+/** A cropped picture or video shows just its crop, as on the canvas. */
+const viewBox = (f: Frame) => {
+  const v = f.view
+  const p = (n: number) => `${Math.max(0, Math.round(n * 10000) / 100)}%`
+  return v ? ` style="object-view-box:inset(${p(v.y)} ${p(1 - v.x - v.w)} ${p(1 - v.y - v.h)} ${p(v.x)})"` : ''
+}
+
 /** The inner content of one frame, sized to `w`×`h`. */
 async function content(f: Frame, board: string, w: number, h: number): Promise<string> {
   const media = (rel: string, width?: number) => dataUrl(mediaUrl(board, rel) + (width ? `?w=${width}` : ''))
@@ -78,9 +86,9 @@ async function content(f: Frame, board: string, w: number, h: number): Promise<s
   }
   switch (f.type) {
     case 'image':
-      return f.src ? `<img src="${await media(f.src, 1600)}" alt="${esc(f.label ?? '')}">` : ''
+      return f.src ? `<img src="${await media(f.src, 1600)}" alt="${esc(f.label ?? '')}"${viewBox(f)}>` : ''
     case 'video':
-      return f.src ? `<video src="${await media(f.src)}" autoplay muted loop playsinline></video>` : ''
+      return f.src ? `<video src="${await media(f.src)}" autoplay muted loop playsinline${viewBox(f)}></video>` : ''
     case 'audio': {
       // Spotify plays in its own player; sounds the board holds play from the page itself.
       const spotify = f.music && /open\.spotify\.com\/(\w+)\/(\w+)/.exec(f.src ?? '')
@@ -92,6 +100,8 @@ async function content(f: Frame, board: string, w: number, h: number): Promise<s
       return `<div class="sounds">${rows.join('')}</div>`
     }
     case 'url': {
+      const post = f.post && postLink(f.src ?? '')
+      if (post) return `<iframe class="post" src="${esc(post.embed)}" loading="lazy" allow="autoplay; encrypted-media; fullscreen"></iframe>`
       if (f.embed === 'blocked' && f.snapshot) return `<img class="top" src="${await media(f.snapshot, 1600)}" alt="${esc(f.label ?? '')}">`
       return scaled(`<iframe src="${esc(f.src ?? '')}" loading="lazy" referrerpolicy="no-referrer"></iframe>`)
     }
@@ -132,7 +142,7 @@ async function frameHtml(f: Frame, board: string) {
   }
   const style = `left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`
   if (!block) return `<div class="frame ${f.type}" style="${style}">${body}</div>`
-  const kind = { code: 'Component', url: 'Website', image: 'Image', video: 'Video', audio: 'Sound', palette: 'Palette' }[f.type as string] ?? ''
+  const kind = f.post ? POST_SITE[f.post.provider] : { code: 'Component', url: 'Website', image: 'Image', video: 'Video', audio: 'Sound', palette: 'Palette' }[f.type as string] ?? ''
   const link = f.type === 'url' && f.src ? `<a href="${esc(f.src)}" target="_blank" rel="noreferrer">Open ↗</a>` : ''
   return `<div class="frame block" style="${style}"><header><span class="dot"></span><span class="title">${esc(f.label || kind)}</span>${link}<span class="kind">${kind}</span></header><div class="body">${body}</div></div>`
 }
@@ -183,6 +193,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0f1012; col
 .body img.top { object-position: top; }
 .scaled { transform-origin: 0 0; }
 .scaled iframe { width: 100%; height: 100%; border: 0; display: block; background: #1b1c1f; }
+iframe.post { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
 .note-body { height: 100%; padding: 14px 16px; overflow: auto; background: #1b1c1f; border-radius: 12px; color: #d0d6e0; }
 .note-body p { margin: 0 0 8px; } .note-body ol, .note-body ul { margin: 0 0 8px; padding-left: 18px; } .note-body b { color: #f7f8f8; }
 .note-body code { font: 12px ui-monospace, Menlo, monospace; }

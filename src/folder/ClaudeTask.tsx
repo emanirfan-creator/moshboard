@@ -10,7 +10,7 @@ import { Segmented } from '../ui/Segmented'
 // writes the request in plain words to copy; the skill installed in the folder
 // (.claude/skills/moshboard-site) does the work, and the board updates live when it's done.
 
-export type ClaudeTaskKind = 'capture' | 'snapshot' | 'fonts'
+export type ClaudeTaskKind = 'capture' | 'snapshot' | 'fonts' | 'crop'
 
 /** Opens the sheet for a site frame. */
 export const askClaude = (kind: ClaudeTaskKind, frameId: string) => setState({ palette: false, claudeTask: { kind, frameId } })
@@ -28,6 +28,8 @@ function instruction(kind: ClaudeTaskKind, frameId: string, part: string, trigge
   const site = `the website frame ${frameId} (${f?.src ?? 'site'})`
   if (kind === 'capture') return `On ${board}, capture the ${trigger} motion of ${part.trim() || 'the main button'} on ${site}.`
   if (kind === 'snapshot') return `On ${board}, take a snapshot of ${site}.`
+  if (kind === 'crop')
+    return `On ${board}, crop the ${f?.type === 'video' ? 'video' : 'picture'} frame ${frameId} (${f?.src}) to just ${part.trim() || 'the post'}: look at the file, then set the frame's "view" in board.json to that area as fractions of the file, {"x", "y", "w", "h"} from the top left, and its "h" so the block keeps its width and takes the crop's shape.`
   return `On ${board}, read the fonts of ${site}.`
 }
 
@@ -49,7 +51,7 @@ export function ClaudeTask() {
 
   if (!task) return null
   const f = frameById(task.frameId)
-  const host = f?.src ? new URL(f.src).host.replace(/^www\./, '') : 'the site'
+  const host = f?.src && /^https?:/.test(f.src) ? new URL(f.src).host.replace(/^www\./, '') : 'the site'
   const copy = () =>
     copyText(instruction(task.kind, task.frameId, part, trigger)).then((ok) => {
       if (ok) setCopied(true)
@@ -92,6 +94,16 @@ export function ClaudeTask() {
               <p>{host} doesn’t allow previews. Claude can open it in your Chrome and save a full-page picture.</p>
             </>
           )}
+          {task.kind === 'crop' && (
+            <>
+              <h2>Crop with Claude</h2>
+              <p>Claude looks at the {f?.type === 'video' ? 'video' : 'picture'} and crops the block to the part you name.</p>
+              <label className="claude-task-field">
+                <span>Which part?</span>
+                <input autoFocus value={part} placeholder="the post" onChange={(e) => setPart(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && copy()} />
+              </label>
+            </>
+          )}
           {task.kind === 'fonts' && (
             <>
               <h2>Read fonts with Claude</h2>
@@ -102,7 +114,7 @@ export function ClaudeTask() {
             {copied ? 'Copied' : 'Copy for Claude'}
           </button>
           <p className="onboarding-tip">
-            {copied ? `Paste it into Claude Code in “${folder ?? 'your folder'}”. The board updates when it’s done.` : 'Works with Codex too.'}
+            {copied ? `Paste it into Claude Code in ${folder ? `“${folder}”` : 'your Moshboard project'}. The board updates when it’s done.` : 'Works with Codex too.'}
           </p>
         </div>
       </div>

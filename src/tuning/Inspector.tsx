@@ -4,6 +4,9 @@ import type { Frame, MotionKind, Move, VideoAnalysis } from '../../shared/types.
 import {
   analyzeSelected,
   copyRecreate,
+  cropToPost,
+  fileAspect,
+  setView,
   detectMotionValues,
   ensureFile,
   lockParams,
@@ -69,6 +72,8 @@ import { feelOf, mainMove } from '../../shared/read-motion.ts'
 import { scanChirp } from '../ui/sound'
 import { seconds, soundFacts, soundFeel } from '../../shared/sound.ts'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
+import { POST_SITE } from '../../shared/posts.ts'
+import { askClaude } from '../folder/ClaudeTask'
 
 const EMPTY = {}
 /** Frames whose detected controls have already scanned in this session. */
@@ -150,7 +155,8 @@ const KIND: Record<string, string> = {
 function Body({ frame }: { frame: Frame }) {
   const modified = useStore((s) => !!s.overrides[frame.id])
   const tile = useStore(() => isTile(frame.id))
-  const kind = frame.type === 'swatch' && !frame.font ? 'Color' : frame.layout ? MODE_KIND[frame.layout.mode] : KIND[frame.type]
+  const kind =
+    frame.type === 'swatch' && !frame.font ? 'Color' : frame.layout ? MODE_KIND[frame.layout.mode] : frame.post ? POST_SITE[frame.post.provider] : KIND[frame.type]
   return (
     <>
       <header className="insp-head">
@@ -164,9 +170,11 @@ function Body({ frame }: { frame: Frame }) {
       {frame.type === 'section' && <SectionBody frame={frame} />}
       {tile && <TileBody frame={frame} />}
       <LinksBody frame={frame} />
+      {(frame.type === 'image' || frame.type === 'video') && frame.src && <CropBody frame={frame} />}
       {frame.type === 'code' && <CodeBody frame={frame} />}
       {frame.type === 'video' && <VideoBody frame={frame} />}
       {frame.type === 'audio' && <AudioBody frame={frame} />}
+      {frame.post && <PostBody frame={frame} />}
       {frame.type === 'text' && <TextBody frame={frame} />}
       {frame.type === 'palette' && <PaletteBody frame={frame} />}
       {frame.type === 'swatch' && frame.font && <FontBody frame={frame} />}
@@ -636,6 +644,53 @@ function VideoBody({ frame }: { frame: Frame }) {
   )
 }
 
+/** A picture or video: show just part of it (the post in a phone screenshot), by hand, found, or by Claude. */
+function CropBody({ frame }: { frame: Frame }) {
+  const picking = useStore((s) => s.viewPick === frame.id)
+  const busy = useStore((s) => !!s.jobs[frame.id])
+  const what = frame.type === 'image' ? 'picture' : 'video'
+  return (
+    <Section title="Crop">
+      <p className="ctl-help">
+        {picking
+          ? `Drag the box on the ${what}. Done keeps it, Esc cancels.`
+          : frame.view
+            ? `Shows just part of the ${what}.`
+            : `Show just part of it, like the post in a phone screenshot.`}
+      </p>
+      {!picking && (
+        <div className="insp-buttons">
+          <button className="btn" onClick={() => setState({ viewPick: frame.id, interact: null, regionPick: null })}>
+            {frame.view ? 'Adjust' : 'Pick part'}
+          </button>
+          <button className="btn" onClick={() => cropToPost(frame.id)} disabled={busy}>
+            Find the post
+          </button>
+          <button className="btn" onClick={() => askClaude('crop', frame.id)}>
+            Ask Claude
+          </button>
+          {frame.view && (
+            <button className="btn" onClick={() => fileAspect(frame).then((a) => setView(frame.id, null, a))}>
+              Show all
+            </button>
+          )}
+        </div>
+      )}
+    </Section>
+  )
+}
+
+/** A post: the way back to it on its site. */
+function PostBody({ frame }: { frame: Frame }) {
+  return (
+    <footer className="insp-foot">
+      <a className="btn" href={frame.src} target="_blank" rel="noreferrer">
+        Open on {POST_SITE[frame.post!.provider]}
+      </a>
+    </footer>
+  )
+}
+
 /** A sound: what it measures as. A row of pads: each pad, to rename, take out or remove. Spotify: the way back to it. */
 function AudioBody({ frame }: { frame: Frame }) {
   if (frame.music)
@@ -927,7 +982,7 @@ function Measured({ frame, analysis }: { frame: Frame; analysis: VideoAnalysis |
   const busy = useStore((s) => !!s.jobs[frame.id])
   const r = analysis?.read
   const kind = frame.motionKind ?? r?.kind
-  const staleArea = !!analysis && JSON.stringify(analysis.region ?? null) !== JSON.stringify(frame.region ?? null)
+  const staleArea = !!analysis && JSON.stringify(analysis.region ?? null) !== JSON.stringify(frame.region ?? frame.view ?? null)
   const pick = () => setState({ regionPick: picking ? null : frame.id, selected: [frame.id] })
   const area = picking ? (
     <>
@@ -940,7 +995,14 @@ function Measured({ frame, analysis }: { frame: Frame; analysis: VideoAnalysis |
     <>
       Reading the picked part ·{' '}
       <button className="link" onClick={() => updateFrame(frame.id, { region: undefined })}>
-        Whole video
+        {frame.view ? 'All of the crop' : 'Whole video'}
+      </button>
+    </>
+  ) : frame.view ? (
+    <>
+      Reading the cropped part ·{' '}
+      <button className="link" onClick={pick}>
+        Pick a smaller part
       </button>
     </>
   ) : (
@@ -1005,7 +1067,7 @@ function Measured({ frame, analysis }: { frame: Frame; analysis: VideoAnalysis |
     <>
       <KindChip value={kind} guessed={r.kind} set={!!frame.motionKind} onChange={(k) => updateFrame(frame.id, { motionKind: k === r.kind ? undefined : k })} />
       {rows.length ? <Facts rows={rows} /> : <p className="ctl-help">No clear motion in this part of the video.</p>}
-      {staleArea && <p className="ctl-help">Analyze again to read {frame.region ? 'just the picked part' : 'the whole video'}.</p>}
+      {staleArea && <p className="ctl-help">Analyze again to read {frame.region ? 'just the picked part' : frame.view ? 'the cropped part' : 'the whole video'}.</p>}
       <p className="ctl-help measure-links">
         <button className="link" onClick={analyzeSelected} disabled={busy}>
           {busy ? 'Watching…' : 'Analyze again'}
