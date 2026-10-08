@@ -229,11 +229,19 @@ async function activate(entry: Saved) {
   useFolderFeatures()
   await idbSet('root', entry.handle)
   await tellWorker(entry.id)
-  const assistant = await installAssistant(entry.handle)
-  setState({ folder: { name: entry.name, path: entry.path, single: await isSingle(entry.handle), assistant } })
+  // Keeping the instructions current reads and maybe writes a few files: the board opens meanwhile.
+  assistantReady = installAssistant(entry.handle)
+  const handle = entry.handle
+  assistantReady.then((assistant) => {
+    const f = getState().folder
+    if (root === handle && f && f.assistant !== assistant) setState({ folder: { ...f, assistant } })
+  })
+  setState({ folder: { name: entry.name, path: entry.path, single: await isSingle(entry.handle), assistant: true } })
   publish()
   watch(entry.handle)
 }
+/** The open folder's instructions being put in place (the setup screen says how that went). */
+let assistantReady: Promise<boolean> = Promise.resolve(true)
 
 /** Adds a folder to the list (once: picking one already there just opens it) and opens it. */
 async function addAndOpen(dir: Dir, name: string, path?: string) {
@@ -264,6 +272,7 @@ async function openFolder(id: string, first: boolean) {
   history.replaceState(null, '', location.pathname)
   await activate(entry)
   await openBoards()
+  if (first) await assistantReady
   setState({ onboarding: first ? 'ready' : null })
 }
 
@@ -576,14 +585,12 @@ function hash(text: string) {
 async function installAssistant(dir: Dir): Promise<boolean> {
   const written = (await idbGet<Record<string, string>>('installed')) ?? {}
   let ready = true
-  for (const [rel, content] of [...FILES, ...(FOLDER_ONLY ? await siteTools() : [])]) {
+  const files = [...FILES, ...(FOLDER_ONLY ? await siteTools() : [])]
+  // What's there now, read all at once.
+  const now = await Promise.all(files.map(([rel]) => readRel(dir, rel.split('/')).then((f) => f.text(), () => null)))
+  for (const [i, [rel, content]] of files.entries()) {
     const parts = rel.split('/')
-    let current: string | null = null
-    try {
-      current = await (await readRel(dir, parts)).text()
-    } catch {
-      // not there yet
-    }
+    const current = now[i]
     const key = `${dir.name}/${rel}`
     if (current === content) {
       written[key] = hash(content)

@@ -23,7 +23,8 @@ self.addEventListener('message', (e) => {
 })
 
 async function setTabFolder(clientId, id) {
-  handles.clear()
+  if (id) handles.delete(id)
+  lastRoot = undefined
   if (!clientId) return
   tabFolder.set(clientId, id)
   const open = new Set((await self.clients.matchAll()).map((c) => c.id))
@@ -33,34 +34,51 @@ async function setTabFolder(clientId, id) {
   await idbSet('tabFolders', next)
 }
 
-function idbSet(key, value) {
-  return new Promise((resolve) => {
+// One connection for the worker's life, opened on first use (again if the browser closes it).
+let db
+function idb() {
+  db ??= new Promise((resolve) => {
     const open = indexedDB.open(DB, 1)
     open.onupgradeneeded = () => open.result.createObjectStore(STORE)
-    open.onerror = () => resolve()
-    open.onsuccess = () => {
-      const tx = open.result.transaction(STORE, 'readwrite')
-      tx.objectStore(STORE).put(value, key)
-      tx.oncomplete = tx.onerror = () => resolve()
+    open.onerror = () => {
+      db = undefined
+      resolve(null)
     }
+    open.onsuccess = () => {
+      open.result.onclose = open.result.onversionchange = () => {
+        open.result.close()
+        db = undefined
+      }
+      resolve(open.result)
+    }
+  })
+  return db
+}
+
+async function idbSet(key, value) {
+  const d = await idb()
+  if (!d) return
+  await new Promise((resolve) => {
+    const tx = d.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).put(value, key)
+    tx.oncomplete = tx.onerror = tx.onabort = () => resolve()
   })
 }
 
-function idbGet(key) {
+async function idbGet(key) {
+  const d = await idb()
+  if (!d) return undefined
   return new Promise((resolve) => {
-    const open = indexedDB.open(DB, 1)
-    open.onupgradeneeded = () => open.result.createObjectStore(STORE)
-    open.onerror = () => resolve(undefined)
-    open.onsuccess = () => {
-      const get = open.result.transaction(STORE).objectStore(STORE).get(key)
-      get.onsuccess = () => resolve(get.result)
-      get.onerror = () => resolve(undefined)
-    }
+    const get = d.transaction(STORE).objectStore(STORE).get(key)
+    get.onsuccess = () => resolve(get.result)
+    get.onerror = () => resolve(undefined)
   })
 }
 
-// Folder id → its handle, until a tab opens another folder.
+// Folder id → its handle, until a tab opens that folder again.
 const handles = new Map()
+// The last folder opened, for requests from tabs that never said (until a tab says).
+let lastRoot
 
 /** The folder of the tab that asked (a request with no tab, or from a tab that never said: the last one opened). */
 async function folder(clientId) {
@@ -70,7 +88,7 @@ async function folder(clientId) {
     if (id !== undefined) tabFolder.set(clientId, id)
   }
   if (id === null) return null
-  if (id === undefined) return (await idbGet('root')) ?? null
+  if (id === undefined) return (lastRoot ??= idbGet('root').then((h) => h ?? null))
   if (!handles.has(id)) handles.set(id, ((await idbGet('folders')) ?? []).find((f) => f.id === id)?.handle ?? null)
   return handles.get(id)
 }
@@ -171,20 +189,46 @@ async function exists(dir, name, kind = 'file') {
   }
 }
 
-// A folder that is itself one board (it has a board.json) holds just that board.
+// A folder that is itself one board (it has a board.json) holds just that board. Asked on every
+// request, so the answer is kept for a moment.
+const singles = new WeakMap()
 async function singleBoard(dir) {
-  return (await exists(dir, 'board.json')) ? slugOf(dir.name) : null
+  const hit = singles.get(dir)
+  if (hit && performance.now() - hit.at < 3000) return hit.id
+  const id = (await exists(dir, 'board.json')) ? slugOf(dir.name) : null
+  singles.set(dir, { id, at: performance.now() })
+  return id
 }
 
 async function boardDir(dir, board, create = false) {
   if (!NAME_RE.test(board)) throw new HttpError(400, `bad board name: ${board}`)
   if ((await singleBoard(dir)) === board) return dir
   try {
-    return await dir.getDirectoryHandle(board, { create })
+    return await subdir(dir, [board], create)
   } catch {
     throw new HttpError(404, 'canvas not found')
   }
 }
+
+// Folder handles by path under a handle, so a board's images don't each walk the path from the
+// top (every step is a trip to the browser's file system). Handles follow their path, except
+// after move(): a board moved to the trash forgets its folder's handles (see DELETE). Should a
+// kept one still fail, fileHandle walks the path afresh.
+const dirCache = new WeakMap()
+async function subdir(dir, parts, create = false) {
+  if (!parts.length) return dir
+  let known = dirCache.get(dir)
+  if (!known) dirCache.set(dir, (known = new Map()))
+  const key = parts.join('/')
+  let d = known.get(key)
+  if (!d) {
+    d = (async () => (await subdir(dir, parts.slice(0, -1), create)).getDirectoryHandle(parts[parts.length - 1], { create }))()
+    known.set(key, d)
+    d.catch(() => known.get(key) === d && known.delete(key))
+  }
+  return d
+}
+const forgetDirs = (dir) => dirCache.delete(dir)
 
 function splitPath(rel) {
   const parts = rel.split('/').filter(Boolean)
@@ -194,13 +238,21 @@ function splitPath(rel) {
 
 async function fileHandle(dir, rel, create = false) {
   const parts = splitPath(rel)
-  let d = dir
+  const name = parts[parts.length - 1]
   try {
-    for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create })
-    return await d.getFileHandle(parts[parts.length - 1], { create })
-  } catch (err) {
-    if (create) throw err
-    throw new HttpError(404, 'not found')
+    return await (await subdir(dir, parts.slice(0, -1), create)).getFileHandle(name, { create })
+  } catch {
+    // Usually the file just isn't there; walking the path afresh tells that from a stale handle.
+    try {
+      let d = dir
+      for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create })
+      const h = await d.getFileHandle(name, { create })
+      forgetDirs(dir)
+      return h
+    } catch (err) {
+      if (create) throw err
+      throw new HttpError(404, 'not found')
+    }
   }
 }
 
@@ -231,8 +283,7 @@ function write(dir, rel, data) {
  * save back. Only that tab: another tab with the board open should see the change and reload.
  */
 async function writeOwn(dir, board, rel, text, clientId) {
-  const client = clientId && (await self.clients.get(clientId))
-  client?.postMessage({ type: 'own', board, file: rel, text })
+  if (clientId) self.clients.get(clientId).then((c) => c?.postMessage({ type: 'own', board, file: rel, text }))
   await write(dir, rel, text)
 }
 
@@ -265,24 +316,35 @@ async function readBoard(dir) {
 
 const boardText = (b) => JSON.stringify(b, null, 2) + '\n'
 
+// Each canvas as the list shows it, kept until its board.json changes: the list is asked for again
+// whenever a canvas is saved from outside, and reading every board each time adds up.
+const listed = new Map()
+async function listing(id, d) {
+  let name = id
+  let frames = 0
+  try {
+    const file = await (await fileHandle(d, 'board.json')).getFile()
+    const key = `${d.name}:${id}`
+    const hit = listed.get(key)
+    if (hit && hit.modified === file.lastModified && hit.size === file.size) return hit.entry
+    const b = JSON.parse(await file.text())
+    name = b.name || id
+    frames = b.frames.length
+    const entry = { id, name, frames, created: 0 }
+    listed.set(key, { modified: file.lastModified, size: file.size, entry })
+    return entry
+  } catch {
+    // missing or invalid board.json: still list it
+  }
+  return { id, name, frames, created: 0 }
+}
+
 async function listBoards(root) {
   const single = await singleBoard(root)
   const dirs = []
   if (single) dirs.push([single, root])
   else for await (const [name, h] of root.entries()) if (h.kind === 'directory' && NAME_RE.test(name)) dirs.push([name, h])
-  const list = []
-  for (const [id, d] of dirs) {
-    let name = id
-    let frames = 0
-    try {
-      const b = await readBoard(d)
-      name = b.name || id
-      frames = b.frames.length
-    } catch {
-      // missing or invalid board.json: still list it
-    }
-    list.push({ id, name, frames, created: 0 })
-  }
+  const list = await Promise.all(dirs.map(([id, d]) => listing(id, d)))
   // Folders don't record when they were made, so the list is alphabetical.
   return list.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -464,10 +526,21 @@ async function serveFile(request, dir, rel) {
   })
 }
 
+// Access asked of the browser at most once every few seconds, not before every image.
+const granted = new WeakMap()
+async function permitted(root) {
+  if (!root.queryPermission) return true
+  const at = granted.get(root)
+  if (at && performance.now() - at < 5000) return true
+  const ok = (await root.queryPermission({ mode: 'readwrite' })) === 'granted'
+  if (ok) granted.set(root, performance.now())
+  else granted.delete(root)
+  return ok
+}
+
 async function route(root, request, url, clientId) {
   // Chrome can take access back between visits; the page shows "Reconnect" for this.
-  if (root.queryPermission && (await root.queryPermission({ mode: 'readwrite' })) !== 'granted')
-    throw new HttpError(409, 'Reconnect your Moshboard folder', { reconnect: true })
+  if (!(await permitted(root))) throw new HttpError(409, 'Reconnect your Moshboard folder', { reconnect: true })
 
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
   const method = request.method
@@ -539,6 +612,8 @@ async function route(root, request, url, clientId) {
     const src = await boardDir(root, board)
     const trash = await root.getDirectoryHandle(TRASH, { create: true })
     const name = `${board}-${Date.now()}`
+    forgetDirs(root)
+    forgetDirs(src)
     try {
       // A move is instant; copying a board full of videos isn't.
       await src.move(trash, name)
@@ -552,7 +627,10 @@ async function route(root, request, url, clientId) {
     let dir
     try {
       dir = await boardDir(root, board)
-      return json(await readBoard(dir))
+      // Sent as it is on disk (checked, not parsed and written out again).
+      const text = await readText(dir, 'board.json')
+      JSON.parse(text)
+      return new Response(text, { headers: { 'Content-Type': 'application/json' } })
     } catch (err) {
       // A board folder without a board.json opens as an empty canvas.
       if (dir && err instanceof HttpError && err.status === 404) {

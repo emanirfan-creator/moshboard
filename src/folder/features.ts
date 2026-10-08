@@ -273,18 +273,36 @@ export async function sweepInFolder(board: string, now = Date.now()) {
   }
 
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-')
-  for (const { rel, file } of owned) {
-    if (used.has(rel)) continue
-    const f = await file.getFile()
-    if (now - f.lastModified < GRACE) continue
-    await writeFile(dir, `${TRASH}/${stamp}/${rel}`, f)
-    await removeEntry(dir, rel)
+  const unused = owned.filter((f) => !used.has(f.rel))
+  const ages = await Promise.all(unused.map((f) => f.file.getFile().then((x) => now - x.lastModified)))
+  const trashDirs = new Map<string, Promise<FileSystemDirectoryHandle>>()
+  const trashDir = (folder: string) => {
+    let d = trashDirs.get(folder)
+    if (!d) {
+      d = dir
+        .getDirectoryHandle(TRASH, { create: true })
+        .then((t) => t.getDirectoryHandle(stamp, { create: true }))
+        .then((t) => t.getDirectoryHandle(folder, { create: true }))
+      trashDirs.set(folder, d)
+    }
+    return d
+  }
+  for (const [i, { rel, file }] of unused.entries()) {
+    if (ages[i] < GRACE) continue
+    const [folder, name] = rel.split('/')
+    try {
+      // A move is instant; copying a video isn't.
+      await (file as FileSystemFileHandle & { move(to: FileSystemDirectoryHandle, name: string): Promise<void> }).move(await trashDir(folder), name)
+    } catch {
+      await writeFile(dir, `${TRASH}/${stamp}/${rel}`, await file.getFile())
+      await removeEntry(dir, rel)
+    }
     result.trashed.push(rel)
   }
   // Thumbnails are a cache: drop the ones whose image is gone.
   const live = new Set(owned.filter((f) => f.rel.startsWith('assets/') && !result.trashed.includes(f.rel)).map((f) => f.rel.slice(7).replace(/\.\w+$/, '')))
   const thumbs = await listFiles(dir, (rel) => (depth(rel) === 1 ? rel !== 'assets' : depth(rel) === 2 && rel !== 'assets/.thumbs'))
-  for (const { rel } of thumbs) if (!live.has(rel.slice('assets/.thumbs/'.length).replace(/-w\d+\.\w+$/, ''))) await removeEntry(dir, rel)
+  await Promise.all(thumbs.filter(({ rel }) => !live.has(rel.slice('assets/.thumbs/'.length).replace(/-w\d+\.\w+$/, ''))).map(({ rel }) => removeEntry(dir, rel)))
 
   try {
     const trash = await dir.getDirectoryHandle(TRASH)

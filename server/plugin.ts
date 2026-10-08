@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
+import { pipeline } from 'node:stream/promises'
 import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin, ViteDevServer } from 'vite'
@@ -43,22 +45,43 @@ const MIME: Record<string, string> = {
 
 const THUMB_SIZES = [320, 640, 1280, 2048]
 const thumbJobs = new Map<string, Promise<string>>()
+// A board full of new images asks for every thumbnail at once; a few ffmpegs at a time finish
+// the first ones sooner than one per image all fighting for the CPU.
+const THUMB_SLOTS = Math.max(2, Math.min(4, os.availableParallelism() - 1))
+let thumbsRunning = 0
+const thumbQueue: (() => void)[] = []
+async function thumbSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (thumbsRunning >= THUMB_SLOTS) await new Promise<void>((r) => thumbQueue.push(r))
+  thumbsRunning++
+  try {
+    return await run()
+  } finally {
+    thumbsRunning--
+    thumbQueue.shift()?.()
+  }
+}
 
 /** Resized copy in assets/.thumbs (JPEG, or PNG for PNG sources to keep transparency). */
 function thumbnail(abs: string, want: number): Promise<string> {
   const w = THUMB_SIZES.find((s) => s >= want) ?? THUMB_SIZES[THUMB_SIZES.length - 1]
   const png = /\.png$/i.test(abs)
   const out = path.join(path.dirname(abs), '.thumbs', `${path.basename(abs).replace(/\.\w+$/, '')}-w${w}.${png ? 'png' : 'jpg'}`)
-  if (fs.existsSync(out) && fs.statSync(out).mtimeMs >= fs.statSync(abs).mtimeMs) return Promise.resolve(out)
+  const src = fs.statSync(abs, { throwIfNoEntry: false })
+  if (!src) return Promise.resolve(abs)
+  const made = fs.statSync(out, { throwIfNoEntry: false })
+  if (made && made.mtimeMs >= src.mtimeMs) return Promise.resolve(out)
   let job = thumbJobs.get(out)
   if (!job) {
     fs.mkdirSync(path.dirname(out), { recursive: true })
-    job = new Promise<string>((resolve) => {
-      const p = spawn('ffmpeg', ['-v', 'error', '-y', '-i', abs, '-vf', `scale='min(${w},iw)':-2`, ...(png ? [] : ['-q:v', '3']), out])
-      // On any failure just serve the original.
-      p.on('close', (code) => resolve(code === 0 && fs.existsSync(out) ? out : abs))
-      p.on('error', () => resolve(abs))
-    }).finally(() => thumbJobs.delete(out))
+    job = thumbSlot(
+      () =>
+        new Promise<string>((resolve) => {
+          const p = spawn('ffmpeg', ['-v', 'error', '-y', '-i', abs, '-vf', `scale='min(${w},iw)':-2`, ...(png ? [] : ['-q:v', '3']), out])
+          // On any failure just serve the original.
+          p.on('close', (code) => resolve(code === 0 && fs.existsSync(out) ? out : abs))
+          p.on('error', () => resolve(abs))
+        }),
+    ).finally(() => thumbJobs.delete(out))
     thumbJobs.set(out, job)
   }
   return job
@@ -117,6 +140,11 @@ function serveFile(req: IncomingMessage, res: ServerResponse, abs: string) {
       end = size - 1
     }
     end = Math.min(end, size - 1)
+    if (start < 0 || start > end) {
+      res.writeHead(416, { 'Content-Range': `bytes */${size}` })
+      res.end()
+      return
+    }
     res.writeHead(206, {
       'Content-Type': type,
       'Content-Range': `bytes ${start}-${end}/${size}`,
@@ -251,6 +279,28 @@ function renameBoard(board: string, title: string): { id: string; name: string }
   return { id, name: title }
 }
 
+// Each canvas as the list shows it, kept until its board.json changes: the list is asked for
+// again whenever any canvas is saved from outside, and parsing every board each time adds up.
+const listed = new Map<string, { mtime: number; entry: { id: string; name: string; frames: number; created: number } }>()
+function listing(id: string) {
+  const file = boardPath(id, 'board.json')
+  const mtime = fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? -1
+  const hit = listed.get(id)
+  if (hit && hit.mtime === mtime) return hit.entry
+  let name = id
+  let frames = 0
+  try {
+    const b: Board = JSON.parse(fs.readFileSync(file, 'utf8'))
+    name = b.name || id
+    frames = b.frames.length
+  } catch {
+    // missing or invalid board.json: still list it
+  }
+  const entry = { id, name, frames, created: fs.statSync(path.join(BOARDS_DIR, id)).birthtimeMs }
+  listed.set(id, { mtime, entry })
+  return entry
+}
+
 async function route(server: ViteDevServer, req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url ?? '/', 'http://local')
   const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
@@ -262,7 +312,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const abs = boardPath(board, ...rel)
     // ?w=N serves a resized copy of a large image (cached), so the canvas doesn't
     // decode a 4000px screenshot to show it 400px wide.
-    if (w && /\.(png|jpe?g|webp|avif)$/i.test(abs) && fs.existsSync(abs)) {
+    if (w && /\.(png|jpe?g|webp|avif)$/i.test(abs)) {
       serveFile(req, res, await thumbnail(abs, w))
       return true
     }
@@ -279,20 +329,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const list = fs
       .readdirSync(BOARDS_DIR, { withFileTypes: true })
       .filter((d) => d.isDirectory() && NAME_RE.test(d.name))
-      .map((d) => {
-        const file = boardPath(d.name, 'board.json')
-        let name = d.name
-        let frames = 0
-        try {
-          const b: Board = JSON.parse(fs.readFileSync(file, 'utf8'))
-          name = b.name || d.name
-          frames = b.frames.length
-        } catch {
-          // missing or invalid board.json: still list it
-        }
-        const created = fs.statSync(path.join(BOARDS_DIR, d.name)).birthtimeMs
-        return { id: d.name, name, frames, created }
-      })
+      .map((d) => listing(d.name))
       .sort((a, b) => a.created - b.created)
     json(res, list)
     return true
@@ -336,7 +373,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const title = `${b.name || board} copy`
     const id = freeBoardId(title)
     const dest = path.join(BOARDS_DIR, id)
-    fs.cpSync(src, dest, { recursive: true, filter: (p) => p !== path.join(src, 'export') && p !== path.join(src, TRASH) })
+    await fs.promises.cp(src, dest, { recursive: true, filter: (p) => p !== path.join(src, 'export') && p !== path.join(src, TRASH) })
     writeOwn(path.join(dest, 'board.json'), JSON.stringify({ ...b, name: title }, null, 2) + '\n')
     json(res, { id, name: title })
     return true
@@ -399,7 +436,8 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const rel = uniqueAsset(board, url.searchParams.get('name') ?? 'upload')
     const abs = boardPath(board, rel)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
-    fs.writeFileSync(abs, await readBody(req))
+    // Streamed to disk: a big video never sits whole in memory or blocks other requests.
+    await pipeline(req, fs.createWriteStream(abs))
     const { gifToVideo } = await import('./gif.ts')
     const video = /\.gif$/i.test(rel) ? await gifToVideo(boardPath(board), rel) : null
     json(res, video ? { path: video, type: 'video' } : { path: rel })
@@ -429,7 +467,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     const source = boardPath(String(from), String(src))
     if (!fs.existsSync(source)) throw new HttpError(404, 'asset not found')
     const rel = uniqueAsset(board, path.basename(source))
-    fs.copyFileSync(source, boardPath(board, rel))
+    await fs.promises.copyFile(source, boardPath(board, rel))
     json(res, { path: rel })
     return true
   }

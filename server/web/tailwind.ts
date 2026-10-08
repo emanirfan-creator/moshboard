@@ -6,10 +6,11 @@ import { compile } from 'tailwindcss'
 import TAILWIND_CSS from 'tailwindcss/index.css?raw'
 import { TW_THEME } from '../../shared/twTheme.ts'
 import { body, handle } from './http.ts'
+import { remember } from '../../shared/memo.ts'
 
 // A compiler's build() adds to every class it has seen before, so each request gets its own
 // compiler; repeat requests (same sources) are answered from the cache.
-const cache = new Map<string, string>()
+const cache = remember<string>(200)
 const newCompiler = () =>
   compile(`@import "tailwindcss";\n${TW_THEME}`, {
     loadStylesheet: async (id, base) => {
@@ -34,12 +35,7 @@ export default handle(async (req, res) => {
   const { sources } = await body(req)
   const words = candidates(Array.isArray(sources) ? sources.map(String) : []).sort()
   const key = createHash('sha1').update(words.join('\0')).digest('hex')
-  let css = cache.get(key)
-  if (css === undefined) {
-    css = (await newCompiler()).build(words)
-    if (cache.size > 200) cache.clear()
-    cache.set(key, css)
-  }
+  const css = await cache(key, async () => (await newCompiler()).build(words))
   res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' })
   res.end(css)
 })
