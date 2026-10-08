@@ -91,7 +91,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   }
   const copyRef = (rel: string) => {
     if (!files.exists(rel)) return null
-    const dest = `refs/${basename(rel)}`
+    const dest = `references/${basename(rel)}`
     if (!outputs.has(dest)) written.push(dest)
     outputs.set(dest, { from: rel })
     return dest
@@ -350,13 +350,58 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const sounds = board.frames.filter((f) => f.type === 'audio' && !f.music && (f.src || f.clips?.length))
   const music = board.frames.filter((f) => f.type === 'audio' && f.music && f.src)
   const notesOn = (f: Frame) => notes.filter((n) => refsOf(n).includes(f.id)).map((n) => ` ${n.text!.trim().replace(/\n+/g, ' ')}`).join('')
-  // One sound: its file in refs/ and what it measures as, in the side panel's words.
+  // One sound: its file in references/ and what it measures as, in the side panel's words.
   const soundLine = (label: string, src: string, r?: SoundReading) => {
     const dest = copyRef(src)
     const file = dest ? `: [\`${dest}\`](${dest})` : ''
     const read = r ? `. ${soundFacts(r).map(([k, v]) => (k === 'Feel' ? v.toLowerCase() : `${k.toLowerCase()} ${v}`)).join(', ')}` : ''
     return `- **${label}**${file}${read}`
   }
+
+  // ── references/: everything the board was made from, with index.md saying what each one is ──
+  // Files are copied in (pictures, videos and their keyframes, site pictures, sounds); what only
+  // lives online (sites, posts, Spotify) is listed by link.
+  const refLines: Record<string, string[]> = { Pictures: [], Videos: [], Websites: [], Posts: [], Sounds: [], Music: [] }
+  const inRefs = (dest: string | null) => (dest ? `[\`${basename(dest)}\`](${basename(dest)})` : null)
+  // One line per reference: titles copied from posts can hold line breaks.
+  const one = (f: Frame) => name(f).replace(/\s+/g, ' ').trim()
+  const from = (f: Frame) => (f.origin ? ` (from ${f.origin})` : '')
+  for (const f of board.frames) {
+    const about = notesOn(f)
+    if (f.type === 'image' && f.src) {
+      const file = inRefs(copyRef(f.src))
+      if (file) refLines.Pictures.push(`- **${one(f)}**: ${file}${from(f)}${cropNote(f)}${about}`)
+    } else if (f.type === 'video' && f.src) {
+      const file = inRefs(copyRef(f.src))
+      const a = readJson<VideoAnalysis>(f.analysis)
+      const sheet = a ? inRefs(copyRef(a.contactSheet)) : null
+      const seg = f.segment ? `. The motion is at ${f.segment.in.toFixed(2)}–${f.segment.out.toFixed(2)}s` : ''
+      if (file)
+        refLines.Videos.push(`- **${one(f)}**: ${file}${sheet ? `, keyframes ${sheet}` : ''}${from(f)}${seg}${cropNote(f)}${a ? '. Measured: the numbers are in interactions.md' : ''}${about}`)
+    } else if (f.type === 'url' && f.src && f.post) {
+      refLines.Posts.push(`- **${one(f)}** (${POST_SITE[f.post.provider]}): ${f.src}. Open it there; only the link is kept.${about}`)
+    } else if (f.type === 'url' && f.src) {
+      const shot = f.snapshot ? inRefs(copyRef(f.snapshot)) : null
+      refLines.Websites.push(`- **${one(f)}**: ${f.src}${shot ? `, full-page picture ${shot}` : ''}${f.analysis ? '. Its motion was captured: interactions.md' : ''}${about}`)
+    } else if (f.type === 'audio' && f.music && f.src) {
+      refLines.Music.push(`- **${(f.music.title ?? one(f)).replace(/\s+/g, ' ')}** (Spotify): ${f.src}${about}`)
+    } else if (f.type === 'audio') {
+      const files = (f.clips ?? (f.src ? [{ src: f.src }] : [])).map((c) => inRefs(copyRef(c.src))).filter(Boolean)
+      if (files.length) refLines.Sounds.push(`- **${one(f)}**: ${files.join(', ')}${about}`)
+    }
+  }
+  const refCount = Object.values(refLines).reduce((n, l) => n + l.length, 0)
+  if (refCount)
+    write(
+      'references/index.md',
+      [
+        `# ${board.name} · References`,
+        '',
+        "What the board was made from. Look at these before building and match them; the notes beside each are the designer's. Colors, type and rules are in [`design.md`](../design.md), measured timing in [`interactions.md`](../interactions.md).",
+        '',
+        ...Object.entries(refLines).flatMap(([title, lines]) => (lines.length ? [`## ${title}`, '', ...lines, ''] : [])),
+      ].join('\n'),
+    )
 
   // ── tokens.css / tokens.json ────────────────────────────
   const tokenCss = [
@@ -539,8 +584,8 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
         ['Need a color or font?', '→ Color, Type below · tokens.css'],
         ['Animating something?', '→ motion.md'],
         ...(codeFrames.length ? [['Rebuilding an interaction?', '→ interactions.md + snippets/'] as [string, string]] : []),
-        ...(images.length || posts.length ? [['Matching a look?', `→ Visual references below${images.length ? ' · refs/' : ''}`] as [string, string]] : []),
-        ...(sounds.length ? [['Adding a sound?', '→ Sound below · refs/'] as [string, string]] : []),
+        ...(refCount ? [['Matching a look?', '→ references/index.md (every reference, with notes)'] as [string, string]] : []),
+        ...(sounds.length ? [['Adding a sound?', '→ Sound below · references/'] as [string, string]] : []),
       ],
       '',
     ),
@@ -584,7 +629,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
       ? [
           '## Sound',
           '',
-          'Interface sounds, measured from the files in `refs/`. Match their length, how fast they get loud and how they fade before matching anything else.',
+          'Interface sounds, measured from the files in `references/`. Match their length, how fast they get loud and how they fade before matching anything else.',
           '',
           ...sounds.flatMap((f) =>
             f.clips

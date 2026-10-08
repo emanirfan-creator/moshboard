@@ -43,8 +43,12 @@ export function ExportDialog() {
   const partial = result.scope.frames < result.scope.total
   const top = result.files.filter((f) => !f.includes('/')).sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b))
   const snippets = result.files.filter((f) => f.startsWith('snippets/'))
-  const refs = result.files.filter((f) => f.startsWith('refs/'))
-  const base = `Build this UI from the spec in ${result.absDir}. Read design.md and motion.md first. Use tokens.css for timing, easing and color. Treat snippets/ as exact references: their values were tuned by hand.`
+  const refs = result.files.filter((f) => f.startsWith('references/') && f !== 'references/index.md')
+  const hasRefs = result.files.includes('references/index.md')
+  // One folder holds the whole example: the spec, the tuned snippets and the references themselves.
+  const base = `Everything for this build is in ${result.absDir}. Read design.md and motion.md first${
+    hasRefs ? ', then look through references/ (index.md says what each one is and what the designer noted about it) and match them' : ''
+  }. Use tokens.css for timing, easing and color. Treat snippets/ as exact: their values were tuned by hand.`
   const prompt = withComments && notes ? `${base}\n\nAlso address these open comments from the board:\n${notes}` : base
 
   const copy = (what: string, text: string) =>
@@ -97,11 +101,11 @@ export function ExportDialog() {
                 </span>
               </li>
             )}
-            {refs.length > 0 && (
+            {hasRefs && (
               <li>
-                <span className="mono">refs/</span>
+                <span className="mono">references/</span>
                 <span>
-                  {refs.length} reference image{refs.length > 1 ? 's' : ''} and keyframes
+                  What the board was made from{refs.length ? `: ${refs.length} file${refs.length > 1 ? 's' : ''}` : ''}, and an index
                 </span>
               </li>
             )}
