@@ -4680,7 +4680,17 @@ textarea,
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
-  opacity: 0.7;
+  /* Texture, not content: faint, and only toward the card's edges, clear of the text and fields. */
+  opacity: 0.3;
+  mask-image: radial-gradient(ellipse 75% 70% at 50% 50%, transparent 45%, #000 100%);
+}
+/* Fields, toggles and buttons on a pixel card are solid, so the pixels never show inside them. */
+.onboarding :is(input, textarea, .segmented, .btn:not(.btn-primary)) {
+  background-color: var(--overlay);
+}
+.onboarding .segmented,
+.onboarding .btn:not(.btn-primary):hover {
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04));
 }
 .onboarding .dialog-body {
   position: relative;
