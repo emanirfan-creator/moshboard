@@ -4,7 +4,6 @@ import type { Frame, MotionKind, Move, VideoAnalysis } from '../../shared/types.
 import {
   analyzeSelected,
   copyRecreate,
-  cropToPost,
   fileAspect,
   setView,
   detectMotionValues,
@@ -73,7 +72,7 @@ import { scanChirp } from '../ui/sound'
 import { seconds, soundFacts, soundFeel } from '../../shared/sound.ts'
 import type { DetectedGroup } from '../../shared/detect-motion.ts'
 import { POST_SITE } from '../../shared/posts.ts'
-import { askClaude } from '../folder/ClaudeTask'
+import { beginCrop, cancelCrop, finishCrop } from '../frames/ViewPicker'
 
 const EMPTY = {}
 /** Frames whose detected controls have already scanned in this session. */
@@ -644,38 +643,48 @@ function VideoBody({ frame }: { frame: Frame }) {
   )
 }
 
-/** A picture or video: show just part of it (the post in a phone screenshot), by hand, found, or by Claude. */
+/** A picture or video: show just part of it (the post in a phone screenshot). Claude can do it too, from ⌘K. */
 function CropBody({ frame }: { frame: Frame }) {
   const picking = useStore((s) => s.viewPick === frame.id)
-  const busy = useStore((s) => !!s.jobs[frame.id])
   const what = frame.type === 'image' ? 'picture' : 'video'
+  if (picking)
+    return (
+      <Section title="Crop">
+        <p className="ctl-help measure-links">
+          Drag the box on the {what} ·{' '}
+          <button className="link" onClick={() => finishCrop('all')}>
+            Show all
+          </button>
+        </p>
+        <div className="insp-buttons">
+          <button className="btn btn-primary" onClick={() => finishCrop('draft')}>
+            Done
+          </button>
+          <button className="btn" onClick={cancelCrop}>
+            Cancel
+          </button>
+        </div>
+      </Section>
+    )
   return (
     <Section title="Crop">
-      <p className="ctl-help">
-        {picking
-          ? `Drag the box on the ${what}. Done keeps it, Esc cancels.`
-          : frame.view
-            ? `Shows just part of the ${what}.`
-            : `Show just part of it, like the post in a phone screenshot.`}
-      </p>
-      {!picking && (
-        <div className="insp-buttons">
-          <button className="btn" onClick={() => setState({ viewPick: frame.id, interact: null, regionPick: null })}>
-            {frame.view ? 'Adjust' : 'Pick part'}
-          </button>
-          <button className="btn" onClick={() => cropToPost(frame.id)} disabled={busy}>
-            Find the post
-          </button>
-          <button className="btn" onClick={() => askClaude('crop', frame.id)}>
-            Ask Claude
-          </button>
-          {frame.view && (
-            <button className="btn" onClick={() => fileAspect(frame).then((a) => setView(frame.id, null, a))}>
+      <p className="ctl-help measure-links">
+        {frame.view ? (
+          <>
+            Showing part of the {what} ·{' '}
+            <button className="link" onClick={() => fileAspect(frame).then((a) => setView(frame.id, null, a))}>
               Show all
             </button>
-          )}
-        </div>
-      )}
+          </>
+        ) : (
+          `Show just part of the ${what}, like the post in a phone screenshot.`
+        )}
+      </p>
+      <div className="insp-buttons">
+        <button className="btn" onClick={() => beginCrop(frame.id)}>
+          Crop
+        </button>
+      </div>
     </Section>
   )
 }

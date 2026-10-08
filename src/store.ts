@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import type { ParamValue } from '../shared/params.ts'
 import type { RuntimeItem } from '../shared/runtime-motion.ts'
-import type { Board, BoardComment, Frame } from '../shared/types.ts'
+import type { Board, BoardComment, Frame, Region } from '../shared/types.ts'
 import { api, type CanvasInfo, type ExportResult } from './api'
 import type { ClaudeTaskKind } from './folder/ClaudeTask'
 import type { FolderEntry, FolderInfo, OnboardingStep } from './folder/folder'
@@ -104,6 +104,8 @@ export interface State {
   regionPick: string | null
   /** an image/video whose crop (`view`) is being dragged */
   viewPick: string | null
+  /** the crop being dragged, until Done */
+  viewDraft: Region | null
   /** a tab's sound being recorded: when it started (ms) */
   recording: number | null
   /** a pin being dragged: where it is (canvas units) and what dropping it would do */
@@ -200,6 +202,7 @@ let state: State = {
   commentCursor: null,
   regionPick: null,
   viewPick: null,
+  viewDraft: null,
   recording: null,
   pinDrag: null,
 }

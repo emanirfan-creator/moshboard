@@ -89,6 +89,25 @@ function bestPinVideo(list: Record<string, PinVideo> | undefined): PinVideo | nu
   return mp4s.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0] ?? null
 }
 
+/** A streaming playlist in a `video_list` (some idea pins list nothing else). */
+function pinStream(list: Record<string, PinVideo> | undefined): PinVideo | null {
+  return Object.values(list ?? {}).find((v) => /\.m3u8(\?|$)/.test(v?.url ?? '')) ?? null
+}
+
+// Pinterest keeps mp4 copies beside a playlist: …/videos/<x>/hls/<path>.m3u8 has
+// …/videos/<x>/720p/<path>.mp4 and smaller …/videos/iht/expMp4/<path>_t4.mp4 (t4 down to t1).
+async function mp4BesideStream(m3u8: string): Promise<string | null> {
+  const m = /^(https:\/\/[^/]+\/videos\/)(\w+)\/hls\/(.+)\.m3u8/.exec(m3u8)
+  if (!m) return null
+  const [, root, kind, path] = m
+  const tries = [`${root}${kind}/720p/${path}.mp4`, ...[4, 3, 2, 1].map((t) => `${root}iht/expMp4/${path}_t${t}.mp4`)]
+  for (const url of tries) {
+    const r = await fetch(url, { method: 'HEAD', headers: { 'user-agent': UA }, signal: AbortSignal.timeout(10000) }).catch(() => null)
+    if (r?.ok && (r.headers.get('content-type') ?? '').startsWith('video/')) return url
+  }
+  return null
+}
+
 // A Muzli project (me.muz.li/<user>/<slug>) is several pieces. The page data lists
 // each one as {"type":"image"|"video","url":...} in a "media" array, hosted on Muzli.
 function findMuzliMedia(html: string): { title?: string; items: Found[] } | null {
@@ -135,6 +154,10 @@ async function findPinterestMedia(pageUrl: string): Promise<Found | null> {
     const v = bestPinVideo(list)
     if (v) return { url: v.url, kind: 'video', title, width: v.width, height: v.height }
   }
+  // Only a stream: its mp4 copy, else the cover picture below.
+  const stream = lists.map(pinStream).find(Boolean)
+  const mp4 = stream && (await mp4BesideStream(stream.url))
+  if (mp4) return { url: mp4, kind: 'video', title, width: stream.width, height: stream.height }
   const image = pin.images?.orig ?? Object.values(pin.images ?? {}).at(-1)
   return image?.url ? { url: image.url, kind: 'image', title, width: image.width, height: image.height } : null
 }

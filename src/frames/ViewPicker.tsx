@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Frame, Region } from '../../shared/types.ts'
-import { setView } from '../actions'
+import { fileAspect, setView } from '../actions'
 import { drag } from '../drag'
-import { setState } from '../store'
+import { frameById, getState, setState, useStore } from '../store'
 import { cue } from '../ui/sound'
 
 const FULL: Region = { x: 0, y: 0, w: 1, h: 1 }
@@ -10,16 +10,35 @@ const FULL: Region = { x: 0, y: 0, w: 1, h: 1 }
 const EDGE = 10
 const MIN = 0.04
 
-const close = () => setState({ viewPick: null })
+/** Starts cropping a picture or video (the side panel's Crop, ⌘K "Crop…"). */
+export const beginCrop = (id: string) => setState({ viewPick: id, viewDraft: null, selected: [id], interact: null, regionPick: null })
+
+export const cancelCrop = () => setState({ viewPick: null, viewDraft: null })
+
+/** Keeps the dragged crop (or shows all of the file) and gives the block its shape. */
+export async function finishCrop(show: 'draft' | 'all') {
+  const { viewPick, viewDraft } = getState()
+  const f = viewPick ? frameById(viewPick) : undefined
+  cancelCrop()
+  if (!f) return
+  const view = show === 'all' ? null : (viewDraft ?? f.view ?? null)
+  const whole = !view || (view.w > 0.995 && view.h > 0.995)
+  const r = (n: number) => Math.round(n * 1000) / 1000
+  setView(f.id, whole ? null : { x: r(view.x), y: r(view.y), w: r(view.w), h: r(view.h) }, await fileAspect(f))
+  cue('confirm')
+}
+
+const setDraft = (viewDraft: Region) => setState({ viewDraft })
 
 /**
- * Cropping a picture or video (⌘K "Crop…"): the whole file shows, letterboxed, with the crop as
- * a box. Drag inside it to move it, its edges or corners to resize, outside it to draw a new one.
- * Done (or Enter) keeps it; Esc leaves it as it was.
+ * Cropping a picture or video: the whole file shows, letterboxed and inset from the block's
+ * border (so its edges are the crop's, not the block's), with the crop as a box. Drag inside it
+ * to move it, its edges or corners to resize, outside it to draw a new one. The side panel's
+ * Done (or Enter) keeps it; Cancel or Esc leaves it as it was.
  */
 export function ViewPicker({ frame }: { frame: Frame }) {
   const box = useRef<HTMLDivElement>(null)
-  const [draft, setDraft] = useState<Region>(frame.view ?? FULL)
+  const draft = useStore((s) => s.viewDraft) ?? frame.view ?? FULL
   // The box is drawn from the media's measured size, so draw again once it's on screen and loaded.
   const [, measured] = useState(0)
   useLayoutEffect(() => {
@@ -34,35 +53,32 @@ export function ViewPicker({ frame }: { frame: Frame }) {
     }
   }, [])
 
-  const latest = useRef(draft)
-  latest.current = draft
-  const done = (view: Region | null) => {
-    const m = map()
-    const whole = !view || (view.w > 0.995 && view.h > 0.995)
-    if (m) setView(frame.id, whole ? null : view, m.aspect)
-    close()
-    cue('confirm')
-  }
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Enter' && (e.preventDefault(), done(latest.current))
+    const onKey = (e: KeyboardEvent) => e.key === 'Enter' && (e.preventDefault(), finishCrop('draft'))
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The overlay ↔ the file, through object-fit: contain.
+  // The overlay ↔ the file, through object-fit: contain inside the media's padding.
   const map = () => {
     const el = box.current
     const media = mediaOf(el)
     if (!el || !media) return null
     const r = el.getBoundingClientRect()
+    const mr = media.getBoundingClientRect()
+    const cs = getComputedStyle(media)
+    // The padding is in the block's own pixels; the rect is on screen (zoomed).
+    const k = media.offsetWidth ? mr.width / media.offsetWidth : 1
+    const pad = parseFloat(cs.paddingLeft) * k || 0
+    const content = { left: mr.left + pad, top: mr.top + pad, width: mr.width - pad * 2, height: mr.height - pad * 2 }
     const nw = (media as HTMLVideoElement).videoWidth || (media as HTMLImageElement).naturalWidth
     const nh = (media as HTMLVideoElement).videoHeight || (media as HTMLImageElement).naturalHeight
     if (!nw || !nh) return null
-    const s = Math.min(r.width / nw, r.height / nh)
+    const s = Math.min(content.width / nw, content.height / nh)
     const dw = nw * s
     const dh = nh * s
-    const ox = r.left + (r.width - dw) / 2
-    const oy = r.top + (r.height - dh) / 2
+    const ox = content.left + (content.width - dw) / 2
+    const oy = content.top + (content.height - dh) / 2
     return {
       aspect: nw / nh,
       dw,
@@ -122,18 +138,9 @@ export function ViewPicker({ frame }: { frame: Frame }) {
   }
 
   const m = map()
-  const round = (g: Region): Region => {
-    const r = (n: number) => Math.round(n * 1000) / 1000
-    return { x: r(g.x), y: r(g.y), w: r(g.w), h: r(g.h) }
-  }
   return (
     <div ref={box} className="view-pick" onPointerDown={down} onPointerMove={hover}>
       {m && <div className="view-box" style={m.toBox(draft)} />}
-      <div className="snap-bar view-bar" onPointerDown={(e) => e.stopPropagation()}>
-        <button onClick={() => done(null)}>Show all</button>
-        <button onClick={close}>Cancel</button>
-        <button onClick={() => done(round(draft))}>Done</button>
-      </div>
     </div>
   )
 }

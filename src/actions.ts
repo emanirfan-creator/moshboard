@@ -964,18 +964,6 @@ export function fileAspect(f: Frame): Promise<number> {
   })
 }
 
-/** ⌘K "Crop to the post": looks for the post in the selected picture or video. */
-export async function cropToPost(id = getState().selected[0]) {
-  const f = frameById(id)
-  if (!f || (f.type !== 'image' && f.type !== 'video') || !f.src) return
-  const done = startJob(f.id, 'Finding the post')
-  const [view, aspect] = await Promise.all([findPost(f.type === 'image' ? `${assetUrl(f.src)}?w=640` : assetUrl(f.src), f.type), fileAspect(f)]).finally(done)
-  if (!view) return toast('Couldn’t find a post in it. Crop… to pick it', true)
-  setView(f.id, view, aspect)
-  toast('Cropped to the post · ⌘Z to undo')
-  cue('confirm')
-}
-
 export function deleteSelected() {
   if (removeSelection()) cue('remove')
 }

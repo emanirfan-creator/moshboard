@@ -50,7 +50,6 @@ import {
   ungroupSection,
   focusFrame,
   pickSection,
-  cropToPost,
   fileAspect,
   setView,
 } from '../actions'
@@ -58,6 +57,7 @@ import { isTunable } from '../../shared/autoParams.ts'
 import { linkNumbers } from '../../shared/frame-links.ts'
 import { shareBoard } from '../share'
 import { POST_SITE } from '../../shared/posts.ts'
+import { beginCrop } from '../frames/ViewPicker'
 import { setSounds, soundsOn } from '../ui/sound'
 import { frameById, getState, setState, togglePins, toggleSidebar, updateFrame, useStore } from '../store'
 
@@ -113,8 +113,7 @@ function Palette() {
     }
     if ((one?.type === 'image' || one?.type === 'video') && one.src) {
       const group = one.type === 'image' ? 'Picture' : 'Video'
-      add(group, 'Crop…', () => setState({ viewPick: one.id, selected: [one.id], interact: null, regionPick: null }))
-      add(group, 'Crop to the post', () => cropToPost(one.id))
+      add(group, 'Crop…', () => beginCrop(one.id))
       add(group, 'Crop with Claude…', () => askClaude('crop', one.id))
       if (one.view) add(group, 'Show all of it', () => fileAspect(one).then((a) => setView(one.id, null, a)))
     }
@@ -181,7 +180,7 @@ function Palette() {
     }
     if (one && isTile(one.id)) {
       add('Layout', 'Take out of the layout', () => takeOut(one.id))
-      if (canCrop(one)) add('Layout', 'Crop', () => startCrop(one.id), '↵')
+      if (canCrop(one)) add('Layout', 'Pan & zoom', () => startCrop(one.id), '↵')
     }
     if (canLinkSelected()) {
       add('Link', 'Link together', () => linkSelected('together'))

@@ -471,6 +471,7 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
       {single &&
         !interact &&
         !cropping &&
+        !picking &&
         !preview &&
         off === NONE &&
         (tileMode ? TILE_DIRS[tileMode] : DIRS).map((d) => (
