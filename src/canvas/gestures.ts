@@ -4,6 +4,7 @@ import { isSection, sectionAt, sectionContents, withContents } from '../../share
 import { growSections } from '../actions'
 import { addToLayout, geoOf, morph, swapTiles, takeOut, tileSection } from '../arrange'
 import { clamp, drag } from '../drag'
+import { stackLayer } from './blocks'
 import {
   computeLayout,
   detachLeaf,
@@ -50,6 +51,8 @@ export function pressFrame(e: RPE, id: string) {
   const s = getState()
   if (e.button !== 0 || s.space || s.hand) return
   e.stopPropagation()
+  // ⌥-click reaches what's underneath: each one takes the next frame down at that spot.
+  if (e.altKey && !e.shiftKey && !s.compare) id = frameBeneath(screenToWorld(e.clientX, e.clientY), s.selected) ?? id
   let sel = s.selected
   if (e.shiftKey) sel = sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id]
   else if (!sel.includes(id)) sel = [id]
@@ -97,6 +100,19 @@ export function pressFrame(e: RPE, id: string) {
       saveSoon()
     },
   )
+}
+
+/** Under a point, the frame below the selected one (top to bottom, round again), or below the top one. */
+function frameBeneath(p: { x: number; y: number }, selected: string[]) {
+  const frames = getState().board?.frames ?? []
+  const stack = frames
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => !isSection(f) && p.x >= f.x && p.x <= f.x + f.w && p.y >= f.y && p.y <= f.y + f.h)
+    .sort((a, b) => stackLayer(b.f, false, false) - stackLayer(a.f, false, false) || b.i - a.i)
+    .map(({ f }) => f.id)
+  if (stack.length < 2) return null
+  const at = selected.length === 1 ? stack.indexOf(selected[0]) : -1
+  return stack[(Math.max(at, 0) + 1) % stack.length]
 }
 
 /** The block of a layout section under a point, if any. */

@@ -23,6 +23,7 @@ import {
   copyRecreate,
   deleteSelected,
   duplicateSelected,
+  stackSelected,
   exportBoard,
   fitBoard,
   linkSelected,
@@ -206,6 +207,8 @@ function Palette() {
       )
     if (sel.length) {
       add('Frame', 'Duplicate', duplicateSelected, '⌘D')
+      add('Frame', 'Bring to front', () => stackSelected('front'), '⌘]')
+      add('Frame', 'Send to back', () => stackSelected('back'), '⌘[')
       add('Frame', 'Delete', deleteSelected, '⌫')
     }
 

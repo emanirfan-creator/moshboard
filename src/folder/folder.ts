@@ -265,9 +265,10 @@ async function openFolder(id: string, first: boolean) {
   await patch(id, { used: Date.now() })
   const entry = byId(id)
   if (!entry) return
-  const { flushSave } = await import('../store')
+  const { canvasChanged, flushSave } = await import('../store')
   await flushSave().catch(() => {})
   stopWatching()
+  canvasChanged()
   setState({ board: null, boardName: '', canvases: [], files: {}, overrides: {}, selected: [], interact: null })
   history.replaceState(null, '', location.pathname)
   await activate(entry)
@@ -355,6 +356,8 @@ export async function removeFolder(id: string) {
 /** No folder open in this tab. */
 async function closeFolder() {
   stopWatching()
+  const { canvasChanged } = await import('../store')
+  canvasChanged()
   root = null
   rootId = null
   await idbDel('root')

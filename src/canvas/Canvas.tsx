@@ -15,7 +15,7 @@ import { pressCanvas } from '../comments/comments'
 import { clamp, drag } from '../drag'
 import { FrameContent } from '../frames/Contents'
 import { BlockLoader } from '../frames/BlockLoader'
-import { BLOCK_HEAD, BLOCK_PAD, isBlock } from './blocks'
+import { BLOCK_HEAD, BLOCK_PAD, isBlock, stackLayer } from './blocks'
 import { useInView } from './useInView'
 import { nextStep, STAGE_LABEL, STAGES, stageOf } from '../workflow'
 import { POST_SITE } from '../../shared/posts.ts'
@@ -359,7 +359,13 @@ const FrameView = memo(function FrameView({ frame: stored }: { frame: Frame }) {
       data-linked={linked || undefined}
       data-away={!view.inView || undefined}
       data-hidden={off === HIDDEN || undefined}
-      style={{ left: frame.x + off.dx, top: frame.y + off.dy, width: frame.w, height: frame.h }}
+      style={{
+        left: frame.x + off.dx,
+        top: frame.y + off.dy,
+        width: frame.w,
+        height: frame.h,
+        zIndex: stackLayer(frame, selected, interact),
+      }}
       onPointerEnter={() => setState({ hover: frame.id })}
       onPointerLeave={() => getState().hover === frame.id && setState({ hover: null })}
     >

@@ -30,6 +30,7 @@ import {
   holdLayouts,
   getState,
   mutateFrames,
+  onSameCanvas,
   resetHistory,
   saveSoon,
   setCamera,
@@ -108,11 +109,12 @@ async function readBoard(name: string): Promise<void> {
 
 /** Animated GIF image frames become video frames (once; still GIFs stay images). */
 export async function convertGifs(board: string) {
+  const here = onSameCanvas()
   const gifs = (getState().board?.frames ?? []).filter((f) => f.type === 'image' && f.src && /\.gif$/i.test(f.src))
   for (const f of gifs) {
     try {
       const { path } = await api.gifToVideo(board, f.src!)
-      if (path && getState().boardName === board) updateFrame(f.id, { type: 'video', src: path })
+      if (path && here()) updateFrame(f.id, { type: 'video', src: path })
     } catch {
       // leave it as an image
     }
@@ -120,12 +122,9 @@ export async function convertGifs(board: string) {
 }
 
 export async function loadFile(rel: string) {
-  try {
-    const text = await api.file(getState().boardName, rel)
-    setState((s) => ({ files: { ...s.files, [rel]: text } }))
-  } catch {
-    setState((s) => ({ files: { ...s.files, [rel]: '' } }))
-  }
+  const here = onSameCanvas()
+  const text = await api.file(getState().boardName, rel).catch(() => '')
+  if (here()) setState((s) => ({ files: { ...s.files, [rel]: text } }))
 }
 
 // Loads a file once: skips it when it's already in the store or on its way.
@@ -505,8 +504,10 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
   const spotify = spotifyLink(url)
   if (spotify) return addSpotify(spotify.url, at)
   // An Instagram share link stands for a post: follow it to the post's own address first.
+  const here = onSameCanvas()
   if (isShareLink(url)) {
     const real = await api.postLink(url).catch(() => null)
+    if (!here()) return
     const post = real && postLink(real.url)
     if (post) return addPost(post, at)
     toast('Couldn’t open that share link. Open it in your browser and paste the address it lands on', true)
@@ -522,6 +523,7 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
   const done = startPending({ ...spot, label: `Fetching from ${host}` })
   try {
     const m = await api.mediaLink(getState().boardName, url).finally(done)
+    if (!here()) return
     if (m.items && m.items.length > 1) return addPieces(m.items, m.title, m.source, host, at)
     const max = m.type === 'video' ? 480 : 360
     const w0 = m.width ?? 480
@@ -534,6 +536,7 @@ export async function addLink(href: string, at?: { x: number; y: number }) {
     convertGifs(getState().boardName)
     return f
   } catch (e) {
+    if (!here()) return
     toast(`${(e as Error).message}. Added as a website.`, true)
     return addUrl(url, at)
   }
@@ -752,10 +755,13 @@ export async function addCode(
 ) {
   const id = opts.id ?? newId()
   const file = `frames/${id}.${kind}`
+  const board = getState().boardName
+  const here = onSameCanvas()
   if (modules && Object.keys(modules).length) {
     const rel = `frames/${id}.modules.json`
     const json = JSON.stringify(modules, null, 2)
-    await api.writeFile(getState().boardName, rel, json)
+    await api.writeFile(board, rel, json)
+    if (!here()) return
     setState((s) => ({ files: { ...s.files, [rel]: json } }))
     opts = { ...opts, modules: rel }
   }
@@ -763,7 +769,9 @@ export async function addCode(
   const snippet = kind === 'tsx' ? parseSnippet(text) : null
   // A README snippet: its props become controls, typed from the package when it publishes types.
   const body = snippet ? buildSnippet(snippet, await packageTypes(snippet).catch(() => ({}))) : kind === 'tsx' ? ensureDefaultExport(text) : text
-  await api.writeFile(getState().boardName, file, body)
+  if (!here()) return
+  await api.writeFile(board, file, body)
+  if (!here()) return
   setState((s) => ({ files: { ...s.files, [file]: body } }))
   // `fit`: sized to what it renders once it first loads (see CodeFrame).
   // Looking for a free spot can pan the view, so only when the frame has no place yet (a paste or duplicate has one).
@@ -778,15 +786,18 @@ export const looksLikeCode = (t: string) =>
 export async function addFromRegistry(input: string) {
   const spot = place(520, 420)
   const done = startPending({ ...spot, label: 'Fetching component' })
+  const here = onSameCanvas()
   try {
     const r = await api.registry(input).finally(done)
+    if (!here()) return
     const f = await addCode('tsx', r.entry, { label: r.title, ...spot }, r.modules)
+    if (!f) return
     const n = Object.keys(r.modules).length
     toast(`Added ${r.title}${n ? ` with ${n} supporting file${n > 1 ? 's' : ''}` : ''}`)
     cue('ready')
     return f
   } catch (e) {
-    toast(`Couldn’t add it: ${(e as Error).message}`, true)
+    if (here()) toast(`Couldn’t add it: ${(e as Error).message}`, true)
   }
 }
 
@@ -800,6 +811,7 @@ export async function fetchIntoFrame(id: string, input: string) {
   const f = frameById(id)
   if (!f?.file) return
   const done = startJob(id, 'Fetching component')
+  const here = onSameCanvas()
   try {
     // Read the block's code from disk if it hasn't been loaded yet (off-screen blocks):
     // never mistake "not loaded" for "empty" and overwrite someone's code.
@@ -807,6 +819,7 @@ export async function fetchIntoFrame(id: string, input: string) {
     if (current === null) throw new Error('could not read this block’s code')
     // The block's own code goes along so its imports get resolved too.
     const r = await api.registry(input, looksLikeInstall(current) ? '' : current)
+    if (!here()) return
     const b = getState().boardName
     const replace = !current.trim() || looksLikeInstall(current)
     const existing = f.modules ? JSON.parse(getState().files[f.modules] || '{}') : {}
@@ -854,6 +867,7 @@ export async function pasteText(text: string, at?: { x: number; y: number }) {
     const kind = /(^|\n)\s*(import|export)\s|className=/.test(t) || !/^\s*</.test(t) ? 'tsx' : 'html'
     const name = /export\s+(?:default\s+)?(?:function|const)\s+([A-Z]\w*)/.exec(t)?.[1]
     const f = await addCode(kind, t, { label: name ?? 'Pasted component' })
+    if (!f) return
     toast(`Added ${kind === 'tsx' ? 'React' : 'HTML'} component`)
     cue('paste')
     return f
@@ -888,8 +902,11 @@ function mediaSize(file: File, kind: 'image' | 'video'): Promise<{ w: number; h:
 const AUDIO_FILE = /\.(mp3|wav|m4a|aac|ogg|oga|opus|flac|aiff?)$/i
 
 export async function uploadFiles(files: File[], at = viewportCenter()) {
+  const board = getState().boardName
+  const here = onSameCanvas()
   let offset = 0
   for (const file of files) {
+    if (!here()) return
     const type: FrameType | null = file.type.startsWith('image/')
       ? 'image'
       : file.type.startsWith('video/')
@@ -908,7 +925,8 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
     const size = blockBox(media.w, media.h)
     // Big clips take a moment to copy in: show where they'll land meanwhile.
     const done = startPending({ ...place(size.w, size.h, { x: at.x + offset, y: at.y + offset }), label: `Adding ${file.name}` })
-    const up = await api.upload(getState().boardName, file).finally(done)
+    const up = await api.upload(board, file).finally(done)
+    if (!here()) return
     const path = up.path
     const f = addFrame({
       type: up.type ?? type,
@@ -922,7 +940,7 @@ export async function uploadFiles(files: File[], at = viewportCenter()) {
   }
   if (offset) cue('paste')
   // The local server converts animated GIFs on upload; the website does it here.
-  convertGifs(getState().boardName)
+  convertGifs(board)
 }
 
 /** Crops a new upload to the post found in it, once (it doesn't touch a block that's been cropped by hand since). */
@@ -976,6 +994,17 @@ export function fileAspect(f: Frame): Promise<number> {
       img.onerror = () => resolve(1)
       img.src = `${url}?w=320`
     }
+  })
+}
+
+/** ⌘] / ⌘[: the selected frames go in front of (or behind) the rest of their layer. */
+export function stackSelected(to: 'front' | 'back') {
+  const sel = new Set(getState().selected)
+  if (!sel.size) return
+  mutateFrames((fs) => {
+    const picked = fs.filter((f) => sel.has(f.id))
+    const rest = fs.filter((f) => !sel.has(f.id))
+    return to === 'front' ? [...rest, ...picked] : [...picked, ...rest]
   })
 }
 

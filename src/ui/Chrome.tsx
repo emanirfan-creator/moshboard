@@ -273,6 +273,8 @@ const SHORTCUTS: [string, string][] = [
   ['⌘C  /  ⌘V', 'Copy / paste frames'],
   ['⌘X', 'Cut'],
   ['⌘D', 'Duplicate'],
+  ['⌘]  /  ⌘[', 'Bring to front / send to back'],
+  ['⌥ + click', 'Select what\'s underneath'],
   ['⌫', 'Delete'],
 ]
 

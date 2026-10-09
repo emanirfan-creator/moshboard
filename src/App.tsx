@@ -9,6 +9,7 @@ import {
   addText,
   deleteSelected,
   duplicateSelected,
+  stackSelected,
   fitBoard,
   loadBoard,
   refreshCanvases,
@@ -99,6 +100,9 @@ function useHotkeys() {
         if (only && (only.type === 'text' || only.type === 'note')) {
           setState({ interact: only.id, selectAllIn: only.id })
         } else setState({ selected: s.board?.frames.map((f) => f.id) ?? [] })
+      } else if (mod && (e.key === ']' || e.key === '[') && s.selected.length) {
+        e.preventDefault()
+        stackSelected(e.key === ']' ? 'front' : 'back')
       } else if (mod) return
       else if (e.key === 'Backspace' || e.key === 'Delete') deleteSelected()
       else if (e.altKey && e.key === 'ArrowLeft') {

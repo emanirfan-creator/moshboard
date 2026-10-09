@@ -116,6 +116,8 @@ button {
 
 .frame {
   position: absolute;
+  /* Each frame stacks by its layer (stackLayer in canvas/blocks.ts), set inline. */
+  z-index: 1;
 }
 .frame-body {
   position: absolute;

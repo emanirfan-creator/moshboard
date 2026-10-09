@@ -242,11 +242,23 @@ const HISTORY = 100
 const snap = (b: Board): Snap => ({ frames: b.frames, comments: b.comments })
 const isCommitted = (b: Board) => !!committed && b.frames === committed.frames && b.comments === committed.comments
 
+// Which canvas is open, counted up each time another one opens (another canvas, or another
+// folder's). Work that awaits (a download, an upload) checks it before adding what it fetched,
+// so it never lands on a canvas it wasn't started on.
+let opened = 0
+export const canvasChanged = () => void opened++
+/** True while the canvas open when this was called is still the open one. */
+export function onSameCanvas() {
+  const at = opened
+  return () => opened === at
+}
+
 /** Call when a board is (re)loaded from disk: that's the new baseline, not an undoable change. */
 export function resetHistory(board: Board, keep = false) {
   committed = snap(board)
   settled = board.frames
   if (!keep) {
+    opened++
     undoStack.length = 0
     redoStack.length = 0
   }
@@ -408,10 +420,10 @@ export function setCamera(camera: Camera) {
   cameraSubs.forEach((f) => f())
   // Persist once movement settles, not on every pan/zoom event.
   clearTimeout(cameraTimer)
-  const board = state.boardName
+  const key = `mb:camera:${boardKey(state.boardName)}`
   cameraTimer = setTimeout(() => {
     try {
-      localStorage.setItem(`mb:camera:${board}`, JSON.stringify(camera))
+      localStorage.setItem(key, JSON.stringify(camera))
     } catch {
       // storage unavailable
     }
@@ -435,9 +447,13 @@ export function setZooming(on: boolean) {
   zoomSubs.forEach((f) => f(on))
 }
 
+// Two folders can each have a canvas called "default": on the website, what's remembered per
+// canvas (its view, its pins) is kept per folder too.
+const boardKey = (board: string) => (state.folderId ? `${state.folderId}/${board}` : board)
+
 export function storedCamera(board: string): Camera | null {
   try {
-    const raw = localStorage.getItem(`mb:camera:${board}`)
+    const raw = localStorage.getItem(`mb:camera:${boardKey(board)}`)
     return raw ? JSON.parse(raw) : null
   } catch {
     return null
@@ -531,12 +547,12 @@ export function togglePins(on = !state.pins) {
   if (on !== state.pins) cue(on ? 'toggle-on' : 'toggle-off')
   setState({ pins: on })
   try {
-    localStorage.setItem(`mb:pins:${state.boardName}`, on ? '1' : '0')
+    localStorage.setItem(`mb:pins:${boardKey(state.boardName)}`, on ? '1' : '0')
   } catch {
     // storage unavailable
   }
 }
-export const storedPins = (board: string) => storedFlag(`mb:pins:${board}`)
+export const storedPins = (board: string) => storedFlag(`mb:pins:${boardKey(board)}`)
 
 export function toggleLoop(on = !state.loop) {
   if (on !== state.loop) cue(on ? 'toggle-on' : 'toggle-off')
