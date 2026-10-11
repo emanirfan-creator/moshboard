@@ -200,14 +200,31 @@ async function singleBoard(dir) {
   return id
 }
 
+// A code project kept beside the canvases (an app with its node_modules, say) isn't one: it's never
+// listed, opened, copied or moved to the trash, and nothing is written into it. Asked on every
+// request, so the answer is kept for a moment.
+const PROJECT_MARKS = ['.git', 'package.json', 'node_modules']
+const projects = new WeakMap()
+async function isProject(dir) {
+  const hit = projects.get(dir)
+  if (hit && performance.now() - hit.at < 3000) return hit.yes
+  const found = await Promise.all(PROJECT_MARKS.map(async (n) => (await exists(dir, n)) || exists(dir, n, 'directory')))
+  const yes = found.some(Boolean)
+  projects.set(dir, { yes, at: performance.now() })
+  return yes
+}
+
 async function boardDir(dir, board, create = false) {
   if (!NAME_RE.test(board)) throw new HttpError(400, `bad board name: ${board}`)
   if ((await singleBoard(dir)) === board) return dir
+  let d
   try {
-    return await subdir(dir, [board], create)
+    d = await subdir(dir, [board], create)
   } catch {
     throw new HttpError(404, 'canvas not found')
   }
+  if (await isProject(d)) throw new HttpError(404, 'canvas not found')
+  return d
 }
 
 // Folder handles by path under a handle, so a board's images don't each walk the path from the
@@ -390,7 +407,8 @@ async function listBoards(root) {
   else
     for await (const [name, h] of root.entries())
       if (h.kind === 'directory' && NAME_RE.test(name) && !gone.has(name)) dirs.push([name, h])
-  const list = await Promise.all(dirs.map(([id, d]) => listing(id, d)))
+  const canvases = (await Promise.all(dirs.map(async (e) => (e[1] !== root && (await isProject(e[1])) ? null : e)))).filter(Boolean)
+  const list = await Promise.all(canvases.map(([id, d]) => listing(id, d)))
   // Folders don't record when they were made, so the list is alphabetical.
   return list.sort((a, b) => a.name.localeCompare(b.name))
 }

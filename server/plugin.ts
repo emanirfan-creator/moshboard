@@ -95,6 +95,9 @@ export function boardPath(board: string, ...rel: string[]) {
   return p
 }
 
+// A code project next to the canvases (an app with its node_modules, say) isn't one, as on the website.
+const isProject = (board: string) => ['.git', 'package.json', 'node_modules'].some((n) => fs.existsSync(path.join(BOARDS_DIR, board, n)))
+
 class HttpError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -328,7 +331,7 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
     if (!fs.readdirSync(BOARDS_DIR).some((d) => NAME_RE.test(d)) && fs.existsSync('samples/starter')) addSample()
     const list = fs
       .readdirSync(BOARDS_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && NAME_RE.test(d.name))
+      .filter((d) => d.isDirectory() && NAME_RE.test(d.name) && !isProject(d.name))
       .map((d) => listing(d.name))
       .sort((a, b) => a.created - b.created)
     json(res, list)
