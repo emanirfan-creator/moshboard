@@ -17,7 +17,7 @@ import { generatePalette, nameColor, paletteFromSamples, type PaletteColor } fro
 import { boardSamples, hasColors } from './boardColors'
 import { DEFAULT_FONT, SWATCH_SIZE, swatchBox, swatchFont } from '../shared/fonts.ts'
 import { api, mediaUrl } from './api'
-import { boardLabel, boardsLabel, FOLDER_ONLY } from './folder/folder'
+import { boardLabel, FOLDER_ONLY } from './folder/folder'
 import { ensureDefaultExport } from './frames/sandbox'
 import { buildSnippet, packageTypes, parseSnippet } from '../shared/snippet.ts'
 import { videos } from './frames/registry'
@@ -224,7 +224,7 @@ export async function deleteCanvas(id: string) {
   }
   try {
     await api.deleteBoard(id)
-    toast(`Moved “${info?.name ?? id}” to ${boardsLabel()}/.trash`)
+    toast(`Deleted “${info?.name ?? id}”`)
   } catch (e) {
     toast(`Couldn’t delete: ${(e as Error).message}`, true)
   }
