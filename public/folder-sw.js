@@ -378,11 +378,18 @@ async function listing(id, d) {
   return { id, name, frames, created: 0 }
 }
 
+// Boards whose files are moving to the trash, per folder: left out of the list until they're gone.
+const deleting = new WeakMap()
+const deletingIn = (root) => deleting.get(root) ?? (deleting.set(root, new Set()), deleting.get(root))
+
 async function listBoards(root) {
   const single = await singleBoard(root)
   const dirs = []
+  const gone = deletingIn(root)
   if (single) dirs.push([single, root])
-  else for await (const [name, h] of root.entries()) if (h.kind === 'directory' && NAME_RE.test(name)) dirs.push([name, h])
+  else
+    for await (const [name, h] of root.entries())
+      if (h.kind === 'directory' && NAME_RE.test(name) && !gone.has(name)) dirs.push([name, h])
   const list = await Promise.all(dirs.map(([id, d]) => listing(id, d)))
   // Folders don't record when they were made, so the list is alphabetical.
   return list.sort((a, b) => a.name.localeCompare(b.name))
@@ -659,8 +666,14 @@ async function route(root, request, url, clientId) {
     const name = `${board}-${Date.now()}`
     forgetDirs(root)
     forgetDirs(src)
-    await moveDir(src, await trash.getDirectoryHandle(name, { create: true }))
-    await root.removeEntry(board, { recursive: true })
+    const gone = deletingIn(root)
+    gone.add(board)
+    try {
+      await moveDir(src, await trash.getDirectoryHandle(name, { create: true }))
+      await root.removeEntry(board, { recursive: true })
+    } finally {
+      gone.delete(board)
+    }
     return json({ ok: true })
   }
   if (kind === 'board' && method === 'GET') {
@@ -673,7 +686,7 @@ async function route(root, request, url, clientId) {
       return new Response(text, { headers: { 'Content-Type': 'application/json' } })
     } catch (err) {
       // A board folder without a board.json opens as an empty canvas.
-      if (dir && err instanceof HttpError && err.status === 404) {
+      if (dir && err instanceof HttpError && err.status === 404 && !deletingIn(root).has(board)) {
         const b = { name: board, frames: [] }
         await writeOwn(dir, board, 'board.json', boardText(b), clientId)
         return json(b)

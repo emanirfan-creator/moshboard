@@ -135,11 +135,16 @@ export function ensureFile(rel: string) {
   loadFile(rel).finally(() => loading.delete(rel))
 }
 
+// Canvases on their way to the trash: a list read while their files move would bring them back.
+const deleting = new Set<string>()
+let listAsked = 0
 export async function refreshCanvases() {
   // Before a folder is connected (website) there are no canvases to list yet.
   if (FOLDER_ONLY && !getState().folder) return
+  const asked = ++listAsked
   const canvases = await api.boards().catch(() => null)
-  if (canvases) setState({ canvases })
+  // Only the latest read counts: an older one can finish later and show what's since changed.
+  if (canvases && asked === listAsked) setState({ canvases: canvases.filter((c) => !deleting.has(c.id)) })
 }
 
 export async function switchBoard(id: string) {
@@ -211,6 +216,7 @@ export async function deleteCanvas(id: string) {
   const info = getState().canvases.find((c) => c.id === id)
   const rest = getState().canvases.filter((c) => c.id !== id)
   // Gone from the list at once, and off screen before its files move.
+  deleting.add(id)
   setState({ canvases: rest })
   if (getState().boardName === id) {
     if (rest.length) await switchBoard(rest[0].id)
@@ -222,7 +228,8 @@ export async function deleteCanvas(id: string) {
   } catch (e) {
     toast(`Couldn’t delete: ${(e as Error).message}`, true)
   }
-  refreshCanvases()
+  deleting.delete(id)
+  await refreshCanvases()
 }
 
 // ── frames ──────────────────────────────────────────────
