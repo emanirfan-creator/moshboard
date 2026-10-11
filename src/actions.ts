@@ -167,46 +167,62 @@ export async function openSample() {
 /** Copies a canvas (frames, code, uploads) and opens the copy. */
 export async function duplicateCanvas(id: string) {
   if (id === getState().boardName) await flushSave()
+  // Copying pictures and videos takes a moment on a big canvas.
+  toast('Duplicating…')
   try {
     const copy = await api.duplicateBoard(id)
     await switchBoard(copy.id)
     toast(`Duplicated as “${copy.name}”`)
   } catch (e) {
     toast(`Couldn’t duplicate: ${(e as Error).message}`, true)
+    refreshCanvases()
   }
 }
 
-/** Renames the open canvas. Its folder (and so its address) follows the name; the old address still opens it. */
-export async function renameCanvas(name: string) {
-  const { board, boardName } = getState()
+/** Renames a canvas (the open one unless said). Locally its folder follows the name; the old address still opens it. */
+export async function renameCanvas(name: string, id = getState().boardName) {
+  const info = getState().canvases.find((c) => c.id === id)
   const title = name.trim()
-  if (!board || !title || title === board.name) return
-  await flushSave()
-  try {
-    const r = await api.renameBoard(boardName, title)
-    if (r.id !== boardName) history.replaceState(null, '', `#${r.id}`)
+  if (!title || title === info?.name) return
+  const named = (from: string, to: string, n: string) =>
     setState((s) => ({
-      boardName: r.id,
-      board: s.board && { ...s.board, name: title },
-      canvases: s.canvases.map((c) => (c.id === boardName ? { ...c, id: r.id, name: title } : c)),
+      boardName: s.boardName === from ? to : s.boardName,
+      board: s.board && s.boardName === from ? { ...s.board, name: n } : s.board,
+      canvases: s.canvases.map((c) => (c.id === from ? { ...c, id: to, name: n } : c)),
     }))
-    // Settle the camera under the new address too.
-    setCamera(getState().camera)
+  // Shown at once; the file catches up.
+  named(id, id, title)
+  if (id === getState().boardName) await flushSave()
+  try {
+    const r = await api.renameBoard(id, title)
+    if (r.id !== id) {
+      if (getState().boardName === id) history.replaceState(null, '', `#${r.id}`)
+      named(id, r.id, title)
+      // Settle the camera under the new address too.
+      if (getState().boardName === r.id) setCamera(getState().camera)
+    }
   } catch (e) {
+    named(id, id, info?.name ?? id)
     toast(`Couldn’t rename: ${(e as Error).message}`, true)
   }
 }
 
 export async function deleteCanvas(id: string) {
   const info = getState().canvases.find((c) => c.id === id)
-  await api.deleteBoard(id)
-  const rest = (await api.boards()).filter((c) => c.id !== id)
+  const rest = getState().canvases.filter((c) => c.id !== id)
+  // Gone from the list at once, and off screen before its files move.
   setState({ canvases: rest })
   if (getState().boardName === id) {
     if (rest.length) await switchBoard(rest[0].id)
     else await createCanvas('Untitled')
   }
-  toast(`Moved “${info?.name ?? id}” to ${boardsLabel()}/.trash`)
+  try {
+    await api.deleteBoard(id)
+    toast(`Moved “${info?.name ?? id}” to ${boardsLabel()}/.trash`)
+  } catch (e) {
+    toast(`Couldn’t delete: ${(e as Error).message}`, true)
+  }
+  refreshCanvases()
 }
 
 // ── frames ──────────────────────────────────────────────

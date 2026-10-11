@@ -298,16 +298,55 @@ async function remove(dir, rel) {
   }
 }
 
+// Runs fn over items, a few at a time: the disk keeps up better than one by one or all at once.
+async function pool(items, fn, n = 6) {
+  let i = 0
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++])
+  }))
+}
+
+async function entries(dir) {
+  const list = []
+  for await (const e of dir.entries()) list.push(e)
+  return list
+}
+
+async function copyFile(h, to, name) {
+  const w = await (await to.getFileHandle(name, { create: true })).createWritable()
+  await (await h.getFile()).stream().pipeTo(w)
+}
+
 async function copyDir(from, to, skip = () => false) {
-  for await (const [name, h] of from.entries()) {
-    if (skip(name)) continue
-    if (h.kind === 'directory') await copyDir(h, await to.getDirectoryHandle(name, { create: true }))
+  await pool(
+    (await entries(from)).filter(([name]) => !skip(name)),
+    async ([name, h]) => {
+      if (h.kind === 'directory') await copyDir(h, await to.getDirectoryHandle(name, { create: true }))
+      else await copyFile(h, to, name)
+    },
+  )
+}
+
+// Chrome moves single files on disk but not folders, so a folder is moved file by file (each one
+// instant), copying only a file that won't move. Its board.json goes last: should this stop
+// halfway, the canvas is still there to delete again.
+async function moveDir(from, to) {
+  const list = await entries(from)
+  const last = list.filter(([name]) => name === 'board.json')
+  const one = async ([name, h]) => {
+    if (h.kind === 'directory') await moveDir(h, await to.getDirectoryHandle(name, { create: true }))
     else {
-      const w = await (await to.getFileHandle(name, { create: true })).createWritable()
-      await w.write(await h.getFile())
-      await w.close()
+      try {
+        await h.move(to, name)
+        return
+      } catch {
+        await copyFile(h, to, name)
+      }
     }
+    await from.removeEntry(name, { recursive: true })
   }
+  await pool(list.filter((e) => !last.includes(e)), one)
+  await pool(last, one)
 }
 
 async function readBoard(dir) {
@@ -602,7 +641,13 @@ async function route(root, request, url, clientId) {
     const title = `${b.name || board} copy`
     const id = await freeBoardId(root, title)
     const dest = await root.getDirectoryHandle(id, { create: true })
-    await copyDir(src, dest, (name) => name === 'export' || name === TRASH)
+    try {
+      await copyDir(src, dest, (name) => name === 'export' || name === TRASH || name === 'board.json')
+    } catch (err) {
+      // A half-made copy would show up as a canvas with missing pictures.
+      await root.removeEntry(id, { recursive: true }).catch(() => {})
+      throw err
+    }
     await writeOwn(dest, id, 'board.json', boardText({ ...b, name: title }), clientId)
     return json({ id, name: title })
   }
@@ -614,13 +659,8 @@ async function route(root, request, url, clientId) {
     const name = `${board}-${Date.now()}`
     forgetDirs(root)
     forgetDirs(src)
-    try {
-      // A move is instant; copying a board full of videos isn't.
-      await src.move(trash, name)
-    } catch {
-      await copyDir(src, await trash.getDirectoryHandle(name, { create: true }))
-      await root.removeEntry(board, { recursive: true })
-    }
+    await moveDir(src, await trash.getDirectoryHandle(name, { create: true }))
+    await root.removeEntry(board, { recursive: true })
     return json({ ok: true })
   }
   if (kind === 'board' && method === 'GET') {

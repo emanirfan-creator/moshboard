@@ -77,7 +77,7 @@ export function Sidebar() {
                 initial={c.name}
                 onDone={(v) => {
                   setRenaming(null)
-                  if (v) renameCanvas(v)
+                  if (v) renameCanvas(v, c.id)
                 }}
               />
             ) : (
@@ -96,9 +96,8 @@ export function Sidebar() {
                 {menu === c.id && (
                   <CanvasMenu
                     onClose={() => setMenu(null)}
-                    onRename={async () => {
+                    onRename={() => {
                       setMenu(null)
-                      if (c.id !== current) await switchBoard(c.id)
                       setRenaming(c.id)
                     }}
                     onDuplicate={() => {
