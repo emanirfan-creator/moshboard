@@ -53,7 +53,7 @@ import {
 import { useWeights } from '../fonts'
 import { PaletteBody } from './PaletteInspector'
 import { Fold } from './Fold'
-import { friendlyGroup, words } from './friendly'
+import { friendlyGroup, words } from '../../shared/friendly.ts'
 import { SelectionBody } from './SelectionInspector'
 import { SectionBody, TileBody } from './ArrangeInspector'
 import { LinksBody } from './LinksInspector'

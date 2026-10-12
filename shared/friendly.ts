@@ -1,6 +1,6 @@
 // What the motion detector calls things (shared/detect-motion.ts, runtime-motion.ts) is code
-// language: "Transition classes", "Globe3DDemoThird · <button>". The side panel shows them in
-// words anyone reads; the detector's own names stay as they are for exports and Claude.
+// language: "Transition classes", "Globe3DDemoThird · <button>". The side panel (and motion.md's
+// "In words") show them in words anyone reads; the detector's own names stay in the token tables.
 
 const TAGS: Record<string, string> = {
   a: 'link',

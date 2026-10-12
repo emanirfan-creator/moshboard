@@ -22,6 +22,8 @@ import { soundFacts } from './sound.ts'
 import { isSection, sectionOf, withContents } from './sections.ts'
 import { normalizeLinks, refsOf } from './frame-links.ts'
 import { POST_SITE } from './posts.ts'
+import { motionBrief, overallFeel, type MotionFacts } from './motion-words.ts'
+import { friendlyGroup } from './friendly.ts'
 
 /** The board's files, as the export reads them (paths relative to the board folder). */
 export interface ExportFiles {
@@ -145,6 +147,9 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const patterns: { key: string; lines: string[] }[] = []
   // One transition per animation, for presets/motion.ts and presets/gsap.ts.
   const presets: Preset[] = []
+  // One line per animation in common animation words, for motion.md's "In words".
+  const briefs: string[] = []
+  const allFacts: MotionFacts[] = []
   const codeFrames = board.frames.filter((f) => f.type === 'code' && f.file)
   for (const f of codeFrames) {
     const source = files.text(f.file!)
@@ -175,20 +180,28 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     const trigger = annotation(source, 'trigger')
     const animates = annotation(source, 'animates')
     const step: Step = {}
-    const steps: [string, Step][] = [[trigger || 'animate', step]]
+    const facts: MotionFacts = { trigger, animates }
+    const steps: [string, Step, MotionFacts, string][] = [[trigger || 'animate', step, facts, name(f)]]
     for (const p of params) {
       const shown = formatParam(p, p.value).replace(/ -?[\d.]+\.\.-?[\d.]+$/, '')
       const label = f.labels?.[p.name]
       const use = `${name(f)} · ${label ?? p.name}`
       let token = ''
-      if (p.kind === 'ease') token = `--${(step.ease ??= addEase(p.value as Bezier, name(f)))}`
+      if (p.kind === 'ease') {
+        token = `--${(step.ease ??= addEase(p.value as Bezier, name(f)))}`
+        facts.ease ??= p.value as Bezier
+      }
       if (p.kind === 'number' && p.unit === 'ms' && p.value !== 0) {
         const kind = timingKind(p.name)
         const t = addMs(kind, p.value as number, use)
         step[kind] ??= t
+        facts[kind] ??= p.value as number
         token = `--${t}`
       }
-      if (p.kind === 'spring') token = step.spring ??= addSpring(p.value as Spring, shown, use)
+      if (p.kind === 'spring') {
+        token = step.spring ??= addSpring(p.value as Spring, shown, use)
+        facts.spring ??= p.value as Spring
+      }
       rows.push(`| ${label ? `${label} (\`${p.name}\`)` : `\`${p.name}\``} | \`${shown}\` | ${p.kind} | ${token ? `\`${token}\`` : ''} |`)
     }
     const timing = (re: RegExp) => params.find((p) => re.test(p.name) && p.kind === 'number' && p.unit === 'ms')?.value as number | undefined
@@ -205,15 +218,20 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     const detection = detectMotion(source, modules, ext === '.html' ? 'html' : 'tsx', basename(f.file!))
     for (const g of detection.groups) {
       const gStep: Step = {}
-      steps.push([g.label, gStep])
       const by = (label: string) => g.params.find((p) => p.label === label && !explicit.has(p.name))?.value
-      presets.push({
-        label: `${name(f)} ${g.label}`,
+      const transition = {
         duration: by('duration') as number | undefined,
         delay: by('delay') as number | undefined,
         ease: g.params.find((p) => p.kind === 'ease' && !explicit.has(p.name))?.value as Bezier | undefined,
         spring: g.params.find((p) => p.kind === 'spring' && !explicit.has(p.name))?.value as Spring | undefined,
-      })
+      }
+      // "Hover transition" → set off by hover.
+      const state = /^(hover|focus|active|tap|press)\b/i.exec(g.title)?.[1]
+      // Its title says what it changes ("Opacity transition", "Scale spring"): read as fade, pop…
+      const gFacts: MotionFacts = { ...transition, trigger: state, animates: `${g.title} ${g.what ?? ''}`, stagger: by('stagger') as number | undefined }
+      const plain = friendlyGroup(g)
+      steps.push([g.label, gStep, gFacts, `${name(f)} · ${plain.name}${plain.place && plain.place !== name(f) ? ` (${plain.place})` : ''}`])
+      presets.push({ label: `${name(f)} ${g.label}`, ...transition })
       for (const p of g.params) {
         if (explicit.has(p.name)) continue
         let token = ''
@@ -238,7 +256,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
       const t = { ...saved, label: saved.label.replace(/</g, '&lt;').replace(/>/g, '&gt;') }
       const how = 'measured while running, tuned on the board (not in the snippet)'
       const rStep: Step = {}
-      steps.push([saved.label, rStep])
+      steps.push([saved.label, rStep, { duration: saved.duration, delay: saved.delay, ease: saved.ease }, `${name(f)} · ${t.label}`])
       if (t.duration) {
         rStep.duration = addMs('duration', t.duration, `${name(f)} · ${saved.label}`)
         rows.push(`| ${t.label} · duration | \`${Math.round(t.duration)}ms\` | number, ${how} | \`--${rStep.duration}\` |`)
@@ -253,6 +271,12 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
       }
     }
     const used = steps.filter(([, st]) => Object.keys(st).length)
+    for (const [, , fa, title] of used) {
+      const line = `- **${title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}**: ${motionBrief(fa)}.`
+      if (briefs.includes(line)) continue
+      briefs.push(line)
+      allFacts.push(fa)
+    }
     if (used.length) {
       // Keyed by what sets it off (or the animation's kind), with the element it's on as a comment.
       const keys = new Set<string>()
@@ -414,7 +438,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     ...Object.values(timings).flatMap((m) => [...m.values()].map((t) => `  --${t.name}: ${t.value}; /* ${t.uses.join(', ')} */`)),
     '}',
     ...(springs.size
-      ? ['', '/* Springs (no CSS equivalent; use with motion/framer-motion `transition={{ type: "spring", … }}`):', ...[...springs.values()].map((t) => ` * ${t.name}: ${t.value}  (${t.uses.join(', ')})`), ' */']
+      ? ['', '/* Springs (no CSS equivalent; use with Motion `transition={{ type: "spring", … }}`):', ...[...springs.values()].map((t) => ` * ${t.name}: ${t.value}  (${t.uses.join(', ')})`), ' */']
       : []),
     '',
   ].join('\n')
@@ -429,7 +453,7 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
     ) + '\n',
   )
 
-  // ── presets: the same timings for motion (framer-motion) and GSAP ──
+  // ── presets: the same timings for Motion and GSAP ──
   const usable = presets.filter((p) => p.duration !== undefined || p.spring)
   if (usable.length) {
     write('presets/motion.ts', motionPresets(usable))
@@ -453,13 +477,27 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
       '**Rules:**',
       '- Patterns reference tokens by name, never raw values.',
       '- Each value\'s `use` is where it\'s used on the board.',
-      '- The same names are CSS variables in [`tokens.css`](tokens.css) and keys in [`tokens.json`](tokens.json). Durations are in ms; divide by 1000 for motion / framer-motion.',
-      ...(usable.length ? ['- Ready-made transitions: [`presets/motion.ts`](presets/motion.ts) (motion / framer-motion) and [`presets/gsap.ts`](presets/gsap.ts) (GSAP).'] : []),
+      '- The same names are CSS variables in [`tokens.css`](tokens.css) and keys in [`tokens.json`](tokens.json). Durations are in ms; divide by 1000 for Motion.',
+      ...(usable.length ? ['- Ready-made transitions: [`presets/motion.ts`](presets/motion.ts) (Motion, imported from `motion/react`; framer-motion is its old name) and [`presets/gsap.ts`](presets/gsap.ts) (GSAP).'] : []),
       ...(pending.length ? [`- ${pending.length} reference${pending.length === 1 ? ' isn\'t' : 's aren\'t'} recreated yet. Their timings are estimates in [\`interactions.md\`](interactions.md), not tokens.`] : []),
       '',
       '---',
       '',
       ...(patterns.length ? [] : ['_No coded interactions on this board yet._', '']),
+      ...(briefs.length
+        ? [
+            '## In words',
+            '',
+            'Each animation in common animation terms, with its numbers. The same values are the tokens below.',
+            '',
+            ...briefs,
+            '',
+            '## Feel',
+            '',
+            `Overall: ${overallFeel(allFacts)}. New motion should feel the same: match the durations, curves and bounce above.`,
+            '',
+          ]
+        : []),
       ...tokenBlock('Duration', 'Named times in ms, each with where it\'s used.', byMs(timings.duration)),
       ...tokenBlock('Delay', 'Named times in ms.', byMs(timings.delay)),
       ...tokenBlock('Easing', 'Named curves, each with where it\'s used.', [...easings.values()]),
@@ -477,6 +515,15 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
             '',
           ]
         : []),
+      '## Good practice',
+      '',
+      'For motion that isn\'t on the board yet. Where the board\'s own values differ, the board wins.',
+      '',
+      '- Keep most interface animations between 150 and 300ms. Things used often should be quicker and quieter.',
+      '- Make things leave faster than they arrive (about two thirds of the time).',
+      '- Animate only position, scale and opacity (transform and opacity). Avoid animating width, height, top or left.',
+      '- Respect reduced motion: when `prefers-reduced-motion: reduce` is set, swap movement for a quick fade or none. In Motion: `<MotionConfig reducedMotion="user">` or `useReducedMotion()`.',
+      '',
       '## Philosophy',
       '',
       'One to three sentences. Sets stance, not values: how much motion is appropriate, whether it should be felt or barely noticed.',
@@ -801,7 +848,8 @@ function motionPresets(presets: Preset[]) {
     return `/** ${p.label} */\nexport const ${names[i]} = { ${fields.join(', ')} } as const`
   })
   return [
-    '// Generated by Moshboard: transitions tuned against references, for motion (framer-motion).',
+    '// Generated by Moshboard: transitions tuned against references, for Motion (motion.dev).',
+    "// import { motion } from 'motion/react'   (framer-motion is Motion's old name; use motion/react)",
     `// <motion.div animate={{ x: 0 }} transition={${names[0]}} />`,
     '',
     ...body,

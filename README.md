@@ -64,7 +64,7 @@ A link can hold more than two things: select something already linked plus a new
 
 ### Exporting
 
-⌘K → **Export spec** writes `design.md`, `motion.md` (in the [Design Harness](#using-it-in-your-own-project) motion format), `interactions.md` (how each animation was measured), `tokens.css`, `tokens.json`, `snippets/` and `presets/` (ready-made transitions for motion/framer-motion and GSAP) into `boards/<board>/export/`. Select frames first to export only those.
+⌘K → **Export spec** writes `design.md`, `motion.md` (in the [Design Harness](#using-it-in-your-own-project) motion format), `interactions.md` (how each animation was measured), `tokens.css`, `tokens.json`, `snippets/` and `presets/` (ready-made transitions for Motion and GSAP) into `boards/<board>/export/`. Select frames first to export only those.
 
 ⌘K → **Share as a page** makes one HTML file of the whole canvas that anyone can open in a browser: clips play, components run, and live sites stay live.
 

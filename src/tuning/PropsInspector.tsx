@@ -1,4 +1,4 @@
-import { words } from './friendly'
+import { words } from '../../shared/friendly.ts'
 import { useMemo, useState } from 'react'
 import type { Param } from '../../shared/params.ts'
 import { colorFromCss, colorToCss, detectProps, PROP_PREFIX, sections, type PropDef } from '../../shared/props.ts'
