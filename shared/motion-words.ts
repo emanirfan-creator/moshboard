@@ -1,7 +1,7 @@
 // Animations in the words designers and AI tools already share ("pop in", "ease-out", "stagger"),
 // with the numbers: "Card: on hover, fade and move, ease-out, 240ms. Feel: snappy." A line like
 // that is a complete brief. Used by the export (motion.md); the app's own names stay as they are.
-import type { Bezier, Spring } from './params.ts'
+import type { Bezier, Param, ParamValue, Spring } from './params.ts'
 
 export interface MotionFacts {
   /** what sets it off: "hover", "mount" */
@@ -120,4 +120,91 @@ export function overallFeel(all: MotionFacts[]): string {
   if (!ranked.length) return ''
   if (ranked.length === 1) return ranked[0]
   return `mostly ${ranked[0]}, some ${ranked.slice(1, 3).join(' and ')}`
+}
+
+// ── Feel nudges: "Snappy", "Soft", "Bouncy", "Calm" move the right controls one step ──
+
+export type Feel = 'snappy' | 'soft' | 'bouncy' | 'calm'
+export const FEELS: Feel[] = ['snappy', 'soft', 'bouncy', 'calm']
+
+type Nudgeable = Pick<Param, 'name' | 'kind' | 'unit' | 'min' | 'max' | 'soft' | 'label'>
+const r2 = (n: number) => Math.round(n * 100) / 100
+const r1 = (n: number) => Math.round(n * 10) / 10
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
+const isLength = (p: Nudgeable) => p.kind === 'number' && p.unit === 'ms' && !/delay|stagger/i.test(`${p.name} ${p.label ?? ''}`)
+const isBounce = (p: Nudgeable) => p.kind === 'number' && p.unit !== 'ms' && /bounce/i.test(`${p.name} ${p.label ?? ''}`)
+
+/** One step toward a feel, for every control it touches: name → new value. Delays and staggers stay. */
+export function nudgeFeel(feel: Feel, params: Nudgeable[], values: Record<string, unknown>): Record<string, ParamValue> {
+  const out: Record<string, ParamValue> = {}
+  for (const p of params) {
+    const v = values[p.name]
+    if (isLength(p) && typeof v === 'number' && v > 0) {
+      const k = feel === 'snappy' ? 0.8 : feel === 'calm' ? 1.25 : feel === 'soft' ? 1.1 : 1
+      if (k === 1) continue
+      // Past the slider's range is fine when the range is only a guide (`soft`).
+      const lo = p.soft ? 40 : (p.min ?? 40)
+      const hi = p.soft ? 4000 : (p.max ?? 4000)
+      out[p.name] = Math.round(clamp(v * k, lo, hi))
+    } else if (p.kind === 'ease' && Array.isArray(v)) {
+      let [x1, y1, x2, y2] = v as Bezier
+      if (feel === 'bouncy') {
+        // Overshoot at the end: the second handle rises above 1.
+        y2 = Math.min(1.6, Math.max(1, y2) + 0.12)
+        x2 = Math.min(x2, 0.7)
+      } else if (feel === 'soft') {
+        if (y2 > 1) y2 = Math.max(1, y2 - 0.12)
+        if (y1 > 1) y1 = Math.max(1, y1 - 0.12)
+        if (y1 < 0) y1 = Math.min(0, y1 + 0.1)
+      } else if (feel === 'snappy') {
+        // A quicker start.
+        x1 = Math.max(0, x1 - 0.08)
+        y1 = Math.min(y1 + 0.15, Math.max(1, y1))
+      } else {
+        // Calm: eases in and out.
+        x1 = Math.min(0.6, x1 + 0.1)
+        y1 = Math.max(0, Math.min(y1, 1) - 0.1)
+      }
+      out[p.name] = [r2(x1), r2(y1), r2(x2), r2(y2)]
+    } else if (p.kind === 'spring' && v && typeof v === 'object') {
+      const s = v as Spring
+      // Stiffness sets speed; damping scaled by √ of it keeps the bounce the same.
+      const speed = feel === 'snappy' ? 1.3 : feel === 'calm' ? 0.75 : feel === 'soft' ? 0.9 : 1
+      const bounce = feel === 'bouncy' ? 0.8 : feel === 'soft' ? 1.2 : 1
+      out[p.name] = { ...s, stiffness: r1(s.stiffness * speed), damping: r1(s.damping * Math.sqrt(speed) * bounce) }
+    } else if (isBounce(p) && typeof v === 'number' && (feel === 'bouncy' || feel === 'soft')) {
+      out[p.name] = r2(clamp(v + (feel === 'bouncy' ? 0.1 : -0.1), p.min ?? 0, p.max ?? 1))
+    }
+  }
+  return out
+}
+
+// ── Quiet notes: the few rules worth pointing out on the board ──
+
+/** Most interface motion is under this. */
+export const LONG_MS = 300
+
+/** A loop (spinner, marquee, ambient motion), by its name or a constant-speed curve: no feel or length rules apply. */
+export function looksLikeLoop(title: string, ease?: Bezier) {
+  return /loop|spin|marquee|rotat|infinite|pulse|float|orbit|shimmer/i.test(title) || (!!ease && easeWords(ease).startsWith('linear'))
+}
+
+/** "Runs long" for a transition over 300ms; loops, spins and keyframe animations are left alone. */
+export function runsLong(ms: number | undefined, opts: { title?: string; ease?: Bezier; trigger?: string } = {}) {
+  if (ms === undefined || ms <= LONG_MS) return false
+  if (/animation/i.test(opts.title ?? '') || /loop|scroll/i.test(opts.trigger ?? '')) return false
+  return !looksLikeLoop(opts.title ?? '', opts.ease)
+}
+
+const EXIT = /exit|leave|hide|hidden|close|out\b|fades out/i
+const ENTER = /enter|animate|visible|show|open|\bin\b|fades in|appear/i
+
+/** Names the exits that run slower than their entrance: exit name → the entrance's ms. */
+export function slowExits(items: { name: string; text: string; ms?: number }[]): Map<string, number> {
+  const out = new Map<string, number>()
+  const enters = items.filter((i) => i.ms && ENTER.test(i.text) && !EXIT.test(i.text))
+  if (!enters.length) return out
+  const enter = Math.min(...enters.map((i) => i.ms!))
+  for (const i of items) if (i.ms && EXIT.test(i.text) && i.ms > enter) out.set(i.name, enter)
+  return out
 }

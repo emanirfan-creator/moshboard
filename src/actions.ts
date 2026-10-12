@@ -1,7 +1,8 @@
-import { applyParams, defaults, parseParams, type Bezier, type ParamValue } from '../shared/params.ts'
+import { annotation, applyParams, defaults, parseParams, type Bezier, type ParamValue } from '../shared/params.ts'
 import { autoParams } from '../shared/autoParams.ts'
 import { writeBack } from '../shared/detect-motion.ts'
-import { easingBezier, isRuntimeName, saveRuntime } from '../shared/runtime-motion.ts'
+import { easingBezier, isRuntimeName, runtimeGroups, saveRuntime } from '../shared/runtime-motion.ts'
+import { looksLikeLoop, nudgeFeel, type Feel } from '../shared/motion-words.ts'
 import { detectProps, isPropName, PROP_PREFIX } from '../shared/props.ts'
 import { detectFor, parseModules } from './tuning/detection'
 import { cue, scanChirp, scanEmpty } from './ui/sound'
@@ -1387,6 +1388,55 @@ export function replay(ids = getState().selected) {
 
 export function setParam(id: string, name: string, value: ParamValue) {
   setState((s) => ({ overrides: { ...s.overrides, [id]: { ...s.overrides[id], [name]: value } } }))
+}
+
+/** Several controls at once (a feel nudge), as unsaved tweaks. */
+export function setParams(id: string, changes: Record<string, ParamValue>) {
+  if (!Object.keys(changes).length) return
+  setState((s) => ({ overrides: { ...s.overrides, [id]: { ...s.overrides[id], ...changes } } }))
+}
+
+/** Every motion control a code block has (its @params, what the scan found, what was measured running) and their current values. */
+export function motionControls(id: string) {
+  const s = getState()
+  const f = frameById(id)
+  const source = f?.file ? s.files[f.file] : undefined
+  if (!f || source === undefined) return null
+  const params = parseParams(source)
+  const detection = detectFor(f, source, f.modules ? s.files[f.modules] : undefined)
+  const overrides = (s.overrides[id] ?? {}) as Record<string, unknown>
+  const known = new Set<number>()
+  for (const p of [...params, ...detection.params]) {
+    if (p.kind !== 'number' || p.unit !== 'ms') continue
+    known.add(Math.round(p.value as number))
+    if (typeof overrides[p.name] === 'number') known.add(Math.round(overrides[p.name] as number))
+  }
+  const running = runtimeGroups(s.motion[id], known, f.runtime)
+  const all = [...params, ...detection.params, ...running.flatMap((g) => g.params)]
+  return {
+    params: all,
+    groups: [...detection.groups, ...running],
+    /** the block's own @params, and whether its @trigger is a loop */
+    own: new Set(params.map((p) => p.name)),
+    loop: /loop/i.test(annotation(source, 'trigger') ?? ''),
+    values: { ...defaults(all), ...overrides } as Record<string, unknown>,
+  }
+}
+
+/** ⌘K Snappy / Soft / Bouncy / Calm: one step toward that feel for every animation in the block. */
+export function nudgeFrame(feel: Feel, id = getState().selected[0]) {
+  const c = motionControls(id)
+  if (!c) return
+  // Loops (spinners, marquees) keep their own pace: a bouncy spin isn't what anyone means.
+  const loops = new Set(
+    c.groups
+      .filter((g) => looksLikeLoop(`${g.title} ${g.what ?? ''}`, c.values[g.params.find((p) => p.kind === 'ease')?.name ?? ''] as Bezier | undefined))
+      .flatMap((g) => g.params.map((p) => p.name)),
+  )
+  const params = c.params.filter((p) => !loops.has(p.name) && !(c.loop && c.own.has(p.name)))
+  const changes = nudgeFeel(feel, params, c.values)
+  if (!Object.keys(changes).length) return toast('No timing here to change')
+  setParams(id, changes)
 }
 
 /** One control back to where it started (drops its unsaved tweak). */

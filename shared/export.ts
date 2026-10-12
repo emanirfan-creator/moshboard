@@ -515,6 +515,12 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
             '',
           ]
         : []),
+      '## Before you build',
+      '',
+      '- If the app already exists, check what it animates with (Motion, GSAP, plain CSS or another library) and use the matching file: [`presets/motion.ts`](presets/motion.ts), [`presets/gsap.ts`](presets/gsap.ts) or [`tokens.css`](tokens.css). Don\'t add a second animation library.',
+      '- If it has its own motion tokens (a redesign), give them these values instead of adding a second set.',
+      '- If it\'s new, plain CSS with `tokens.css` covers simple transitions; use Motion for springs, layout changes and exits.',
+      '',
       '## Good practice',
       '',
       'For motion that isn\'t on the board yet. Where the board\'s own values differ, the board wins.',

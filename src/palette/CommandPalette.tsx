@@ -36,6 +36,7 @@ import {
   lockParams,
   makeTunable,
   detectMotionValues,
+  nudgeFrame,
   markSegment,
   replay,
   resetParams,
@@ -109,6 +110,7 @@ function Palette() {
         add('Frame', 'Reset tuned values', () => resetParams())
       }
       add('Frame', 'Detect motion values', () => detectMotionValues())
+      for (const feel of ['snappy', 'soft', 'bouncy', 'calm'] as const) add('Frame', `Make it ${feel}`, () => nudgeFrame(feel))
       if (one.file?.endsWith('.tsx') && !isTunable(s.files[one.file] ?? '')) add('Frame', 'Add controls to code', () => makeTunable())
       add('Frame', 'Copy /recreate command', copyRecreate)
     }

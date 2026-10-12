@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react'
-import { defaults, humanize, paramUse, parseParams, roundFor, shareParts, type Bezier, type Param, type Spring } from '../../shared/params.ts'
+import { annotation, defaults, humanize, paramUse, parseParams, roundFor, shareParts, type Bezier, type Param, type Spring } from '../../shared/params.ts'
 import type { Frame, MotionKind, Move, VideoAnalysis } from '../../shared/types.ts'
 import {
   analyzeSelected,
@@ -18,6 +18,7 @@ import {
   resetParam,
   resetParams,
   setParam,
+  setParams,
   recordSounds,
   removeClip,
   renameClip,
@@ -66,6 +67,7 @@ import { nameColor } from '../../shared/color.ts'
 import { useDetection } from './detection'
 import { PropsSections, useComponentProps } from './PropsInspector'
 import { runtimeGroups } from '../../shared/runtime-motion.ts'
+import { FEELS, LONG_MS, nudgeFeel, runsLong, slowExits, type Feel } from '../../shared/motion-words.ts'
 import { Segmented } from '../ui/Segmented'
 import { feelOf, mainMove } from '../../shared/read-motion.ts'
 import { scanChirp } from '../ui/sound'
@@ -234,6 +236,8 @@ function DetectedSection({
   rename,
   labels,
   reference,
+  setMany,
+  slowerThan,
 }: {
   name: string
   place: string
@@ -246,6 +250,10 @@ function DetectedSection({
   rename: (name: string, label: string) => void
   labels?: Record<string, string>
   reference?: { duration?: number; ease?: Bezier }
+  /** set several controls at once (a feel nudge) */
+  setMany: (changes: Record<string, unknown>) => void
+  /** the entrance's length, when this exit runs slower than it */
+  slowerThan?: number
 }) {
   const by = (label: string) => group.params.find((p) => p.label === label && isMs(p))
   const duration = by('duration')
@@ -253,8 +261,11 @@ function DetectedSection({
   const stagger = duration && by('stagger')
   const onTimeline = new Set([duration, delay, stagger].filter(Boolean))
   const rest = group.params.filter((p) => !onTimeline.has(p))
+  const ease = group.params.find((p) => p.kind === 'ease')
+  const long = duration && runsLong(values[duration.name] as number, { title: group.title, ease: ease && (values[ease.name] as Bezier) })
   return (
     <Section title={name} note={place || undefined} where={group.line ? `${group.file}:${group.line}` : group.file} index={index}>
+      <FeelRow params={group.params} values={values} onSet={setMany} />
       {duration && (
         <Timeline
           width={INNER_W}
@@ -268,6 +279,7 @@ function DetectedSection({
           reference={reference?.duration ? { duration: reference.duration } : undefined}
         />
       )}
+      <MotionNotes long={!!long} slowerThan={slowerThan} />
       {rest.map((p) =>
         p.kind === 'ease' ? (
           <BezierCtl key={p.name} p={p} width={INNER_W} value={values[p.name] as Bezier} modified={mod(p.name)} onChange={(v) => set(p.name, v)} onReset={() => reset(p.name)} reference={reference?.ease} />
@@ -290,6 +302,34 @@ function DetectedSection({
 }
 
 const isMs = (p?: Param) => p?.kind === 'number' && p.unit === 'ms'
+
+const FEEL_LABEL: Record<Feel, string> = { snappy: 'Snappy', soft: 'Soft', bouncy: 'Bouncy', calm: 'Calm' }
+
+/** Snappy / Soft / Bouncy / Calm: each moves this animation's controls one step toward it. Only the feels that change something show. */
+function FeelRow({ params, values, onSet }: { params: Param[]; values: Record<string, unknown>; onSet: (changes: Record<string, unknown>) => void }) {
+  const feels = FEELS.map((f) => [f, nudgeFeel(f, params, values)] as const).filter(([, c]) => Object.keys(c).length)
+  if (!feels.length) return null
+  return (
+    <div className="insp-buttons feel-row">
+      {feels.map(([f, changes]) => (
+        <button key={f} className="btn" onClick={() => onSet(changes)}>
+          {FEEL_LABEL[f]}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** The few rules worth a word: a transition that runs long, an exit slower than its entrance. Grey, no color. */
+function MotionNotes({ long, slowerThan }: { long: boolean; slowerThan?: number }) {
+  if (!long && !slowerThan) return null
+  return (
+    <div className="motion-notes">
+      {slowerThan !== undefined && <p className="ctl-help">Leaves slower than it arrives ({Math.round(slowerThan)}ms).</p>}
+      {long && !slowerThan && <p className="ctl-help">Runs long. Most interface motion is under {LONG_MS}ms.</p>}
+    </div>
+  )
+}
 
 function CodeBody({ frame }: { frame: Frame }) {
   const source = useStore((s) => (frame.file ? s.files[frame.file] : undefined))
@@ -364,6 +404,16 @@ function CodeBody({ frame }: { frame: Frame }) {
     numberGroups.set(el, [...(numberGroups.get(el) ?? []), p])
   }
   const dirty = Object.keys(overrides).length > 0
+  const setMany = (changes: Record<string, unknown>) => setParams(frame.id, changes as Record<string, never>)
+  const groups = nameGroups([...detection.groups, ...running])
+  // Exits slower than their entrance: across the block's @param lengths and its animations.
+  const slow = slowExits([
+    ...params.filter(isMs).map((p) => ({ name: p.name, text: p.name.replace(/([a-z])([A-Z])/g, '$1 $2'), ms: values[p.name] as number })),
+    ...groups.flatMap(({ g, name }) => {
+      const d = g.params.find((p) => p.label === 'duration' && isMs(p))
+      return d ? [{ name: g.id, text: `${g.title} ${g.what ?? ''} ${name}`, ms: values[d.name] as number }] : []
+    }),
+  ])
 
   return (
     <>
@@ -392,6 +442,7 @@ function CodeBody({ frame }: { frame: Frame }) {
         )}
         {duration && (
           <Section title="Timing">
+            <FeelRow params={params} values={values} onSet={setMany} />
             <Timeline
               width={INNER_W}
               duration={duration}
@@ -402,6 +453,10 @@ function CodeBody({ frame }: { frame: Frame }) {
               onChange={(name, n) => setParam(frame.id, name, n)}
               onReset={reset}
               reference={reference?.duration ? { duration: reference.duration } : undefined}
+            />
+            <MotionNotes
+              long={runsLong(values[duration.name] as number, { trigger: source ? annotation(source, 'trigger') : undefined, ease: eases[0] && (values[eases[0].name] as Bezier) })}
+              slowerThan={slow.get(duration.name)}
             />
           </Section>
         )}
@@ -460,7 +515,7 @@ function CodeBody({ frame }: { frame: Frame }) {
             </div>
           </Section>
         )}
-        {nameGroups([...detection.groups, ...running]).map(({ g, name, place }, i) => (
+        {groups.map(({ g, name, place }, i) => (
           <DetectedSection
             key={g.id}
             group={g}
@@ -475,6 +530,8 @@ function CodeBody({ frame }: { frame: Frame }) {
             labels={frame.labels}
             // The reference's timing goes on the first animation when the code has no @param timing of its own.
             reference={i === 0 && !duration ? reference : undefined}
+            setMany={setMany}
+            slowerThan={slow.get(g.id)}
           />
         ))}
       </div>

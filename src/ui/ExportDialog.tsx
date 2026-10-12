@@ -48,7 +48,7 @@ export function ExportDialog() {
   // One folder holds the whole example: the spec, the tuned snippets and the references themselves.
   const base = `Everything for this build is in ${result.absDir}. Read design.md and motion.md first${
     hasRefs ? ', then look through references/ (index.md says what each one is and what the designer noted about it) and match them' : ''
-  }. Use tokens.css for timing, easing and color. Treat snippets/ as exact: their values were tuned by hand.`
+  }. Use tokens.css for timing, easing and color. Treat snippets/ as exact: their values were tuned by hand. If there's already an app, match what it animates with (motion.md, Before you build).`
   const prompt = withComments && notes ? `${base}\n\nAlso address these open comments from the board:\n${notes}` : base
 
   const copy = (what: string, text: string) =>
