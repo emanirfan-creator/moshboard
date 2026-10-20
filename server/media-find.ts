@@ -94,7 +94,7 @@ function pinStream(list: Record<string, PinVideo> | undefined): PinVideo | null 
   return Object.values(list ?? {}).find((v) => /\.m3u8(\?|$)/.test(v?.url ?? '')) ?? null
 }
 
-// Pinterest keeps mp4 copies beside a playlist: …/videos/<x>/hls/<path>.m3u8 has
+// Older pins: Pinterest keeps mp4 copies beside a playlist: …/videos/<x>/hls/<path>.m3u8 has
 // …/videos/<x>/720p/<path>.mp4 and smaller …/videos/iht/expMp4/<path>_t4.mp4 (t4 down to t1).
 async function mp4BesideStream(m3u8: string): Promise<string | null> {
   const m = /^(https:\/\/[^/]+\/videos\/)(\w+)\/hls\/(.+)\.m3u8/.exec(m3u8)
@@ -110,6 +110,23 @@ async function mp4BesideStream(m3u8: string): Promise<string | null> {
     ),
   )
   return tries[ok.indexOf(true)] ?? null
+}
+
+// Newer pins have no mp4 copy: each size in the playlist is one fragmented-mp4 file (.cmfv) read
+// in byte ranges, which plays whole on its own (picture only; the sound is a separate file).
+async function fileInsideStream(m3u8: string): Promise<{ url: string; width?: number; height?: number } | null> {
+  const get = (u: string) =>
+    fetch(u, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.text() : ''))
+  const master = await get(m3u8)
+  const sizes = [...master.matchAll(/RESOLUTION=(\d+)x(\d+)[^\n]*\n\s*([^\s#][^\n]*)/g)]
+    .map(([, w, h, uri]) => ({ width: +w, height: +h, uri: uri.trim() }))
+    .sort((a, b) => b.width * b.height - a.width * a.height)
+  const best = sizes[0]
+  if (!best) return null
+  const variant = new URL(best.uri, m3u8).href
+  const file = /#EXT-X-MAP:URI="([^"]+)"/.exec(await get(variant))?.[1]
+  if (!file) return null
+  return { url: new URL(file, variant).href, width: best.width, height: best.height }
 }
 
 // A Muzli project (me.muz.li/<user>/<slug>) is several pieces. The page data lists
@@ -161,6 +178,8 @@ async function findPinterestMedia(pageUrl: string): Promise<Found | null> {
     const stream = pinStream(list)
     const mp4 = stream && (await mp4BesideStream(stream.url))
     if (mp4) return { url: mp4, kind: 'video', title, width: stream.width, height: stream.height }
+    const inside = stream && (await fileInsideStream(stream.url).catch(() => null))
+    if (inside) return { ...inside, kind: 'video', title }
   }
   const image = pin.images?.orig ?? Object.values(pin.images ?? {}).at(-1)
   return image?.url ? { url: image.url, kind: 'image', title, width: image.width, height: image.height } : null
@@ -197,6 +216,6 @@ export async function findMediaLink(link: string): Promise<FoundLink> {
   const pinterest = /(^|\.)pinterest\.[a-z.]+$/i.test(new URL(pageUrl).hostname)
   const found = (pinterest ? await findPinterestMedia(pageUrl).catch(() => null) : null) ?? findMedia(pageUrl, html)
   if (!found) throw new Error(`Couldn’t find a video or image on that ${host} page`)
-  const title = found.title && !/^found on cosmos$/i.test(found.title) ? found.title : `${host} ${u.pathname.split('/').pop()}`
+  const title = found.title && !/^found on cosmos$/i.test(found.title) ? found.title : `${host} ${u.pathname.split('/').filter(Boolean).pop() ?? ''}`.trim()
   return { title, source: link, items: [{ ...found, title }] }
 }
