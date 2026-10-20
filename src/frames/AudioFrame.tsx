@@ -229,7 +229,7 @@ function Pads({ frame, clips }: { frame: Frame; clips: Clip[] }) {
             <button
               key={c.src}
               ref={(el) => void (el ? pads.current.set(i, el) : pads.current.delete(i))}
-              className="pad"
+              className="sound-pad"
               data-on={now?.key === key || undefined}
               data-held={held === i || undefined}
               onPointerDown={press(i)}

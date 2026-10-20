@@ -6216,7 +6216,7 @@ textarea,
   display: grid;
   gap: 6px;
 }
-.pad {
+.sound-pad {
   height: 64px;
   display: flex;
   align-items: flex-end;
@@ -6230,7 +6230,7 @@ textarea,
   white-space: nowrap;
   transition: background 80ms var(--ease), color 80ms var(--ease);
 }
-.pad[data-on] {
+.sound-pad[data-on] {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--alu-pad) !important;
@@ -6360,10 +6360,10 @@ textarea,
 }
 
 /* Reordering pads: the others slide into their new slots; the held one rides the pointer. */
-.pads[data-reordering] .pad {
+.pads[data-reordering] .sound-pad {
   transition: transform 200ms var(--glide);
 }
-.pads[data-reordering] .pad[data-held] {
+.pads[data-reordering] .sound-pad[data-held] {
   transition: none;
   position: relative;
   z-index: 1;
@@ -6371,6 +6371,6 @@ textarea,
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 /* Pads that can be reordered show a grab hand (a press still plays them). */
-.pads[data-sortable] .pad {
+.pads[data-sortable] .sound-pad {
   cursor: grab;
 }
