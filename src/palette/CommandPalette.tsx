@@ -59,6 +59,7 @@ import { isTunable } from '../../shared/autoParams.ts'
 import { linkNumbers } from '../../shared/frame-links.ts'
 import { shareBoard } from '../share'
 import { POST_SITE } from '../../shared/posts.ts'
+import { applyMotion, currentTarget, saveAnimation } from '../motions'
 import { beginCrop } from '../frames/ViewPicker'
 import { setSounds, soundsOn } from '../ui/sound'
 import { frameById, getState, setState, togglePins, toggleSidebar, updateFrame, useStore } from '../store'
@@ -237,6 +238,12 @@ function Palette() {
 
     add('Canvas', 'Fit to screen', fitBoard, '⌘0')
     add('Canvas', soundsOn() ? 'Turn control sounds off' : 'Turn control sounds on', () => setSounds(!soundsOn()))
+    add('Animations', 'Open animations', () => setState({ motionsOpen: true }))
+    const target = currentTarget()
+    if (target) {
+      add('Animations', `Save ${target.name} as…`, ask({ placeholder: 'Animation name', initial: target.name.toLowerCase(), submit: (v) => saveAnimation(target.frame, target.key, v) }))
+      for (const m of s.motions ?? []) add('Animations', `Use “${m.name}” on ${target.name}`, () => applyMotion(m))
+    }
     add('Canvas', 'Export spec (design.md, motion.md)', exportBoard)
     add('Canvas', 'Share as a page (one HTML file)', () => shareBoard())
     add('Canvas', 'New canvas…', ask({ placeholder: 'Canvas name', submit: (v) => createCanvas(v) }))

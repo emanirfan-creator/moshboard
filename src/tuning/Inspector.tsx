@@ -68,6 +68,7 @@ import { useDetection } from './detection'
 import { PropsSections, useComponentProps } from './PropsInspector'
 import { runtimeGroups } from '../../shared/runtime-motion.ts'
 import { FEELS, LONG_MS, nudgeFeel, runsLong, slowExits, type Feel } from '../../shared/motion-words.ts'
+import { saveAnimation, touchMotion } from '../motions'
 import { Segmented } from '../ui/Segmented'
 import { feelOf, mainMove } from '../../shared/read-motion.ts'
 import { scanChirp } from '../ui/sound'
@@ -190,9 +191,15 @@ function Section({
   where,
   index,
   reveal,
+  after,
+  onTouch,
   children,
 }: {
   title: ReactNode
+  /** right of the title, outside its toggle (Save) */
+  after?: ReactNode
+  /** pressed inside or opened */
+  onTouch?: () => void
   /** opens the section when it changes to something (e.g. a fresh analysis) */
   reveal?: unknown
   note?: string
@@ -208,6 +215,8 @@ function Section({
       // A detected animation by its place in the code: several can share a title.
       id={where ?? (typeof title === 'string' ? title : undefined)}
       reveal={reveal}
+      after={after}
+      onTouch={onTouch}
       scan={index !== undefined}
       style={index !== undefined ? ({ '--i': index } as React.CSSProperties) : undefined}
       sub={
@@ -238,6 +247,7 @@ function DetectedSection({
   reference,
   setMany,
   slowerThan,
+  frameId,
 }: {
   name: string
   place: string
@@ -254,7 +264,9 @@ function DetectedSection({
   setMany: (changes: Record<string, unknown>) => void
   /** the entrance's length, when this exit runs slower than it */
   slowerThan?: number
+  frameId: string
 }) {
+  const [naming, setNaming] = useState(false)
   const by = (label: string) => group.params.find((p) => p.label === label && isMs(p))
   const duration = by('duration')
   const delay = duration && by('delay')
@@ -264,7 +276,15 @@ function DetectedSection({
   const ease = group.params.find((p) => p.kind === 'ease')
   const long = duration && runsLong(values[duration.name] as number, { title: group.title, ease: ease && (values[ease.name] as Bezier) })
   return (
-    <Section title={name} note={place || undefined} where={group.line ? `${group.file}:${group.line}` : group.file} index={index}>
+    <Section
+      title={name}
+      note={place || undefined}
+      where={group.line ? `${group.file}:${group.line}` : group.file}
+      index={index}
+      onTouch={() => touchMotion(frameId, group.id, name)}
+      after={!naming && (duration || group.params.some((p) => p.kind === 'spring')) && <SaveButton onClick={() => (touchMotion(frameId, group.id, name), setNaming(true))} />}
+    >
+      {naming && <NameField initial={name.toLowerCase()} onDone={(n) => (setNaming(false), n && saveAnimation(frameId, group.id, n))} />}
       <FeelRow params={group.params} values={values} onSet={setMany} />
       {duration && (
         <Timeline
@@ -316,6 +336,49 @@ function FeelRow({ params, values, onSet }: { params: Param[]; values: Record<st
           {FEEL_LABEL[f]}
         </button>
       ))}
+    </div>
+  )
+}
+
+function SaveButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="motion-save" onClick={onClick} title="Save to Animations, for every canvas">
+      Save
+    </button>
+  )
+}
+
+/** Names an animation being saved: Enter or Save keeps it, Escape or clicking away drops it. */
+function NameField({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(initial)
+  const done = useRef(false)
+  const finish = (name: string | null) => {
+    if (done.current) return
+    done.current = true
+    onDone(name?.trim() || null)
+  }
+  return (
+    <div className="motion-name">
+      <input
+        value={value}
+        autoFocus
+        aria-label="Name"
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Enter') finish(value)
+          if (e.key === 'Escape') finish(null)
+        }}
+        onBlur={(e) => {
+          // Clicking Save blurs the field first: let the click count.
+          if ((e.relatedTarget as HTMLElement | null)?.dataset.save) return
+          finish(null)
+        }}
+      />
+      <button className="btn" data-save="1" onClick={() => finish(value)}>
+        Save
+      </button>
     </div>
   )
 }
@@ -404,6 +467,7 @@ function CodeBody({ frame }: { frame: Frame }) {
     numberGroups.set(el, [...(numberGroups.get(el) ?? []), p])
   }
   const dirty = Object.keys(overrides).length > 0
+  const [namingTiming, setNamingTiming] = useState(false)
   const setMany = (changes: Record<string, unknown>) => setParams(frame.id, changes as Record<string, never>)
   const groups = nameGroups([...detection.groups, ...running])
   // Exits slower than their entrance: across the block's @param lengths and its animations.
@@ -441,7 +505,14 @@ function CodeBody({ frame }: { frame: Frame }) {
           </Section>
         )}
         {duration && (
-          <Section title="Timing">
+          <Section
+            title="Timing"
+            onTouch={() => touchMotion(frame.id, 'timing', 'Timing')}
+            after={!namingTiming && <SaveButton onClick={() => (touchMotion(frame.id, 'timing', 'Timing'), setNamingTiming(true))} />}
+          >
+            {namingTiming && (
+              <NameField initial={(frame.label || 'timing').toLowerCase()} onDone={(n) => (setNamingTiming(false), n && saveAnimation(frame.id, 'timing', n))} />
+            )}
             <FeelRow params={params} values={values} onSet={setMany} />
             <Timeline
               width={INNER_W}
@@ -532,6 +603,7 @@ function CodeBody({ frame }: { frame: Frame }) {
             reference={i === 0 && !duration ? reference : undefined}
             setMany={setMany}
             slowerThan={slow.get(g.id)}
+            frameId={frame.id}
           />
         ))}
       </div>

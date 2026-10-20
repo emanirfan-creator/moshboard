@@ -24,6 +24,7 @@ import { normalizeLinks, refsOf } from './frame-links.ts'
 import { POST_SITE } from './posts.ts'
 import { motionBrief, overallFeel, type MotionFacts } from './motion-words.ts'
 import { friendlyGroup } from './friendly.ts'
+import { codeName, type SavedMotion } from './motions.ts'
 
 /** The board's files, as the export reads them (paths relative to the board folder). */
 export interface ExportFiles {
@@ -70,7 +71,7 @@ type Step = Partial<Record<TimingKind | 'ease' | 'spring', string>>
  * Export the whole canvas, or only `ids` plus what they're linked to (a copy's
  * reference, notes attached to them), so a partial spec still has its context.
  */
-export function buildExport(full: Board, files: ExportFiles, ids?: string[]): BuiltExport {
+export function buildExport(full: Board, files: ExportFiles, ids?: string[], saved: SavedMotion[] = []): BuiltExport {
   // Older boards (and tools) write one `link` per block: read it as numbered links.
   full = { ...full, frames: normalizeLinks(full.frames) }
   let board = full
@@ -145,8 +146,9 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
   const motion: string[] = []
   // Enter/exit patterns for motion.md: per animation, its trigger and token names.
   const patterns: { key: string; lines: string[] }[] = []
-  // One transition per animation, for presets/motion.ts and presets/gsap.ts.
-  const presets: Preset[] = []
+  // One transition per animation, for presets/motion.ts and presets/gsap.ts. Animations saved from
+  // this canvas come first, under the names they were given ("bounce out" → `bounceOut`).
+  const presets: Preset[] = saved.map((m) => ({ label: m.name, duration: m.duration, delay: m.delay, ease: m.ease, spring: m.spring }))
   // One line per animation in common animation words, for motion.md's "In words".
   const briefs: string[] = []
   const allFacts: MotionFacts[] = []
@@ -503,6 +505,16 @@ export function buildExport(full: Board, files: ExportFiles, ids?: string[]): Bu
       ...tokenBlock('Easing', 'Named curves, each with where it\'s used.', [...easings.values()]),
       ...tokenBlock('Spring', 'Named physics presets: stiffness, damping, mass.', [...springs.values()].map((t) => ({ ...t, value: `{ stiffness: ${t.spring.stiffness}, damping: ${t.spring.damping}, mass: ${t.spring.mass ?? 1} }` }))),
       ...tokenBlock('Stagger', 'Named intervals in ms between items animating in sequence.', byMs(timings.stagger)),
+      ...(saved.length
+        ? [
+            '## Saved animations',
+            '',
+            'Saved in Moshboard by name, so they can be asked for by name ("use bounce out"). Same names in [`presets/`](presets/motion.ts).',
+            '',
+            ...saved.map((m) => `- **${m.name}** (\`${codeName(m.name)}\`): ${motionBrief(m)}.`),
+            '',
+          ]
+        : []),
       ...(patterns.length
         ? [
             '## Enter/exit patterns',

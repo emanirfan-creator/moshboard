@@ -188,6 +188,24 @@ function watchBoards(server: ViteDevServer) {
     const rel = filename.split(path.sep)
     const [board, ...rest] = rel
     const file = rest.join('/')
+    // motions.json sits at the top, beside the canvases: an edit there (Claude, git) reloads the saved animations.
+    if (board === 'motions.json' && !rest.length) {
+      const abs = path.join(BOARDS_DIR, filename)
+      clearTimeout(pending.get(abs))
+      pending.set(abs, setTimeout(() => {
+        pending.delete(abs)
+        let content: string | null = null
+        try {
+          content = fs.readFileSync(abs, 'utf8')
+        } catch {
+          // deleted
+        }
+        if (content !== null && ownWrites.get(abs) === content) return
+        ownWrites.delete(abs)
+        server.ws.send({ type: 'custom', event: 'mb:motions', data: {} })
+      }, 60))
+      return
+    }
     if (!board || !(file === 'board.json' || file.startsWith('frames/'))) return
     const abs = path.join(BOARDS_DIR, filename)
     clearTimeout(pending.get(abs))
@@ -325,6 +343,20 @@ async function route(server: ViteDevServer, req: IncomingMessage, res: ServerRes
   if (parts[0] !== 'api') return false
   const [, kind, board, ...rest] = parts
 
+  if (kind === 'motions') {
+    // Saved animations, shared by every canvas: motions.json (the app's) and motions.md (for AI tools).
+    const file = path.join(BOARDS_DIR, 'motions.json')
+    if (method === 'GET') {
+      json(res, fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : { motions: [] })
+    } else if (method === 'PUT') {
+      const { motions, md } = JSON.parse((await readBody(req)).toString() || '{}')
+      if (!Array.isArray(motions)) throw new HttpError(400, 'motions required')
+      writeOwn(file, JSON.stringify({ motions }, null, 2) + '\n')
+      writeOwn(path.join(BOARDS_DIR, 'motions.md'), String(md ?? ''))
+      json(res, { ok: true })
+    }
+    return true
+  }
   if (kind === 'boards' && method === 'GET') {
     fs.mkdirSync(BOARDS_DIR, { recursive: true })
     // First run: start with the sample board rather than an empty canvas.

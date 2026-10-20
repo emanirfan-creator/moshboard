@@ -7,6 +7,7 @@
 // gets the /recreate skill and an AGENTS.md, so an assistant opened there knows the workflow.
 
 import skill from '../../.claude/skills/recreate/SKILL.md?raw'
+import motionsSkill from '../../.claude/skills/moshboard-motions/SKILL.md?raw'
 import { api } from '../api'
 import type { Region, Segment } from '../../shared/types.ts'
 import { getState, setState, toast, toggleSidebar } from '../store'
@@ -549,12 +550,18 @@ When asked to address them, make the change, then set \`"resolved": true\` on ea
 To recreate a reference as a tunable code frame (\`/recreate <board> <frameId>\`), follow
 \`.claude/skills/recreate/SKILL.md\`.
 
+Animations the user saved by name are in \`motions.md\` at the top of this folder (Moshboard writes
+it; don't edit it). To use one in a project ("use bounce out"), follow
+\`.claude/skills/moshboard-motions/SKILL.md\`.
+
 To capture a website's motion, snapshot a site, or read its fonts, follow
 \`.claude/skills/moshboard-site/SKILL.md\` (it runs a script with the installed Chrome).
 `
 
 const FILES: [string, string][] = [
   ['.claude/skills/recreate/SKILL.md', skill],
+  // Saved animations sit in this folder, next to the skill's .claude folder.
+  ['.claude/skills/moshboard-motions/SKILL.md', motionsSkill.replace('`{{BOARDS}}/motions.md`', 'the `motions.md` in the folder that holds this `.claude` folder')],
   ['AGENTS.md', AGENTS],
 ]
 

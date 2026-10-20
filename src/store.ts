@@ -1,3 +1,4 @@
+import type { SavedMotion } from '../shared/motions.ts'
 import { useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import type { ParamValue } from '../shared/params.ts'
@@ -41,6 +42,12 @@ export interface State {
   /** which Add dialog option is open, or null */
   add: AddKind | null
   shortcuts: boolean
+  /** saved animations, shared by every canvas in the boards folder (null until loaded) */
+  motions: SavedMotion[] | null
+  /** the Animations view is open */
+  motionsOpen: boolean
+  /** the animation last touched in the side panel: where "Use" puts a saved one */
+  motionTarget: { frame: string; key: string; name: string } | null
   /** last export result, shown in the Export dialog */
   exported: ExportResult | null
   /** what the last export covered: the selection, the picked direction, or the whole canvas */
@@ -170,6 +177,9 @@ let state: State = {
   sidebar: storedFlag('mb:sidebar', import.meta.env.VITE_FOLDER_ONLY !== '1'),
   add: null,
   shortcuts: false,
+  motions: null,
+  motionsOpen: false,
+  motionTarget: null,
   exported: null,
   exportScope: 'all',
   hand: false,

@@ -25,7 +25,8 @@ export async function exportInFolder(board: string, ids?: string[]): Promise<Exp
   for (const f of full.frames)
     for (const rel of [f.file, f.modules, f.analysis])
       if (rel && present.has(clean(rel))) texts.set(clean(rel), await (await readFile(dir, rel))!.text())
-  const built = buildExport(full, { exists: (rel) => present.has(clean(rel)), text: (rel) => texts.get(clean(rel)) ?? null }, ids)
+  const saved = (getState().motions ?? []).filter((m) => m.from?.board === board)
+  const built = buildExport(full, { exists: (rel) => present.has(clean(rel)), text: (rel) => texts.get(clean(rel)) ?? null }, ids, saved)
 
   await removeEntry(dir, 'export', true)
   for (const [rel, o] of built.outputs) {

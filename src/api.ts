@@ -2,6 +2,7 @@ import type { UsedFont } from '../shared/font-probe.ts'
 import type { FontFamily } from '../shared/fonts.ts'
 import type { Board, MotionCapture, Region, Segment, VideoAnalysis } from '../shared/types.ts'
 import type { PickResult } from '../server/pick-element.ts'
+import type { MotionLibrary, SavedMotion } from '../shared/motions.ts'
 
 type MediaPiece = { path: string; type: 'video' | 'image' | 'audio'; width?: number; height?: number }
 
@@ -38,6 +39,10 @@ const json = <T>(r: Response) => ok(r).then((x) => x.json() as Promise<T>)
 
 export const api = {
   boards: () => fetch('/api/boards').then((r) => json<CanvasInfo[]>(r)),
+  /** Saved animations, at the top of the boards folder. */
+  motions: () => fetch('/api/motions', { cache: 'no-store' }).then((r) => json<MotionLibrary>(r)),
+  saveMotions: (motions: SavedMotion[], md: string) =>
+    fetch('/api/motions', { method: 'PUT', body: JSON.stringify({ motions, md }) }).then(ok),
   createBoard: (name: string) =>
     fetch('/api/boards', { method: 'POST', body: JSON.stringify({ name }) }).then((r) => json<{ id: string; name: string }>(r)),
   addSample: () => fetch('/api/boards/sample', { method: 'POST' }).then((r) => json<{ id: string; name: string }>(r)),

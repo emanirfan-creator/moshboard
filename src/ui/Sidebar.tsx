@@ -3,12 +3,13 @@ import { createCanvas, deleteCanvas, duplicateCanvas, refreshCanvases, renameCan
 import { setState, sidebarShown, toggleSidebar, useStore } from '../store'
 import { chooseFolder, FOLDER_ONLY, removeFolder, renameFolder, switchFolder } from '../folder/folder'
 import { AppMark } from './AppMark'
-import { CheckIcon, ChevronIcon, FolderIcon, KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
+import { CheckIcon, ChevronIcon, CurveIcon, FolderIcon, KeyboardIcon, MoreIcon, PlusIcon, SidebarIcon } from './icons'
 
 export function Sidebar() {
   const open = useStore(sidebarShown)
   const canvases = useStore((s) => s.canvases)
   const current = useStore((s) => s.boardName)
+  const motionCount = useStore((s) => s.motions?.length ?? 0)
   const [creating, setCreating] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [menu, setMenu] = useState<string | null>(null)
@@ -126,6 +127,11 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-foot">
+          <button className="nav-row" onClick={() => setState({ motionsOpen: true })}>
+            <CurveIcon />
+            <span>Animations</span>
+            {motionCount > 0 && <span className="nav-count">{motionCount}</span>}
+          </button>
           <button className="nav-row" onClick={() => setState({ shortcuts: true })}>
             <KeyboardIcon />
             <span>Shortcuts</span>
@@ -197,7 +203,7 @@ function CanvasMenu({
 }
 
 /** Closes a menu on a press anywhere outside it, Escape, or the window losing focus. */
-function useDismiss(ref: React.RefObject<HTMLDivElement | null>, toggleSelector: string, onClose: () => void) {
+export function useDismiss(ref: React.RefObject<HTMLDivElement | null>, toggleSelector: string, onClose: () => void) {
   useEffect(() => {
     // Anywhere outside closes it. Its own toggle button is left to toggle it, or the
     // press would close it and the click reopen it.

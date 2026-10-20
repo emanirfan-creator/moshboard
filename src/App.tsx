@@ -31,6 +31,8 @@ import { Inspector } from './tuning/Inspector'
 import { AddDialog } from './ui/AddDialog'
 import { Chrome, Shortcuts } from './ui/Chrome'
 import { ExportDialog } from './ui/ExportDialog'
+import { AnimationsDialog } from './ui/AnimationsDialog'
+import { loadMotions } from './motions'
 import { CapturePicker } from './ui/CapturePicker'
 import { Sidebar } from './ui/Sidebar'
 import { FOLDER_ONLY, onFolderChange, startFolder } from './folder/folder'
@@ -201,11 +203,20 @@ function useLiveFiles() {
     const hot = import.meta.hot
     const onHot = (c: { board: string; file: string }) => !FOLDER_ONLY && on(c)
     hot?.on('mb:change', onHot)
+    // Saved animations sit beside the canvases: edited on disk (Claude, git), they reload.
+    const onMotions = () => !FOLDER_ONLY && loadMotions()
+    hot?.on('mb:motions', onMotions)
     return () => {
       offFolder()
       hot?.off?.('mb:change', onHot)
+      hot?.off?.('mb:motions', onMotions)
     }
   }, [])
+  // Each boards folder has its own saved animations: load them at start and when the folder changes.
+  const folder = useStore((s) => s.folder?.name)
+  useEffect(() => {
+    if (!FOLDER_ONLY || folder) loadMotions()
+  }, [folder])
 }
 
 export function App() {
@@ -277,6 +288,7 @@ export function App() {
       <CommandPalette />
       <AddDialog />
       <Shortcuts />
+      <AnimationsDialog />
       <ExportDialog />
       <CapturePicker />
       <Onboarding />

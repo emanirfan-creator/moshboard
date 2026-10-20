@@ -135,7 +135,7 @@ Install Moshboard once, then keep each project's boards inside that project, nex
 
    Boards are saved in `my-app/design/<board>/`. Commit them with the rest of the project.
 
-2. Make `/recreate` work in any project (one time):
+2. Make `/recreate` and your saved animations ("use bounce out") work in any project (one time):
 
    ```bash
    pnpm skill:install

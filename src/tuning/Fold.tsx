@@ -29,6 +29,7 @@ export function Fold({
   scan,
   reveal,
   startOpen,
+  onTouch,
   children,
 }: {
   title: ReactNode
@@ -48,6 +49,8 @@ export function Fold({
   reveal?: unknown
   /** starts open whatever was remembered (the thing you're most likely here to do) */
   startOpen?: boolean
+  /** any press inside it, or opening it (the side panel's "last touched" animation) */
+  onTouch?: () => void
   children: ReactNode
 }) {
   const name = id ?? (typeof title === 'string' ? title : 'section')
@@ -69,6 +72,7 @@ export function Fold({
   }, [reveal])
   const toggle = () => {
     tick(open ? 0.3 : 0.7)
+    if (!open) onTouch?.()
     setOpen(!open)
     try {
       localStorage.setItem(key(name), open ? '0' : '1')
@@ -77,7 +81,14 @@ export function Fold({
     }
   }
   return (
-    <section ref={ref} className={`insp-section fold ${className ?? ''}`} data-open={open || undefined} data-scan={scan || undefined} style={style}>
+    <section
+      ref={ref}
+      className={`insp-section fold ${className ?? ''}`}
+      data-open={open || undefined}
+      data-scan={scan || undefined}
+      style={style}
+      onPointerDownCapture={open ? onTouch : undefined}
+    >
       <header className="fold-head">
         <div className="prop-head">
           <button className="prop-toggle" aria-expanded={open} onClick={toggle}>

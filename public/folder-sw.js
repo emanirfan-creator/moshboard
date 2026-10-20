@@ -625,6 +625,23 @@ async function route(root, request, url, clientId) {
 
   if (kind in LOCAL_ONLY) throw new HttpError(501, `${LOCAL_ONLY[kind]} isn’t in the web version yet`)
 
+  if (kind === 'motions') {
+    // Saved animations, shared by every canvas: motions.json (the app's) and motions.md (for AI tools).
+    if (method === 'GET') {
+      try {
+        return json(JSON.parse(await readText(root, 'motions.json')))
+      } catch {
+        return json({ motions: [] })
+      }
+    }
+    if (method === 'PUT') {
+      const { motions, md } = await body()
+      if (!Array.isArray(motions)) throw new HttpError(400, 'motions required')
+      await write(root, 'motions.json', JSON.stringify({ motions }, null, 2) + '\n')
+      await write(root, 'motions.md', String(md ?? ''))
+      return json({ ok: true })
+    }
+  }
   if (kind === 'boards' && method === 'GET') {
     let list = await listBoards(root)
     // First run in an empty folder: start with one canvas.

@@ -3,7 +3,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { buildExport } from '../shared/export.ts'
 import type { Board } from '../shared/types.ts'
+import type { SavedMotion } from '../shared/motions.ts'
 import { displayPath } from './boards-dir.ts'
+
+/** Animations saved from this canvas (motions.json at the top of the boards folder). */
+function savedFrom(boardsDir: string, board: string): SavedMotion[] {
+  try {
+    const lib = JSON.parse(fs.readFileSync(path.join(boardsDir, 'motions.json'), 'utf8')) as { motions?: SavedMotion[] }
+    return (lib.motions ?? []).filter((m) => m.from?.board === board)
+  } catch {
+    return []
+  }
+}
 
 /**
  * Export the whole canvas, or only `ids` plus what they're linked to (a copy's
@@ -25,6 +36,7 @@ export async function exportBoard(boardsDir: string, boardName: string, outDir?:
       },
     },
     ids,
+    savedFrom(boardsDir, boardName),
   )
   const out = outDir ? path.resolve(outDir) : path.join(bdir, 'export')
   if (!outDir) fs.rmSync(out, { recursive: true, force: true })

@@ -115,6 +115,13 @@ export const CanvasIcon = () => (
     <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" />
   </Icon>
 )
+/** An easing curve: saved animations. */
+export const CurveIcon = () => (
+  <Icon>
+    <path d="M2 13C5 13 6 3 14 3" />
+  </Icon>
+)
+
 export const KeyboardIcon = () => (
   <Icon>
     <rect x="1.5" y="4" width="13" height="8" rx="1.5" />
